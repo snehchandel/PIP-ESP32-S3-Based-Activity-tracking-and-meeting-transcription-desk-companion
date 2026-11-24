@@ -44,6 +44,10 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
         self.pending: dict[str, Any] | None = None  # plan awaiting time confirmation
         self.error: dict[str, Any] | None = None    # user-visible error screen (dismissed by any button)
         self.weather: dict[str, Any] = {}            # outdoor conditions pushed to the device
+        self.ack: dict[str, Any] | None = None       # "Alarm set · Wed 05:00" confirmation toast
+        self._ack_seq = int(time.time()) % 1_000_000_000  # unique across host restarts: the device shows each id once
+        # chooses the Piper voice for a voice alarm ("female"/"male"); Services wires this to user prefs
+        self.voice_for_style: Callable[[str], str | None] = lambda style: None
         self._ov_seen: tuple[str | None, float] = (None, 0.0)
         self.listeners: list[Listener] = []
         self.revision = int(self.device.state().get("revision", 1))
@@ -98,6 +102,21 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
             if self.overlay in self.STUCK_LIMITS_S:
                 self.overlay = None
             self.changed("error_shown", title=title)
+
+    ACK_SHOW_S = 8.0
+
+    def set_ack(self, text: str) -> None:
+        """Show a short confirmation on the device (toast) - e.g. that an alarm was created."""
+        with self.lock:
+            self._ack_seq += 1
+            self.ack = {"id": self._ack_seq, "text": text[:38], "since": self.clock()}
+
+    def expire_ack(self) -> bool:
+        with self.lock:
+            if self.ack and self.clock() - self.ack["since"] >= self.ACK_SHOW_S:
+                self.ack = None
+                return True
+            return False
 
     def clear_error(self) -> None:
         with self.lock:
@@ -168,6 +187,7 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
                 "break_remaining_ms": self.brk.remaining_ms if self.overlay == "BREAK" else 0,
                 "tz_offset_min": self.tz_offset_min(), "alarm_ringing": bool(self.ringing),
                 "error_title": (self.error or {}).get("title", ""), "error_text": (self.error or {}).get("text", ""),
+                "toast": (self.ack or {}).get("text", ""), "toast_id": (self.ack or {}).get("id", 0),
                 **{k: v for k, v in self.weather.items() if k in ("out_temp_c10", "out_hum", "out_code")},
             }
 
@@ -183,7 +203,7 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
                 "tasks": self.tasks.list_tasks(date_from=today),
                 "parked": self.tasks.parked(), "reminders": self.tasks.reminders(),
                 "alarms": self.alarms.list(), "ringing": self.ringing, "pending_confirmation": self.pending,
-                "done_title": self.done_title, "timezone": self.tz.key, "error": self.error,
+                "done_title": self.done_title, "timezone": self.tz.key, "error": self.error, "ack": self.ack,
                 "weather": self.weather,
                 "server_time_utc": datetime.now(UTC).isoformat(),
             }

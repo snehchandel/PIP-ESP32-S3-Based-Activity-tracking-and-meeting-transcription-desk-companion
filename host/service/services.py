@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from . import errors
+from .alarms.audio import AlarmAudio
 from .alarms.scheduler import AlarmScheduler
 from .api.ws import WsHub
 from .config import Settings
@@ -24,6 +25,9 @@ from .transport import DeviceTransport
 from .weather import WeatherService
 
 log = logging.getLogger("pip.services")
+# Piper voices for spoken wake-ups, best first (only installed ones are used)
+ALARM_VOICES = {"female": ["en_GB-jenny_dioco-medium", "en_US-hfc_female-medium", "en_US-lessac-medium"],
+                "male": ["en_US-ryan-medium", "en_US-lessac-medium"]}
 
 
 class Services:
@@ -42,6 +46,9 @@ class Services:
         self.link = DeviceLink(self.manager, transport if not isinstance(transport, str) else None, self.voice,
                                self.hub.publish)
         self.alarm_scheduler = AlarmScheduler(self.manager)
+        data_dir = Path(settings.pip_db_path).parent if settings.pip_db_path != ":memory:" else Path(settings.pip_voices_dir).parent
+        self.alarm_audio = AlarmAudio(self, data_dir / "alarm_audio")
+        self.manager.voice_for_style = self.alarm_voice
         self.weather = WeatherService(settings, self.manager)
         self._ticker: asyncio.Task[None] | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -69,6 +76,16 @@ class Services:
         s = self.settings
         return make_planner(s.api_key(), s.moonshot_base_url, self.kimi_model(), s.pip_timezone)
 
+    def alarm_voice(self, style: str) -> str | None:
+        """Piper voice for a spoken alarm: the user's choice in Settings, else the best installed one."""
+        style = "male" if style == "male" else "female"
+        installed = {p.stem for p in Path(self.settings.pip_voices_dir).glob("*.onnx")}
+        pref = self.settings.prefs().get(f"alarm_voice_{style}")
+        for name in [pref, *ALARM_VOICES[style]]:
+            if name and name in installed:
+                return str(name)
+        return None
+
     @property
     def planner_mode(self) -> str:
         return "KIMI" if self.settings.api_key() else "AI_NOT_CONFIGURED"
@@ -91,19 +108,29 @@ class Services:
         return await speak_on_device(self.link, pcm)
 
     def _on_state_event(self, kind: str, payload: dict[str, Any]) -> None:
-        if kind != "alarm_triggered" or not self.loop:
+        if not self.loop:
             return
-        r = self.manager.ringing
-        if r and r.get("audio_mode") == "TTS" and self.tts.enabled:
-            text = r.get("tts_script") or f"It's {r['hhmm']}. {r['title']}."
-            self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._speak_after_chime(text)))
+        if kind == "alarm_triggered" and self.manager.ringing:
+            aid = self.manager.ringing["id"]
+            self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self.alarm_audio.ring_sequence(aid)))
+        elif kind == "items_scheduled":
+            ids, ack = list(payload.get("ids", [])), dict(payload.get("ack") or {})
+            self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._after_scheduled(ids, ack)))
 
-    async def _speak_after_chime(self, text: str) -> None:
-        await asyncio.sleep(1.5)  # let the device alarm chime finish first
+    async def _after_scheduled(self, ids: list[str], ack: dict[str, str]) -> None:
+        """Confirm out loud on PIP and pre-render any voice alarm so it plays instantly (even offline)."""
         try:
-            await self.speak(text)
-        except Exception:
-            log.exception("alarm speech failed")
+            if self.link.linked:
+                self.link.play_chime(6)  # CONFIRM
+                if ack.get("spoken") and self.tts.enabled:
+                    await asyncio.sleep(0.7)
+                    await self.speak(ack["spoken"])
+            for aid in ids:
+                a = self.manager.alarms.get(aid)
+                if a and a.get("audio_mode") == "TTS":
+                    await asyncio.to_thread(self.alarm_audio.render, a)
+        except Exception as e:
+            errors.report(self.db, "alarm", "Post-scheduling step failed", str(e), e)
 
     async def stop(self) -> None:
         self.weather.stop()

@@ -39,6 +39,7 @@ static void end_alarm(app_t *a, bool snooze)
         }
     }
     log_offline(a, OEV_ALARM_ACK, a->alarm_id, snooze ? 1u : 0u);
+    app_stop_voice(a); /* silence the spoken wake-up immediately */
     a->m.state = a->state_before_alarm == UI_STATE_ALARM_RINGING ? UI_STATE_IDLE_READY : a->state_before_alarm;
     if (a->m.state == UI_STATE_SLEEP) {
         a->m.state = UI_STATE_IDLE_READY;

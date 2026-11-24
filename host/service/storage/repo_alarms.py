@@ -7,7 +7,7 @@ from .db import Database, new_id, utcnow
 
 ALARM_FIELDS = {"task_id", "title", "schedule_kind", "fire_utc", "rrule_days", "local_hhmm", "timezone",
                 "audio_mode", "audio_path", "tts_script", "fallback_chime_id", "snooze_min", "enabled",
-                "last_fired_utc", "ack_state"}
+                "last_fired_utc", "ack_state", "voice"}
 
 
 class AlarmRepo:

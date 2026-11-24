@@ -5,7 +5,6 @@ from datetime import UTC, date, datetime
 
 import numpy as np
 from fastapi.testclient import TestClient
-
 from service.alarms.schedule import fmt_utc
 from service.alarms.scheduler import AlarmScheduler
 from service.calendar.agenda import day_items

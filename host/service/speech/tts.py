@@ -38,6 +38,7 @@ class TextToSpeech:
         self.voices_dir = voices_dir or Path("data/voices")
         self.voice_path = find_voice(voice_path, self.voices_dir)
         self._voice: Any = None
+        self._extra: dict[str, Any] = {}
         self._lock = threading.Lock()
         self.error = ""
         try:
@@ -70,23 +71,42 @@ class TextToSpeech:
             self._voice = None
             self.error = ""
 
-    def _load(self) -> Any:
+    def voices(self) -> list[str]:
+        return [p.stem for p in sorted(self.voices_dir.glob("*.onnx"))] if self.voices_dir.exists() else []
+
+    def voice_file(self, name: str | None) -> Path | None:
+        if name:
+            p = self.voices_dir / f"{name}.onnx"
+            if p.exists():
+                return p
+        return self.voice_path
+
+    def _load(self, path: Path | None = None) -> Any:
         from piper import PiperVoice
 
-        if self._voice is None:
-            assert self.voice_path is not None
-            self._voice = PiperVoice.load(str(self.voice_path))
-        return self._voice
+        path = path or self.voice_path
+        assert path is not None
+        if path == self.voice_path:
+            if self._voice is None:
+                self._voice = PiperVoice.load(str(path))
+            return self._voice
+        if str(path) not in self._extra:
+            self._extra[str(path)] = PiperVoice.load(str(path))
+        return self._extra[str(path)]
 
-    def synthesize_pcm(self, text: str) -> np.ndarray:
-        """Mono int16 PCM at 16 kHz, ready for the device speaker."""
+    def synthesize_pcm(self, text: str, voice: str | None = None, length_scale: float | None = None) -> np.ndarray:
+        """Mono int16 PCM at 16 kHz, ready for the device speaker. `voice` = a voice name in data/voices;
+        length_scale > 1 speaks slower (used for calm, warm wake-up messages)."""
         if not self.enabled:
             raise RuntimeError("Piper voice not configured")
+        from piper import SynthesisConfig
+
         with self._lock:
             try:
-                voice = self._load()
+                v = self._load(self.voice_file(voice))
+                cfg = SynthesisConfig(length_scale=length_scale) if length_scale else None
                 parts, rate = [], DEVICE_RATE
-                for chunk in voice.synthesize(text):
+                for chunk in v.synthesize(text, syn_config=cfg):
                     rate = chunk.sample_rate
                     parts.append(np.frombuffer(chunk.audio_int16_bytes, dtype=np.int16))
             except Exception as e:  # model load / onnxruntime failure
@@ -96,8 +116,8 @@ class TextToSpeech:
         pcm = np.concatenate(parts) if parts else np.zeros(0, dtype=np.int16)
         return resample(pcm, rate)
 
-    def synthesize_wav(self, text: str) -> bytes:
-        pcm = self.synthesize_pcm(text)
+    def synthesize_wav(self, text: str, voice: str | None = None, length_scale: float | None = None) -> bytes:
+        pcm = self.synthesize_pcm(text, voice, length_scale)
         out = io.BytesIO()
         with wave.open(out, "wb") as w:
             w.setnchannels(1)

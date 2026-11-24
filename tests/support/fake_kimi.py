@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "host"))
-from service.planner.local_rule import LocalRulePlanner  # noqa: E402
+from service.planner.local_rule import LocalRulePlanner
 
 MODEL = "kimi-k3.1-pro-highspeed"
 
@@ -35,17 +35,20 @@ class FakeKimi:
                 self.end_headers()
                 self.wfile.write(body)
 
-            def do_GET(self) -> None:  # noqa: N802
+            def do_GET(self) -> None:
                 if fake.down:
                     return self._send(503, {"error": {"message": "service unavailable"}})
                 self._send(200, {"data": [{"id": MODEL}, {"id": "kimi-k2.6"}]})
 
-            def do_POST(self) -> None:  # noqa: N802
+            def do_POST(self) -> None:
                 fake.calls += 1
                 req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 if fake.down:
                     return self._send(503, {"error": {"message": "service unavailable"}})
-                said = re.search(r"What I said: (.*)$", req["messages"][-1]["content"], re.S)
+                if "wake-up message" in req["messages"][0]["content"]:  # KimiPlanner.wake_script
+                    words = ("Good morning sunshine, it is time to rise and shine. " * 9).strip()
+                    return self._send(200, {"choices": [{"message": {"content": words + " Time to get up."}}]})
+                said = re.search(r"What I said: (.*)$", req["messages"][-1]["content"], re.DOTALL)
                 plan = planner.plan(said.group(1) if said else "")
                 self._send(200, {"choices": [{"message": {"content": plan.model_dump_json()}}]})
 

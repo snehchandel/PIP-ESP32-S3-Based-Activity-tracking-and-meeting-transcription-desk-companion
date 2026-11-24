@@ -13,6 +13,28 @@ if TYPE_CHECKING:
     from .manager import DeviceStateManager
 
 
+def ack_text(items: list[dict[str, Any]]) -> dict[str, str]:
+    """Confirmation for what was just scheduled: a short device toast and a spoken sentence."""
+    first = items[0]
+    dt = datetime.fromisoformat(first["due_local"])
+    label = {"ALARM": "Alarm set", "REMINDER": "Reminder set", "TASK": "Scheduled"}[first["kind"]]
+    extra = f" +{len(items) - 1}" if len(items) > 1 else ""
+    when_spoken = pretty_when(first["due_local"]).replace(":00 ", " ")
+    voice = " with a voice wake-up" if first.get("use_voice") else ""
+    return {"short": f"{label}: {dt.strftime('%a %H:%M')}{extra}",
+            "spoken": f"Done. {label} for {when_spoken}{voice}."}
+
+
+def default_wake_script(title: str) -> str:
+    """Fallback ~30 s wake-up (used only if Kimi could not write one)."""
+    return (f"Good morning. It's time to wake up for {title}. Take a slow, deep breath in, and let it out. "
+            "You've got this. Stretch your arms up high, wiggle your toes, and let a little light in. "
+            "Today is a fresh start, and the hardest part is just these first few seconds. "
+            "Sit up, put your feet on the floor, and have a sip of water. "
+            "Future you is going to be so glad you did. Come on, sleepyhead, I believe in you. "
+            "Time to get up.")
+
+
 def pretty_when(due_local: str) -> str:
     """'2026-11-27T14:00' -> 'Friday at 2:00 PM' (portable: no %-I)."""
     dt = datetime.fromisoformat(due_local)
@@ -46,6 +68,10 @@ class ReconcileMixin:
                     out["held"].append(item.model_dump())
                     continue
                 out["scheduled_ids"].append(self._schedule_item(item.model_dump()))
+                out.setdefault("scheduled_items", []).append(item.model_dump())
+            if out.get("scheduled_items"):
+                out["ack"] = ack_text(out["scheduled_items"])
+                self.set_ack(out["ack"]["short"])
             if out["held"]:
                 first = out["held"][0]
                 when = first.get("due_local")
@@ -60,17 +86,23 @@ class ReconcileMixin:
                 self.changed()
             else:
                 self.changed()
+            if out.get("scheduled_items"):
+                self.changed("items_scheduled", ids=out["scheduled_ids"], ack=out["ack"])
             return out
 
     def _schedule_item(self: DeviceStateManager, item: dict[str, Any]) -> str:
         local = datetime.fromisoformat(item["due_local"]).replace(tzinfo=self.tz)
         utc = local.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         if item["kind"] == "ALARM":
+            audio: dict[str, Any] = {"audio_mode": "CHIME"}
+            if item.get("use_voice"):  # spoken wake-up (pre-rendered by the host), then chimes
+                audio = {"audio_mode": "TTS", "tts_script": item.get("script") or default_wake_script(item["title"]),
+                         "voice": self.voice_for_style(item.get("voice_style") or "female")}
             if item.get("repeat_days"):  # "every weekday at 7" -> weekly alarm
                 return self.alarms.create(title=item["title"], schedule_kind="RECURRING", rrule_days=item["repeat_days"],
-                                          local_hhmm=local.strftime("%H:%M"), timezone=self.tz.key, audio_mode="CHIME")
+                                          local_hhmm=local.strftime("%H:%M"), timezone=self.tz.key, **audio)
             return self.alarms.create(title=item["title"], schedule_kind="ONCE", fire_utc=utc,
-                                      local_hhmm=local.strftime("%H:%M"), timezone=self.tz.key, audio_mode="CHIME")
+                                      local_hhmm=local.strftime("%H:%M"), timezone=self.tz.key, **audio)
         if item["kind"] == "TASK":
             from ..planner.step_templates import steps_for
             return self.tasks.create_task(item["title"], steps_for(item["title"]), local.date().isoformat(),
@@ -105,7 +137,8 @@ class ReconcileMixin:
         with self.lock:
             self.ringing = {"id": alarm["id"], "title": alarm["title"], "hhmm": alarm["local_hhmm"],
                             "audio_mode": alarm.get("audio_mode") or "CHIME", "snooze_min": alarm.get("snooze_min", 5),
-                            "tts_script": alarm.get("tts_script") or "", "test": test, "since": self.clock(),
+                            "tts_script": alarm.get("tts_script") or "", "voice": alarm.get("voice"),
+                            "test": test, "since": self.clock(),
                             "auto_dismiss_s": TEST_RING_S if test else None,
                             "expires_at_ms": int(time.time() * 1000) + TEST_RING_S * 1000 if test else None}
             if not test:

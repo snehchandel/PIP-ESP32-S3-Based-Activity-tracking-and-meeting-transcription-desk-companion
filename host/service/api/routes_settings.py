@@ -30,6 +30,7 @@ def settings(req: Request) -> dict[str, Any]:
             "tts": s.tts.status, "tts_enabled": s.tts.enabled,
             "piper_voice": s.tts.voice_path.stem if s.tts.voice_path else None,
             "voices": [p.stem for p in sorted(Path(s.settings.pip_voices_dir).glob("*.onnx"))],
+            "alarm_voice_female": s.alarm_voice("female"), "alarm_voice_male": s.alarm_voice("male"),
             "timezone": s.settings.pip_timezone, "transport_setting": s.settings.pip_transport,
             "host_port": s.settings.pip_host_port,
             "privacy": ("Typed and spoken brain dumps are sent to Moonshot (Kimi) for planning."
@@ -91,6 +92,8 @@ def test_key(body: KeyTestIn, req: Request) -> dict[str, Any]:
 
 class PrefsIn(BaseModel):
     piper_voice: str | None = None
+    alarm_voice_female: str | None = None  # voice used when you ask for "a lady's voice" wake-up
+    alarm_voice_male: str | None = None
 
 
 @router.put("/settings/preferences")
@@ -102,6 +105,12 @@ def set_prefs(body: PrefsIn, req: Request) -> dict[str, Any]:
             raise HTTPException(404, "voice not found in data/voices")
         s.settings.save_prefs(piper_voice=str(path))
         s.tts.set_voice(str(path))
+    for key in ("alarm_voice_female", "alarm_voice_male"):
+        name = getattr(body, key)
+        if name is not None:
+            if not (Path(s.settings.pip_voices_dir) / f"{name}.onnx").exists():
+                raise HTTPException(404, "voice not found in data/voices")
+            s.settings.save_prefs(**{key: name})
     return settings(req)
 
 
@@ -124,11 +133,14 @@ async def say(body: SayIn, req: Request) -> dict[str, Any]:
 
 
 @router.get("/speech/say.wav")
-def say_wav(text: str, req: Request) -> Response:
+def say_wav(text: str, req: Request, voice: str | None = None) -> Response:
     s = svc(req)
     if not s.tts.enabled:
         raise HTTPException(409, "Piper voice not configured")
-    return Response(s.tts.synthesize_wav(text[:400]), media_type="audio/wav", headers={"Cache-Control": "no-store"})
+    if voice and voice not in s.tts.voices():
+        raise HTTPException(404, "voice not found in data/voices")
+    wav = s.tts.synthesize_wav(text[:1200], voice, 1.12 if voice else None)
+    return Response(wav, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
 # ---- Kimi model ---------------------------------------------------------------------------------

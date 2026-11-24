@@ -1,4 +1,4 @@
-import { AlarmClock, CalendarDays, Cpu, Crosshair, Mic, Settings, Sun } from "lucide-react";
+import { AlarmClock, CalendarDays, Check, Cpu, Crosshair, Mic, Settings, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
@@ -57,6 +57,25 @@ function ErrorBanner() {
   );
 }
 
+function AckBanner() {
+  // "Alarm set: Wed 05:00" - shown for a few seconds after PIP schedules something
+  const { state } = useLive();
+  const a = state?.ack;
+  const [hidden, setHidden] = useState<number | null>(null);
+  useEffect(() => {
+    if (!a) return;
+    const t = window.setTimeout(() => setHidden(a.id), 8000);
+    return () => window.clearTimeout(t);
+  }, [a]);
+  if (!a || hidden === a.id) return null;
+  return (
+    <div role="status" className="mb-4 flex items-center gap-2 rounded-2xl border border-[#cfe3d3] bg-[#eef6ef] px-4 py-3">
+      <Check size={16} aria-hidden className="text-[#2f6b3b]" />
+      <p className="text-sm font-semibold text-[#2f6b3b]">{a.text}</p>
+    </div>
+  );
+}
+
 function ConfirmBanner() {
   const { state, run } = useLive();
   const p = state?.pending_confirmation;
@@ -102,6 +121,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-6 sm:px-6">
         <AlarmBanner />
         <ErrorBanner />
+        <AckBanner />
         <ConfirmBanner />
         {error && <p role="alert" className="mb-4 rounded-xl border border-line bg-white px-4 py-2 text-sm text-ink-2">
           {error}</p>}

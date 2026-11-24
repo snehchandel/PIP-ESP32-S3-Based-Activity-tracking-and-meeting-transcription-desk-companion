@@ -5,7 +5,7 @@ import re
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class IntentType(str, Enum):
@@ -68,6 +68,20 @@ class ScheduledItem(BaseModel):
     due_local: str | None = None  # ISO local datetime "YYYY-MM-DDTHH:MM"
     needs_confirmation: bool = False
     repeat_days: str | None = Field(default=None, pattern=r"^(MO|TU|WE|TH|FR|SA|SU)(,(MO|TU|WE|TH|FR|SA|SU))*$")
+    # ALARM only: spoken wake-up instead of chimes alone
+    use_voice: bool = False
+    voice_style: Literal["female", "male"] | None = None
+    script: str | None = None  # ~30 s of speech (~70-90 words); a short/missing one is completed by the host
+
+    @field_validator("script")
+    @classmethod
+    def tidy_script(cls, v: str | None) -> str | None:
+        v = (v or "").strip().strip('"')
+        return v[:1200] or None
+
+    @property
+    def needs_script(self) -> bool:
+        return self.kind == "ALARM" and self.use_voice and len((self.script or "").split()) < 40
 
 
 class ParkedItem(BaseModel):

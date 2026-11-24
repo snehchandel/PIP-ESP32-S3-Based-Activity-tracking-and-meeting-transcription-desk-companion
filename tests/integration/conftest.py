@@ -14,7 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "host"))
-from tests.support.fake_kimi import FakeKimi  # noqa: E402
+from tests.support.fake_kimi import FakeKimi
 
 SIM = ROOT / "build" / "host" / ("sim_rlcd.exe" if sys.platform == "win32" else "sim_rlcd")
 
@@ -63,7 +63,6 @@ def sim() -> Iterator[SimProcess]:
 class LiveService:
     def __init__(self, sim_port: int, db: str, kimi_url: str) -> None:
         import uvicorn
-
         from service.config import Settings
         from service.main import create_app
 

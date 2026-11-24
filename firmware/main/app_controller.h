@@ -17,6 +17,9 @@
 #define APP_SLEEP_IDLE_MS (15u * 60u * 1000u)
 #define APP_BREAK_MS (5u * 60u * 1000u)
 #define APP_TOAST_MS 2000u
+#define APP_ACK_TOAST_MS 6000u      /* host confirmations, e.g. "Alarm set: Wed 05:00" */
+#define APP_RING_CHIME_MS 2500u     /* offline ringing: repeat the alarm chime... */
+#define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
 #define APP_FW_VERSION "1.0.0"
 
@@ -80,6 +83,9 @@ typedef struct {
     char next_step_id[24];
     uint32_t idle_since_ms;
     uint32_t toast_until_ms;
+    uint32_t toast_id;      /* last host toast shown (each id is shown once) */
+    uint32_t ring_since_ms;
+    uint32_t ring_chime_ms;
     uint32_t stream_id;
     uint32_t listen_start_ms;
     ui_state_t state_before_alarm;
@@ -119,6 +125,8 @@ bool app_render_if_dirty(app_t *a);
 /* internal (shared between app_*.c files) */
 void app_send(app_t *a, uint8_t type, bool ack, const uint8_t *payload, uint16_t len);
 void app_toast(app_t *a, const char *msg);
+void app_toast_for(app_t *a, const char *msg, uint32_t ms);
+void app_stop_voice(app_t *a);
 void app_sync_timer_to_model(app_t *a);
 void app_send_offline_events(app_t *a);
 void app_send_diag(app_t *a);

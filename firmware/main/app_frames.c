@@ -60,6 +60,7 @@ void app_apply_ui_update(app_t *a, const char *j, size_t n)
     bool host_ringing = true;
     if (m->state == UI_STATE_ALARM_RINGING && jm_get_bool(j, n, "alarm_ringing", &host_ringing) && !host_ringing) {
         m->state = UI_STATE_IDLE_READY; /* host ended the alarm (dismissed in the app or auto-timeout) */
+        app_stop_voice(a);
     }
     /* outdoor weather synced from the PC */
     long t10 = 0, hum = 0, code = 0;
@@ -69,6 +70,14 @@ void app_apply_ui_update(app_t *a, const char *j, size_t n)
         m->out_temp_c10 = (int16_t)t10;
         m->out_hum = (uint8_t)(hum < 0 ? 0 : (hum > 100 ? 100 : hum));
         m->out_code = (uint8_t)(code < 0 || code > 5 ? 1 : code);
+    }
+    /* one-shot confirmation from the host (e.g. "Alarm set: Wed 05:00"); each id is shown once */
+    long tid = 0;
+    char tt[sizeof m->toast];
+    if (jm_get_long(j, n, "toast_id", &tid) && tid > 0 && (uint32_t)tid != a->toast_id &&
+        jm_get_str(j, n, "toast", tt, sizeof tt) && tt[0]) {
+        a->toast_id = (uint32_t)tid;
+        app_toast_for(a, tt, APP_ACK_TOAST_MS);
     }
     char et[sizeof m->error_title];
     bool host_error = jm_get_str(j, n, "error_title", et, sizeof et) && et[0];
@@ -150,6 +159,7 @@ void app_ring_alarm(app_t *a, const char *id, const char *title, const char *hhm
     snprintf(a->m.alarm_hhmm, sizeof a->m.alarm_hhmm, "%s", hhmm);
     a->m.alarm_audio = audio;
     a->m.state = UI_STATE_ALARM_RINGING;
+    a->ring_since_ms = a->ring_chime_ms = a->now_ms;
     a->dirty = true;
     if (a->io.chime) {
         a->io.chime(a->io.ctx, CHIME_ALARM);

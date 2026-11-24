@@ -191,6 +191,7 @@ class ActionsMixin:
     def tick(self: DeviceStateManager) -> bool:
         """Called ~1 Hz. Returns True if canonical state changed."""
         with self.lock:
+            self.expire_ack()  # silent: the device drops the toast on its own timer
             if self.expire_test_ring() or self.check_stuck():
                 return True
             if self.timer.expired():

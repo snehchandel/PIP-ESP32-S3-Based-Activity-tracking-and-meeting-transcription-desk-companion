@@ -110,6 +110,18 @@ export function SpeechCard({ s, onChange }: { s: Settings; onChange: (s: Setting
             const r = await run(() => api.setVoice(e.target.value)); if (r) onChange(r); }}>
             {s.voices.map((v) => <option key={v} value={v}>{v}</option>)}</Select></div>
       )}
+      {s.voices.length > 0 && (
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <div><Label htmlFor="alarm-voice-f">Wake-up voice (female)</Label>
+            <Select id="alarm-voice-f" value={s.alarm_voice_female ?? ""} onChange={async (e) => {
+              const r = await run(() => api.setAlarmVoice("female", e.target.value)); if (r) onChange(r); }}>
+              {s.voices.map((v) => <option key={v} value={v}>{v}</option>)}</Select></div>
+          <div><Label htmlFor="alarm-voice-m">Wake-up voice (male)</Label>
+            <Select id="alarm-voice-m" value={s.alarm_voice_male ?? ""} onChange={async (e) => {
+              const r = await run(() => api.setAlarmVoice("male", e.target.value)); if (r) onChange(r); }}>
+              {s.voices.map((v) => <option key={v} value={v}>{v}</option>)}</Select></div>
+        </div>
+      )}
       <Label htmlFor="say-text">Try the voice</Label>
       <Input id="say-text" value={text} onChange={(e) => setText(e.target.value)} />
       <div className="mt-2 flex flex-wrap gap-2">

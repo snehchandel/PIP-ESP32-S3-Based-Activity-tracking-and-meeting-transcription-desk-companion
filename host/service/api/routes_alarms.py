@@ -20,7 +20,8 @@ class AlarmIn(BaseModel):
     rrule_days: str | None = None
     audio_mode: Literal["WAV", "TTS", "CHIME"] = "CHIME"
     audio_path: str | None = None
-    tts_script: str | None = None
+    tts_script: str | None = Field(default=None, max_length=1200)
+    voice: str | None = Field(default=None, max_length=80)  # Piper voice name; None = the Settings default
     snooze_min: int = Field(default=5, ge=1, le=60)
     task_id: str | None = None
     enabled: bool = True
@@ -41,6 +42,17 @@ def _alarm_fields(body: AlarmIn, tz: Any) -> dict[str, Any]:
     return f
 
 
+def _prepare_voice(s: Any, f: dict[str, Any]) -> None:
+    """A spoken alarm gets a voice (Settings default if unset) and is pre-rendered so it plays instantly."""
+    if f.get("audio_mode") != "TTS":
+        return
+    if not (f.get("tts_script") or "").strip():
+        raise HTTPException(422, "a spoken alarm needs a wake-up script")
+    if f.get("voice") and f["voice"] not in s.tts.voices():
+        raise HTTPException(404, "voice not found in data/voices")
+    f["voice"] = f.get("voice") or s.alarm_voice("female")
+
+
 @router.get("/alarms")
 def list_alarms(req: Request) -> list[dict[str, Any]]:
     return svc(req).manager.alarms.list()
@@ -51,18 +63,49 @@ def create_alarm(body: AlarmIn, req: Request) -> dict[str, Any]:
     s = svc(req)
     if body.schedule_kind == "RECURRING" and not body.rrule_days:
         raise HTTPException(422, "recurring alarms need rrule_days like MO,WE,FR")
-    aid = s.manager.alarms.create(**_alarm_fields(body, s.manager.tz))
+    f = _alarm_fields(body, s.manager.tz)
+    _prepare_voice(s, f)
+    aid = s.manager.alarms.create(**f)
     s.manager.changed()
+    _prerender(s, aid)
     return s.manager.alarms.get(aid) or {}
 
 
 @router.patch("/alarms/{aid}")
 def patch_alarm(aid: str, body: AlarmIn, req: Request) -> dict[str, Any]:
     s = svc(req)
-    if not s.manager.alarms.update(aid, **_alarm_fields(body, s.manager.tz)):
+    f = _alarm_fields(body, s.manager.tz)
+    _prepare_voice(s, f)
+    if not s.manager.alarms.update(aid, **f):
         raise HTTPException(404, "alarm not found")
     s.manager.changed()
+    _prerender(s, aid)
     return s.manager.alarms.get(aid) or {}
+
+
+def _prerender(s: Any, aid: str) -> None:
+    a = s.manager.alarms.get(aid)
+    if a and a.get("audio_mode") == "TTS" and s.tts.enabled:
+        import threading
+        threading.Thread(target=s.alarm_audio.render, args=(a,), daemon=True, name="alarm-prerender").start()
+
+
+class ScriptIn(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    note: str = Field(default="", max_length=300)  # e.g. "gym at 6, be playful"
+
+
+@router.post("/alarms/script")
+def write_script(body: ScriptIn, req: Request) -> dict[str, Any]:
+    """Kimi writes a ~30 second spoken wake-up script (70-90 words)."""
+    from ..planner import PlannerError
+    s = svc(req)
+    try:
+        script = s.planner().wake_script(body.title, body.note)
+    except PlannerError as e:
+        raise HTTPException(503, f"AI has left the device: {e}") from None
+    words = len(script.split())
+    return {"script": script, "words": words, "seconds": round(words / 2.6)}
 
 
 @router.delete("/alarms/{aid}")

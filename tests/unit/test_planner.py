@@ -5,7 +5,6 @@ import json
 
 import httpx
 import pytest
-
 from service.planner import KimiPlanner, PlannerError, make_planner
 from service.planner.local_rule import LocalRulePlanner
 from service.planner.schema import IntentType
@@ -76,7 +75,6 @@ def test_kimi_never_sends_temperature_and_unwraps_lists(now) -> None:  # type: i
 
 def test_header_like_steps_are_rejected() -> None:
     from pydantic import ValidationError
-
     from service.planner.schema import Step
     for bad in ("Preparation:", "Step 1: open the doc", "PACKING", "## Setup"):
         with pytest.raises(ValidationError):

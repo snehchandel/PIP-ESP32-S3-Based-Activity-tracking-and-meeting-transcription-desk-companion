@@ -29,12 +29,15 @@ static void cap_send(void *ctx, uint8_t type, uint8_t flags, uint16_t seq, const
 
 static int played_bytes;
 static int play_events;
+static int voice_aborts;
 
 static void cap_play(void *ctx, uint8_t type, const uint8_t *p, uint16_t len)
 {
     (void)ctx;
-    (void)p;
     play_events++;
+    if (type == PIP_AUDIO_END_OUT && len >= 5 && p[4] == 1) {
+        voice_aborts++;
+    }
     if (type == PIP_AUDIO_DATA_OUT) {
         played_bytes += len - 6;
     }
@@ -174,8 +177,8 @@ int main(void)
     static uint8_t pcm[6 + 640];
     pip_frame_t df = {PIP_AUDIO_DATA_OUT, 0, 63, sizeof pcm, pcm};
     app_on_frame(&A, &df);
-    CHECK_EQ(play_events, 2);
     CHECK_EQ(played_bytes, 640);
+    int aborts0 = voice_aborts; /* the earlier alarm dismissal already sent one abort */
 
     /* host can end a ringing alarm (app dismiss / 30 s test timeout) */
     frame(&A, PIP_ALARM_TRIGGER, 0, 64, "{\"alarm_id\":\"t\",\"title\":\"Test\",\"hhmm\":\"10:00\",\"audio_mode\":\"CHIME\"}");
@@ -183,6 +186,25 @@ int main(void)
     frame(&A, PIP_UI_UPDATE, 0, 65, "{\"rev\":9,\"ui_state\":\"RUNNING\",\"alarm_ringing\":false,\"step_id\":\"s2\","
                                     "\"timer_state\":\"RUNNING\",\"remaining_ms\":500000}");
     CHECK_EQ(A.m.state, UI_STATE_RUNNING);
+    CHECK_EQ(voice_aborts, aborts0 + 1); /* any spoken wake-up still buffered is dropped */
+    /* a dismiss on PIP itself also silences the speech at once */
+    frame(&A, PIP_ALARM_TRIGGER, 0, 66, "{\"alarm_id\":\"v\",\"title\":\"Gym\",\"hhmm\":\"05:00\",\"audio_mode\":\"TTS\"}");
+    gesture(&A, BTN_BOOT, GEST_SHORT);
+    CHECK(A.m.state != UI_STATE_ALARM_RINGING);
+    CHECK_EQ(voice_aborts, aborts0 + 2);
+    /* host confirmation toast: shown once per id for APP_ACK_TOAST_MS */
+    frame(&A, PIP_UI_UPDATE, 0, 67, "{\"rev\":10,\"ui_state\":\"RUNNING\",\"toast\":\"Alarm set: Wed 05:00\",\"toast_id\":7}");
+    CHECK(strcmp(A.m.toast, "Alarm set: Wed 05:00") == 0);
+    for (uint32_t k = 0; k < APP_ACK_TOAST_MS / 1000u - 1u; k++) { /* host heartbeats keep the link up */
+        frame(&A, PIP_HEARTBEAT, 0, 69, NULL);
+        app_tick(&A, A.now_ms + 1000);
+    }
+    CHECK(A.m.toast[0] != 0);
+    frame(&A, PIP_HEARTBEAT, 0, 69, NULL);
+    app_tick(&A, A.now_ms + 1500);
+    CHECK(A.m.toast[0] == 0);
+    frame(&A, PIP_UI_UPDATE, 0, 68, "{\"rev\":11,\"ui_state\":\"RUNNING\",\"toast\":\"Alarm set: Wed 05:00\",\"toast_id\":7}");
+    CHECK(A.m.toast[0] == 0); /* same id again: not re-shown */
     /* unknown type is NACKed with UNKNOWN_TYPE */
     pip_frame_t uf = {0x99, PIP_FLAG_ACK_REQUIRED, 63, 0, NULL};
     app_on_frame(&A, &uf);
@@ -244,6 +266,20 @@ int main(void)
     CHECK(A.m.state != UI_STATE_ERROR_RECOVERABLE);
     app_set_indoor(&A, true, 218, 41);
     CHECK(A.m.in_valid && A.m.in_temp_c10 == 218 && A.m.in_hum == 41);
+
+    /* offline ringing repeats the alarm chime for one minute, then stops */
+    app_tick(&A, A.now_ms + APP_LINK_TIMEOUT_MS + 500);
+    CHECK_EQ(A.m.link, LINK_STANDALONE);
+    app_ring_alarm(&A, "off", "Wake", "06:00", 0);
+    int before_ring = C.chimes;
+    uint32_t t0 = A.now_ms;
+    for (uint32_t t = 0; t <= APP_RING_CHIME_FOR_MS + 10000u; t += 500u) {
+        app_tick(&A, t0 + t);
+    }
+    int rings = C.chimes - before_ring;
+    CHECK(rings >= 20 && rings <= 26); /* every 2.5 s for 60 s (plus the trigger chime) */
+    CHECK_EQ(A.m.state, UI_STATE_ALARM_RINGING); /* screen stays until dismissed */
+    gesture(&A, BTN_KEY, GEST_SHORT);
 
     /* calendar sync fills agenda */
     frame(&A, PIP_CALENDAR_SYNC, 0, 53,

@@ -28,6 +28,14 @@ ACTIVITY_RULES = {
               "repeat_days like MO,WE,FR. intent ADD_ALARM.",
 }
 
+ALARM_RULES = """Alarm rules (kind ALARM):
+- title is a SHORT label (max 24 chars) like "Gym wake-up" - never the user's whole sentence.
+- If the user wants the alarm to talk, speak, say something, use a voice, or describes a voice
+  ("lady voice", "female voice", "a guy's voice"...): use_voice=true, voice_style "female" or "male"
+  (default "female"), and write `script`: 70-90 words (about 30 seconds spoken) in second person,
+  warm, upbeat and encouraging, personalised to why they're getting up (include any words they asked for),
+  ending with a gentle "time to get up". Plain sentences, no emojis, no stage directions."""
+
 SYSTEM_PROMPT = """You are PIP, a calm ADHD focus companion. Reply with ONE JSON object only (no markdown, no list).
 {activity}
 How to break a task into steps (hard rules):
@@ -44,6 +52,7 @@ How to break a task into steps (hard rules):
 - Times: due_local "YYYY-MM-DDTHH:MM" in the user's local zone. Vague times ("afternoon", "later", "Friday")
   set needs_confirmation=true.
 - Kind, calm language. No shame.
+{alarm_rules}
 JSON schema: {schema}"""
 
 
@@ -113,12 +122,31 @@ class KimiPlanner:
         except (KeyError, IndexError, ValueError) as e:
             raise PlannerError("Kimi response missing content") from e
 
+    def wake_script(self, title: str, note: str = "") -> str:
+        """~30 s (70-90 words) of warm spoken wake-up encouragement for a voice alarm."""
+        try:
+            r = self.client.post(f"{self.base_url}/chat/completions", headers={"Authorization": f"Bearer {self.api_key}"},
+                                 json={"model": self.model, "messages": [
+                                     {"role": "system", "content": "Write a spoken wake-up message of 70-90 words "
+                                      "(about 30 seconds aloud), second person, warm, upbeat and encouraging, ending "
+                                      "with a gentle 'time to get up'. Plain sentences only: no emojis, no stage "
+                                      "directions, no quotes, no title."},
+                                     {"role": "user", "content": f"Alarm: {title}. {note}".strip()}]})
+        except httpx.HTTPError as e:
+            raise PlannerError(f"Kimi unreachable: {type(e).__name__}") from e
+        if r.status_code >= 400:
+            raise PlannerError(f"Kimi HTTP {r.status_code}")
+        text = str(r.json()["choices"][0]["message"]["content"]).strip().strip('"')
+        if len(text.split()) < 30:
+            raise PlannerError("Kimi returned a script that is too short")
+        return text[:1200]
+
     def plan(self, text: str, now: datetime | None = None, activity: str = "BRAIN_DUMP") -> PlannerOutputV1:
         now = now or datetime.now(self.tz)
         schema = json.dumps(PlannerOutputV1.model_json_schema(), separators=(",", ":"))
         rules = ACTIVITY_RULES.get(activity, ACTIVITY_RULES["BRAIN_DUMP"])
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT.format(activity=rules, schema=schema)},
+            {"role": "system", "content": SYSTEM_PROMPT.format(activity=rules, schema=schema, alarm_rules=ALARM_RULES)},
             {"role": "user", "content": f"Now: {now.strftime('%A %Y-%m-%d %H:%M')} ({self.tz.key}).\n"
                                         f"Activity: {activity}\nWhat I said: {text}"},
         ]

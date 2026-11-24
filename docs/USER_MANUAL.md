@@ -51,8 +51,15 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
   reminder at that time. Click an item to move it, change its time, make it "anytime", or delete it.
 - **Brain Dump:** review and edit a plan before saving it.
 - **Focus:** the cut-in-half preview.
-- **Alarms:** one-time or weekly alarms; sound can be a chime or PIP's voice (Piper). **Test on device** rings
-  PIP right away; a test closes by itself after **30 seconds** and never uses up the real alarm.
+- **Alarms:** one-time or weekly alarms. Sound is either **Chime** or **Spoken wake-up, then chimes**: pick a voice,
+  type a script or press **Write with Kimi** for a ~30-second (70-90 word) wake-up message, and **Preview on this
+  PC**. When it rings, PIP speaks the script, then chimes every few seconds for **1 minute** unless you dismiss it.
+  Any button on PIP (or Dismiss in the app) stops the voice and chimes immediately. **Test on device** rings PIP
+  right away; a test closes by itself after **30 seconds** and never uses up the real alarm.
+- **Voice alarms by voice:** in the Alarms activity say e.g. *"wake me up at 5 for the gym with a lady's voice"*:
+  Kimi writes the script, the default female wake-up voice is used (change it under Settings: Wake-up voice).
+- **Confirmation:** whenever PIP schedules something it shows a toast such as **"Alarm set: Wed 05:00"** on the
+  screen and in the app, plays a confirm chime and says it out loud.
 - **Device:** a live copy of PIP's screen and battery/health info.
 - **Settings:** Kimi API key (see below), speech status, voice picker and "Play on PIP" voice test.
 - Keyboard: **Space** start/pause · **N** brain dump · **S** cut in half · **1–7** switch views.
@@ -72,7 +79,8 @@ short explanation instead of freezing, flashing briefly to get your attention. *
 The same message appears in the app with a Dismiss button. Details are written to `data/logs/errors.log`.
 
 ## 7. Unplugged (offline) use
-PIP keeps counting, lets you finish/cut steps, and rings alarms it already knows about. The top bar says
+PIP keeps counting, lets you finish/cut steps, and rings alarms it already knows about (offline it plays chimes
+for a minute; the spoken script needs the PC). The top bar says
 **OFFLINE**. Voice needs the PC. When you plug back in, everything you did is synced automatically.
 After 15 idle minutes offline PIP rests (sleep screen); press any button to wake it.
 

@@ -50,6 +50,7 @@ static void io_chime(void *ctx, uint8_t id) { xQueueSend(s_chime_q, &id, 0); }
 static StreamBufferHandle_t s_voice;
 static StaticStreamBuffer_t s_voice_sb;
 static volatile bool s_voice_end;
+static volatile bool s_voice_blocked; /* after an abort: ignore late chunks until the next stream */
 static volatile uint32_t s_voice_dropped;
 
 static void io_play(void *ctx, uint8_t type, const uint8_t *p, uint16_t len)
@@ -60,12 +61,20 @@ static void io_play(void *ctx, uint8_t type, const uint8_t *p, uint16_t len)
     if (type == PIP_AUDIO_START_OUT) {
         xStreamBufferReset(s_voice);
         s_voice_end = false;
+        s_voice_blocked = false;
     } else if (type == PIP_AUDIO_DATA_OUT && len > 6) {
+        if (s_voice_blocked) {
+            return;
+        }
         size_t n = (size_t)(len - 6) & ~(size_t)1; /* whole 16-bit samples only */
         if (s_capture || xStreamBufferSend(s_voice, p + 6, n, 0) < n) {
             s_voice_dropped++; /* half-duplex: never speak over the mic; or buffer overrun */
         }
     } else if (type == PIP_AUDIO_END_OUT) {
+        if (len >= 5 && p[4] == 1) { /* abort: drop what is still buffered */
+            s_voice_blocked = true;
+            xStreamBufferReset(s_voice);
+        }
         s_voice_end = true;
     }
 }

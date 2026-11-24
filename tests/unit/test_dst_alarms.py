@@ -3,7 +3,13 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
 
-from service.alarms.schedule import apply_ack, due_alarms, fmt_utc, next_occurrence, upcoming
+from service.alarms.schedule import (
+    apply_ack,
+    due_alarms,
+    fmt_utc,
+    next_occurrence,
+    upcoming,
+)
 from service.alarms.scheduler import AlarmScheduler
 from service.calendar.timeparse import parse_when, resolve_local
 

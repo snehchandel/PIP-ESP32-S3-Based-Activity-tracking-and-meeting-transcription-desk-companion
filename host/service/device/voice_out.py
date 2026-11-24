@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -19,7 +20,9 @@ LEAD_CHUNKS = 25             # 0.5 s pre-fill
 _stream_id = 0
 
 
-async def speak_on_device(link: DeviceLink, pcm: np.ndarray) -> bool:
+async def speak_on_device(link: DeviceLink, pcm: np.ndarray, keep_going: Callable[[], bool] | None = None) -> bool:
+    """Stream pcm to the speaker. keep_going() is polled per chunk; when it turns False the stream ends
+    with the abort flag set, so the device drops whatever it still has buffered (e.g. alarm dismissed)."""
     global _stream_id
     if not link.linked or pcm.size == 0:
         return False
@@ -36,6 +39,9 @@ async def speak_on_device(link: DeviceLink, pcm: np.ndarray) -> bool:
         delay = due - loop.time()
         if delay > 0:
             await asyncio.sleep(delay)
+        if keep_going is not None and not keep_going():
+            link.send(FrameType.AUDIO_END_OUT, struct.pack("<IBBBB", sid, 1, 0, 0, 0), ack=True)  # 1 = abort
+            return False
         if not link.send(FrameType.AUDIO_DATA_OUT, struct.pack("<IH", sid, i & 0xFFFF) + data[off: off + CHUNK_SAMPLES * 2]):
             return False
     link.send(FrameType.AUDIO_END_OUT, struct.pack("<IBBBB", sid, 0, 0, 0, 0), ack=True)

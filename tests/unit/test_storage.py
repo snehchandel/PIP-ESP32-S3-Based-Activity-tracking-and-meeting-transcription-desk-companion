@@ -4,7 +4,6 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
-
 from service.storage.db import EVENT_LOG_MAX, Database
 from service.storage.repo_tasks import TaskRepo
 
@@ -19,7 +18,7 @@ def test_wal_and_migrations_idempotent(tmp_path) -> None:  # type: ignore[no-unt
     assert db.migrate() == []  # second run applies nothing
     db.close()
     db2 = Database(path)
-    assert [r[0] for r in db2.query("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3]
+    assert [r[0] for r in db2.query("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4]
     db2.close()
 
 

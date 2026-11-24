@@ -51,11 +51,25 @@ void app_send(app_t *a, uint8_t type, bool ack, const uint8_t *payload, uint16_t
     a->tx_seq++;
 }
 
-void app_toast(app_t *a, const char *msg)
+void app_toast_for(app_t *a, const char *msg, uint32_t ms)
 {
     snprintf(a->m.toast, sizeof a->m.toast, "%s", msg);
-    a->toast_until_ms = a->now_ms + APP_TOAST_MS;
+    a->toast_until_ms = a->now_ms + ms;
     a->dirty = true;
+}
+
+void app_toast(app_t *a, const char *msg)
+{
+    app_toast_for(a, msg, APP_TOAST_MS);
+}
+
+void app_stop_voice(app_t *a)
+{
+    /* AUDIO_END_OUT with the abort flag: drop whatever speech is still buffered (alarm dismissed) */
+    static const uint8_t abort_end[8] = {0, 0, 0, 0, 1, 0, 0, 0};
+    if (a->io.play) {
+        a->io.play(a->io.ctx, PIP_AUDIO_END_OUT, abort_end, sizeof abort_end);
+    }
 }
 
 void app_set_epoch(app_t *a, uint32_t epoch_s)
@@ -238,6 +252,14 @@ void app_tick(app_t *a, uint32_t now_ms)
     }
     update_clock(a);
     standalone_alarms(a);
+    /* offline the host can't drive the wake-up sequence: keep chiming for a minute */
+    if (a->m.state == UI_STATE_ALARM_RINGING && a->m.link == LINK_STANDALONE &&
+        now_ms - a->ring_since_ms < APP_RING_CHIME_FOR_MS && now_ms - a->ring_chime_ms >= APP_RING_CHIME_MS) {
+        a->ring_chime_ms = now_ms;
+        if (a->io.chime) {
+            a->io.chime(a->io.ctx, CHIME_ALARM);
+        }
+    }
     if (a->m.toast[0] && now_ms >= a->toast_until_ms) {
         a->m.toast[0] = 0;
         a->dirty = true;

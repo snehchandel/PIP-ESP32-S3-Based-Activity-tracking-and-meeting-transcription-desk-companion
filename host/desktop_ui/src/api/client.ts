@@ -70,9 +70,14 @@ export const api = {
   deleteApiKey: () => req<Settings>("DELETE", "/settings/api-key"),
   testApiKey: (key?: string) => req<{ ok: boolean; detail: string }>("POST", "/settings/api-key/test", { key: key || null }),
   setVoice: (piper_voice: string) => req<Settings>("PUT", "/settings/preferences", { piper_voice }),
+  setAlarmVoice: (style: "female" | "male", voice: string) =>
+    req<Settings>("PUT", "/settings/preferences", { [`alarm_voice_${style}`]: voice }),
+  wakeScript: (title: string, note = "") =>
+    req<{ script: string; words: number; seconds: number }>("POST", "/alarms/script", { title, note }),
   preloadStt: () => req<Settings>("POST", "/speech/preload"),
   sayOnDevice: (text: string) => req<{ played_on_device: boolean }>("POST", "/speech/say", { text }),
-  sayWavUrl: (text: string) => `${BASE}/speech/say.wav?text=${encodeURIComponent(text)}`,
+  sayWavUrl: (text: string, voice?: string | null) =>
+    `${BASE}/speech/say.wav?text=${encodeURIComponent(text)}${voice ? `&voice=${encodeURIComponent(voice)}` : ""}`,
   kimiModels: () => req<{ models: string[]; active: string | null; pinned: string | null }>("GET", "/settings/kimi-models"),
   setKimiModel: (model: string) => req<{ models: string[]; active: string | null; pinned: string | null }>("PUT", "/settings/kimi-model", { model }),
   weather: () => req<WeatherInfo>("GET", "/weather"),

@@ -78,3 +78,13 @@ centred against the text column. verify_rlcd's ink floor lowered 8% -> 6% to acc
 ## ADR-015 — Voice activity picker
 Holding KEY opens a device-local picker (Calendar / Brain dump / Focus / Alarms); holding KEY again records.
 The activity travels in AUDIO_START's former reserved u16 and selects Kimi's instructions on the host.
+
+## ADR-016 — Spoken wake-up alarms and scheduling confirmation
+Voice alarms (`audio_mode=TTS`) store a Piper voice and a ~30 s script (Kimi via `use_voice`/`script` in the plan,
+or `POST /alarms/script`; a missing/short script triggers a dedicated Kimi call, then a built-in fallback, so an
+alarm is never lost). Speech is pre-rendered at creation (`data/alarm_audio/`) so it starts instantly. Ring order:
+device chime -> script on PIP's speaker -> CHIME_ALARM every 2.5 s for 60 s, all stopped the moment the alarm is
+dismissed: the host aborts the stream (AUDIO_END_OUT flag byte 1) and the device drops its buffer on any local
+dismiss or host `alarm_ringing=false`. Offline the device repeats the chime itself for 60 s. Every scheduled item
+yields a toast (`toast`/`toast_id` in UI_UPDATE, ids unique across host restarts, each shown once for 6 s), a
+confirm chime and a spoken sentence.

@@ -22,7 +22,7 @@ export interface Alarm {
   id: string; task_id: string | null; title: string; schedule_kind: "ONCE" | "RECURRING"; fire_utc: string | null;
   rrule_days: string | null; local_hhmm: string; timezone: string; audio_mode: "WAV" | "TTS" | "CHIME";
   audio_path: string | null; tts_script: string | null; snooze_min: number; enabled: number;
-  ack_state: string; last_fired_utc: string | null;
+  ack_state: string; last_fired_utc: string | null; voice: string | null;
 }
 
 export interface TimerInfo { state: "STOPPED" | "RUNNING" | "PAUSED"; remaining_ms: number; total_ms: number; started: boolean }
@@ -35,6 +35,7 @@ export interface FullState {
   device: { transport: string; linked: boolean; telemetry: Record<string, unknown>; heartbeat: Record<string, unknown> };
   voice: { status: string; transcript?: string; error?: string; planner_mode?: string };
   error: { title: string; text: string; at: string } | null;
+  ack: { id: number; text: string } | null;
   weather: { out_temp_c10?: number; out_hum?: number; out_code?: number; place?: string; updated?: string };
 }
 
@@ -75,6 +76,7 @@ export interface Settings {
   transport_setting: string; host_port: number; privacy: string; missed_alarms: string[];
   api_key: { configured: boolean; source: "env" | "keyring" | "none"; hint: string; editable: boolean };
   stt_ready: boolean; stt_loading: boolean; tts_enabled: boolean; piper_voice: string | null; voices: string[];
+  alarm_voice_female: string | null; alarm_voice_male: string | null;
 }
 
 export type Activity = "BRAIN_DUMP" | "CALENDAR" | "FOCUS" | "ALARMS";

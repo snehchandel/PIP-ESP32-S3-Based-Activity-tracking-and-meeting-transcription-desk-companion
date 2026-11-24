@@ -89,6 +89,16 @@ class VoicePipeline:
             self.m.set_error("Something went wrong", "PIP lost track of that request. Please try again.")
             self._status("ERROR", error=str(e)[:160])
 
+    def _complete_wake_scripts(self, planner: Any, plan: PlannerOutputV1) -> None:
+        """A voice alarm whose script came back missing or short gets a dedicated ~30 s script from Kimi;
+        if that fails too, the built-in script is used when it rings (never block the alarm itself)."""
+        for item in plan.scheduled:
+            if item.needs_script and hasattr(planner, "wake_script"):
+                try:
+                    item.script = planner.wake_script(item.title)
+                except PlannerError as e:
+                    errors.report(self.m.db, "planner", "Wake-up script failed", str(e), None, title=item.title)
+
     def process_text(self, text: str, key: str, source: str = "text", auto_commit: bool = False,
                      activity: str = "BRAIN_DUMP") -> dict[str, Any]:
         if source == "voice":
@@ -104,6 +114,7 @@ class VoicePipeline:
             self.m.set_error(*AI_GONE)
             self._status("AI_UNAVAILABLE", error=str(e)[:160], transcript=text)
             raise AiUnavailable(str(e)) from e
+        self._complete_wake_scripts(planner, plan)
         raw = plan.model_dump_json()
         vid = self.m.device.add_voice_session(key, "DRAFT", text, f"KIMI ({getattr(planner, 'model', '')})", raw,
                                               plan.needs_confirmation)

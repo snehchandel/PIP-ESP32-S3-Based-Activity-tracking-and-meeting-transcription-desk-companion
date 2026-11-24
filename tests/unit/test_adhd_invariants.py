@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-
 from service.planner.local_rule import LocalRulePlanner
 from service.planner.schema import ActiveTask, IntentType, PlannerOutputV1, Step
 from service.state.actions import split_calc
