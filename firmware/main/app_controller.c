@@ -1,0 +1,301 @@
+#include "app_controller.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#include "mascot.h"
+#include "ui_render.h"
+
+static const char *const STATE_NAMES[UI_STATE_COUNT] = {
+    "IDLE_READY", "LISTENING", "TRANSCRIBING", "THINKING", "RUNNING", "PAUSED",
+    "BREAK", "STEP_DONE", "ALARM_RINGING", "NEEDS_CONFIRMATION", "SLEEP", "ERROR_RECOVERABLE"};
+
+const char *app_state_name(ui_state_t s) { return (unsigned)s < UI_STATE_COUNT ? STATE_NAMES[s] : "IDLE_READY"; }
+
+ui_state_t app_state_from_name(const char *s)
+{
+    for (int i = 0; i < UI_STATE_COUNT; i++) {
+        if (strcmp(s, STATE_NAMES[i]) == 0) {
+            return (ui_state_t)i;
+        }
+    }
+    return UI_STATE_IDLE_READY;
+}
+
+void app_init(app_t *a, const app_io_t *io, uint32_t now_ms, uint32_t boot_id, bool is_sim)
+{
+    memset(a, 0, sizeof *a);
+    a->io = *io;
+    a->is_sim = is_sim;
+    a->boot_id = boot_id;
+    a->now_ms = now_ms;
+    a->idle_since_ms = now_ms;
+    ui_model_init(&a->m);
+    oev_init(&a->oev);
+    gestures_init(&a->gest, now_ms);
+    lt_load(&a->timer, 0, 0, LT_STOPPED, now_ms);
+    lt_load(&a->brk, 0, 0, LT_STOPPED, now_ms);
+    a->dirty = true;
+}
+
+void app_send(app_t *a, uint8_t type, bool ack, const uint8_t *payload, uint16_t len)
+{
+    uint8_t flags = (uint8_t)((ack ? PIP_FLAG_ACK_REQUIRED : 0) | (a->is_sim ? PIP_FLAG_IS_SIMULATOR : 0));
+    if (a->tx_seq == 0) {
+        a->tx_seq = 1; /* 0 is reserved for "no pending reliable frame" */
+    }
+    if (a->io.send) {
+        a->io.send(a->io.ctx, type, flags, a->tx_seq, payload, len);
+    }
+    a->tx_seq++;
+}
+
+void app_toast(app_t *a, const char *msg)
+{
+    snprintf(a->m.toast, sizeof a->m.toast, "%s", msg);
+    a->toast_until_ms = a->now_ms + APP_TOAST_MS;
+    a->dirty = true;
+}
+
+void app_set_epoch(app_t *a, uint32_t epoch_s)
+{
+    a->epoch_valid = epoch_s > 1600000000u;
+    a->epoch_s_at = epoch_s;
+    a->epoch_ms_at = a->now_ms;
+}
+
+uint32_t app_epoch_now(const app_t *a)
+{
+    return a->epoch_valid ? a->epoch_s_at + (a->now_ms - a->epoch_ms_at) / 1000u : 0u;
+}
+
+void app_set_battery(app_t *a, int pct)
+{
+    bool valid = pct >= 0;
+    uint8_t p = (uint8_t)(pct < 0 ? 0 : (pct > 100 ? 100 : pct));
+    if (valid != a->m.batt_valid || p != a->m.batt_pct) {
+        a->m.batt_valid = valid;
+        a->m.batt_pct = p;
+        a->dirty = true;
+    }
+}
+
+void app_set_audio_level(app_t *a, uint8_t level)
+{
+    if (level > 8) {
+        level = 8;
+    }
+    if (a->m.audio_level != level && a->m.state == UI_STATE_LISTENING) {
+        a->m.audio_level = level;
+        a->dirty = true;
+    }
+}
+
+void app_sync_timer_to_model(app_t *a)
+{
+    a->m.timer_state = (timer_state_t)a->timer.state;
+    a->m.remaining_ms = a->timer.remaining_ms;
+    a->m.step_total_ms = a->timer.total_ms;
+}
+
+void app_send_offline_events(app_t *a)
+{
+    static char buf[PIP_MAX_PAYLOAD];
+    if (a->oev.count == 0) {
+        return;
+    }
+    size_t n = oev_to_json(&a->oev, a->boot_id, buf, sizeof buf);
+    if (n == 0) {
+        return;
+    }
+    if (a->tx_seq == 0) {
+        a->tx_seq = 1;
+    }
+    a->pending_oev_seq = a->tx_seq;
+    a->pending_oev_ms = a->now_ms;
+    app_send(a, PIP_OFFLINE_EVENTS, true, (const uint8_t *)buf, (uint16_t)n);
+}
+
+void app_send_diag(app_t *a)
+{
+    app_diag_t d;
+    memset(&d, 0, sizeof d);
+    d.batt_mv = -1;
+    snprintf(d.reset_reason, sizeof d.reset_reason, "UNKNOWN");
+    if (a->io.diag) {
+        a->io.diag(a->io.ctx, &d);
+    }
+    char buf[640];
+    int n = snprintf(buf, sizeof buf,
+                     "{\"fw_ver\":\"%s\",\"is_sim\":%s,\"reset_reason\":\"%s\",\"link_mode\":\"%s\",\"proto_ver\":%d,"
+                     "\"free_heap_b\":%lu,\"free_psram_b\":%lu,\"batt_mv\":%ld,\"batt_pct\":%d,\"rtc_ok\":%s,"
+                     "\"i2c_addrs\":\"%s\",\"display_ok\":%s,\"audio_ok\":%s,\"crc_errors\":%lu,"
+                     "\"dropped_audio_chunks\":%lu,\"state_rev\":%lu,\"boot_id\":%lu,\"offline_queue\":%u,"
+                     "\"ui_state\":\"%s\"}",
+                     APP_FW_VERSION, a->is_sim ? "true" : "false", d.reset_reason,
+                     a->m.link == LINK_TETHERED ? "TETHERED" : "STANDALONE", PIP_PROTO_VER,
+                     (unsigned long)d.free_heap_b, (unsigned long)d.free_psram_b, (long)d.batt_mv,
+                     a->m.batt_valid ? (int)a->m.batt_pct : -1, d.rtc_ok ? "true" : "false", d.i2c_addrs,
+                     d.display_ok ? "true" : "false", d.audio_ok ? "true" : "false", (unsigned long)a->crc_errors,
+                     (unsigned long)d.dropped_audio_chunks, (unsigned long)a->state_rev, (unsigned long)a->boot_id,
+                     (unsigned)a->oev.count, app_state_name(a->m.state));
+    if (n > 0 && (size_t)n < sizeof buf) {
+        app_send(a, PIP_DIAG_REPORT, false, (const uint8_t *)buf, (uint16_t)n);
+    }
+}
+
+static void heartbeat(app_t *a)
+{
+    pip_heartbeat_t h = {PIP_PROTO_VER, (uint8_t)a->m.link, 0, a->now_ms / 1000u, app_epoch_now(a), a->state_rev};
+    h.flags = (uint16_t)((a->oev.count ? 1u : 0u) | (a->is_sim ? 2u : 0u));
+    uint8_t b[16];
+    app_send(a, PIP_HEARTBEAT, false, b, (uint16_t)pip_pack_heartbeat(&h, b));
+}
+
+static void update_clock(app_t *a)
+{
+    if (!a->epoch_valid) {
+        return;
+    }
+    int64_t local = (int64_t)app_epoch_now(a) + (int64_t)a->tz_offset_min * 60;
+    uint32_t sod = (uint32_t)(local % 86400);
+    uint8_t hh = (uint8_t)(sod / 3600u), mm = (uint8_t)((sod / 60u) % 60u);
+    if (!a->m.clock_valid || hh != a->m.hh || mm != a->m.mm) {
+        a->m.clock_valid = true;
+        a->m.hh = hh;
+        a->m.mm = mm;
+        a->dirty = true;
+    }
+}
+
+static void standalone_alarms(app_t *a)
+{
+    uint32_t now = app_epoch_now(a);
+    if (!now || a->m.link == LINK_TETHERED || a->m.state == UI_STATE_ALARM_RINGING) {
+        return;
+    }
+    for (uint8_t i = 0; i < a->alarm_count; i++) {
+        app_alarm_t *al = &a->alarms[i];
+        if (al->enabled && !al->fired && al->epoch_s <= now && now - al->epoch_s < 3600u) {
+            al->fired = true;
+            int64_t local = (int64_t)al->epoch_s + (int64_t)a->tz_offset_min * 60;
+            uint32_t sod = (uint32_t)(local % 86400);
+            char hhmm[6];
+            unsigned h = (sod / 3600u) % 24u, mi = (sod / 60u) % 60u;
+            hhmm[0] = (char)('0' + h / 10u);
+            hhmm[1] = (char)('0' + h % 10u);
+            hhmm[2] = ':';
+            hhmm[3] = (char)('0' + mi / 10u);
+            hhmm[4] = (char)('0' + mi % 10u);
+            hhmm[5] = 0;
+            app_ring_alarm(a, al->id, al->title, hhmm, 0);
+            return;
+        }
+    }
+}
+
+static void link_supervision(app_t *a)
+{
+    bool linked = a->ever_linked && a->now_ms - a->last_rx_ms < APP_LINK_TIMEOUT_MS;
+    link_state_t want = linked ? LINK_TETHERED : LINK_STANDALONE;
+    if (want != a->m.link) {
+        a->m.link = want;
+        a->dirty = true;
+        if (want == LINK_TETHERED) {
+            app_send_diag(a);
+            app_send_offline_events(a);
+        } else {
+            a->pending_oev_seq = 0;
+            if (a->m.state == UI_STATE_LISTENING || a->m.state == UI_STATE_TRANSCRIBING ||
+                a->m.state == UI_STATE_THINKING) {
+                if (a->io.capture) {
+                    a->io.capture(a->io.ctx, false, a->stream_id);
+                }
+                a->m.state = a->m.has_active_step ? (a->timer.state == LT_RUNNING ? UI_STATE_RUNNING : UI_STATE_PAUSED)
+                                                  : UI_STATE_IDLE_READY;
+            }
+            if (a->io.chime) {
+                a->io.chime(a->io.ctx, CHIME_OFFLINE);
+            }
+        }
+    }
+    if (linked && a->pending_oev_seq && a->now_ms - a->pending_oev_ms > 2000u) {
+        app_send_offline_events(a); /* retry until ACKed */
+    }
+}
+
+void app_tick(app_t *a, uint32_t now_ms)
+{
+    a->now_ms = now_ms;
+    link_supervision(a);
+    if (now_ms - a->last_hb_ms >= APP_HEARTBEAT_MS) {
+        a->last_hb_ms = now_ms;
+        heartbeat(a);
+    }
+    uint32_t before = a->timer.remaining_ms / 1000u;
+    if (lt_tick(&a->timer, now_ms)) {
+        app_sync_timer_to_model(a);
+        snprintf(a->m.done_title, sizeof a->m.done_title, "%s", a->m.step_title);
+        a->m.state = UI_STATE_STEP_DONE;
+        if (a->m.link == LINK_STANDALONE) {
+            oev_push(&a->oev, OEV_STEP_COMPLETE, a->m.step_id, 0, app_epoch_now(a));
+        }
+        if (a->io.chime) {
+            a->io.chime(a->io.ctx, CHIME_DONE);
+        }
+        a->dirty = true;
+    } else if (a->timer.remaining_ms / 1000u != before) {
+        app_sync_timer_to_model(a);
+        a->dirty = true;
+    }
+    uint32_t bb = a->brk.remaining_ms / 1000u;
+    if (lt_tick(&a->brk, now_ms)) {
+        a->m.break_remaining_ms = 0;
+        if (a->m.state == UI_STATE_BREAK) {
+            a->m.state = UI_STATE_IDLE_READY;
+            if (a->io.chime) {
+                a->io.chime(a->io.ctx, CHIME_START);
+            }
+        }
+        a->dirty = true;
+    } else if (a->brk.remaining_ms / 1000u != bb) {
+        a->m.break_remaining_ms = a->brk.remaining_ms;
+        a->dirty = true;
+    }
+    if (a->m.state == UI_STATE_LISTENING) {
+        uint16_t el = (uint16_t)((now_ms - a->listen_start_ms) / 1000u);
+        if (el != a->m.listen_elapsed_s) {
+            a->m.listen_elapsed_s = el;
+            a->dirty = true;
+        }
+    }
+    update_clock(a);
+    standalone_alarms(a);
+    if (a->m.toast[0] && now_ms >= a->toast_until_ms) {
+        a->m.toast[0] = 0;
+        a->dirty = true;
+    }
+    bool busy = a->timer.state == LT_RUNNING || a->brk.state == LT_RUNNING || a->m.state == UI_STATE_ALARM_RINGING;
+    if (busy || a->m.link == LINK_TETHERED) {
+        a->idle_since_ms = now_ms;
+    } else if (a->m.state == UI_STATE_IDLE_READY && now_ms - a->idle_since_ms >= APP_SLEEP_IDLE_MS) {
+        a->m.state = UI_STATE_SLEEP;
+        a->dirty = true;
+    }
+    pip_expr_t e = a->m.state == UI_STATE_RUNNING ? PIP_EXPR_WORKING : PIP_EXPR_READY;
+    uint8_t blink = mascot_blink_phase(e, now_ms);
+    if (blink != a->m.blink_phase) {
+        a->m.blink_phase = blink;
+        a->dirty = true;
+    }
+}
+
+bool app_render_if_dirty(app_t *a)
+{
+    if (!a->dirty) {
+        return false;
+    }
+    a->dirty = false;
+    ui_render(&a->fb, &a->m, NULL);
+    return true;
+}

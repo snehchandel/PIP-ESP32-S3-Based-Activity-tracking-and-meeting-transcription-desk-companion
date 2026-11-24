@@ -1,0 +1,1 @@
+idf_component_register(SRCS "mascot.c" INCLUDE_DIRS "include" PRIV_INCLUDE_DIRS "../../assets/pip")
