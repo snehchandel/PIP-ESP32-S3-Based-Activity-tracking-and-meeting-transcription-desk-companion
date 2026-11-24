@@ -2,8 +2,9 @@
  *
  * PIP is no longer a set of fixed sprites: it is a small procedural robot rig (head/visor/eyes/antenna,
  * body, arms, legs) that can turn around its vertical axis, sit, hop, walk, lean, hold props and press
- * itself against the glass. A scene engine plays "acts" (short choreographies with props on an isometric
- * floor) chosen per screen. On the idle screen every performance is checked against a 2-hour history so
+ * itself against the glass. A scene engine plays "acts" (short choreographies with props) chosen per
+ * screen. On the idle screen PIP has the whole display: it can walk behind the message board, lean on it,
+ * kick a ball across the room or leave the screen on one side and come back on the other. On the idle screen every performance is checked against a 2-hour history so
  * the same animation never repeats within that window. The reflective LCD refreshes fast, so motion runs
  * at up to 20 FPS. */
 #ifndef PIP_MASCOT_H
@@ -76,7 +77,7 @@ typedef enum {
 
 /* Everything the renderer needs for one frame. Units: stage pixels, degrees, seconds. */
 typedef struct {
-    float x, y;       /* feet position relative to the floor centre (y < 0 = in the air) */
+    float x, y;       /* feet position relative to PIP's home spot (y < 0 = in the air) */
     float yaw;        /* heading: 0 faces the viewer, +90 faces right (toward the text), 180 = back */
     float scale;      /* 1 = normal, ~1.7 = pressed against the glass */
     float lean;       /* head/body tilt sideways, px at the head */
@@ -99,7 +100,14 @@ typedef struct {
     float obj_x, obj_y, obj_t;
     float glass;      /* 0..1: glare streaks of the screen glass (PIP pressed against it) */
     int sign;         /* sign text index when holding PROP_SIGN */
+    int behind;       /* idle world: 1 = PIP is behind the message board (the board hides it) */
 } mascot_pose_t;
+
+/* Idle world geometry (stage px relative to PIP's home spot; must match ui_layout.h). */
+#define PIP_BOARD_DX 74.0f   /* left edge of the message board */
+#define PIP_WORLD_L -72.0f   /* left edge of the screen */
+#define PIP_WORLD_R 317.0f   /* right edge of the screen */
+#define PIP_OFFSCREEN 40.0f  /* PIP is fully off-screen this far past an edge */
 
 /* What the current screen wants PIP to do. */
 typedef enum {

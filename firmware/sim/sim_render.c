@@ -4,6 +4,7 @@
 #include <time.h>
 
 #include "png_write.h"
+#include "ui_layout.h"
 #include "sim_scenarios.h"
 #include "ui_render.h"
 
@@ -122,5 +123,36 @@ int sim_render_acts(const char *dir)
         failures += png_write_fb(path, &fb) != 0;
     }
     printf("acts rendered (%d failures)\n", failures);
+    return failures ? 1 : 0;
+}
+
+/* sim_rlcd --render-slides <dir>: frames of the screen-to-screen slides (the device eases out over SLIDE_MS). */
+int sim_render_slides(const char *dir)
+{
+    static rlcd_fb_t from, to, out;
+    static const ui_screen_t pairs[][2] = {
+        {SCREEN_IDLE_READY, SCREEN_DAILY_TASKS}, {SCREEN_DAILY_TASKS, SCREEN_IDLE_READY},
+        {SCREEN_IDLE_READY, SCREEN_LISTENING},   {SCREEN_IDLE_READY, SCREEN_ALARM_RINGING},
+        {SCREEN_ERROR, SCREEN_IDLE_READY},
+    };
+    char path[512];
+    MKDIR(dir);
+    int failures = 0;
+    for (size_t i = 0; i < sizeof pairs / sizeof pairs[0]; i++) {
+        ui_model_t m;
+        sim_scenario(pairs[i][0], &m);
+        ui_render(&from, &m, NULL);
+        sim_scenario(pairs[i][1], &m);
+        ui_render(&to, &m, NULL);
+        int dir_ = ui_slide_dir(pairs[i][0], pairs[i][1]);
+        for (int k = 0; k <= 4; k++) {
+            float u = (float)k / 4.0f, e = 1.0f - (1.0f - u) * (1.0f - u) * (1.0f - u);
+            ui_slide_compose(&out, &from, &to, dir_, e, ZONE_TOP - 1, BAR_Y);
+            snprintf(path, sizeof path, "%s/slide_%s__%s__%d.png", dir, ui_screen_name(pairs[i][0]), ui_screen_name(pairs[i][1]),
+                     k);
+            failures += png_write_fb(path, &out) != 0;
+        }
+    }
+    printf("slides rendered (%d failures)\n", failures);
     return failures ? 1 : 0;
 }

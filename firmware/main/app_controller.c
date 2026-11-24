@@ -1,9 +1,11 @@
 #include "app_controller.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "mascot.h"
+#include "ui_layout.h"
 #include "ui_render.h"
 
 static const char *const STATE_NAMES[UI_STATE_COUNT] = {
@@ -330,8 +332,58 @@ static void supervise_states(app_t *a, uint32_t now_ms)
     }
 }
 
+/* A screen change starts a slide from what is on the panel right now (even mid-slide). */
+static void slide_begin(app_t *a, ui_screen_t from, ui_screen_t to)
+{
+    int dir = ui_slide_dir(from, to);
+    if (dir == 0) {
+        a->sliding = false;
+        return;
+    }
+    if (!a->slide_from) {
+        a->slide_from = malloc(sizeof(rlcd_fb_t));
+        a->slide_to = malloc(sizeof(rlcd_fb_t));
+        if (!a->slide_from || !a->slide_to) { /* no memory: switch instantly */
+            free(a->slide_from);
+            free(a->slide_to);
+            a->slide_from = a->slide_to = NULL;
+            a->sliding = false;
+            return;
+        }
+    }
+    memcpy(a->slide_from, &a->fb, sizeof a->fb);
+    a->sliding = true;
+    a->slide_dir = (int8_t)dir;
+    a->slide_start_ms = a->now_ms;
+    a->slide_last_ms = a->now_ms - SLIDE_FRAME_MS;
+    a->slide_dur_ms = dir == 2 || dir == -2 ? SLIDE_V_MS : SLIDE_MS;
+}
+
 bool app_render_if_dirty(app_t *a)
 {
+    ui_screen_t s = ui_screen_for(&a->m);
+    if (a->shown_valid && s != a->shown_screen) {
+        slide_begin(a, a->shown_screen, s);
+    }
+    a->shown_screen = s;
+    a->shown_valid = true;
+    if (a->sliding) {
+        uint32_t el = a->now_ms - a->slide_start_ms;
+        if (el < a->slide_dur_ms) {
+            if (a->now_ms - a->slide_last_ms < SLIDE_FRAME_MS) {
+                return false; /* <= 25 FPS while sliding */
+            }
+            a->slide_last_ms = a->now_ms;
+            a->dirty = false;
+            float u = (float)el / (float)a->slide_dur_ms;
+            float k = 1.0f - u;
+            ui_render(a->slide_to, &a->m, NULL);
+            ui_slide_compose(&a->fb, a->slide_from, a->slide_to, a->slide_dir, 1.0f - k * k * k, ZONE_TOP - 1, BAR_Y);
+            return true;
+        }
+        a->sliding = false;
+        a->dirty = true; /* final frame: the plain new screen */
+    }
     if (!a->dirty) {
         return false;
     }

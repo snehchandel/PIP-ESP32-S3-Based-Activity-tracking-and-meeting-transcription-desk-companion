@@ -1,6 +1,6 @@
 {
   "screen": "09_alarm_ringing",
-  "render_ms": 0.1000,
+  "render_ms": 0.0600,
   "boxes": [
     {"name": "top_left", "x": 8, "y": 3, "w": 87, "h": 29, "parent": -1},
     {"name": "top_right", "x": 161, "y": 5, "w": 231, "h": 26, "parent": -1},

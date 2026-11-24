@@ -62,11 +62,11 @@ alarms it already knows, offline event log) and reconciles idempotently when the
 | Path | What lives there |
 |---|---|
 | `firmware/main/` | ESP-IDF app. `app_main.c` = FreeRTOS wiring (tasks, adapters, link routing). `app_controller.c/.h`, `app_gestures.c`, `app_frames.c`, `app_report.c` = **portable** state coordinator (also compiled into the simulator and C tests). `dev_config.c` (NVS settings), `net_link.c` (Wi-Fi + TCP server + mDNS + HMAC auth), `dev_ota.c` (firmware updates), `dev_wake.c` (wake word) are ESP-only. |
-| `firmware/components/ui_core/` | 1-bit renderer: primitives (`ui_draw*.c`), fonts (`fonts_gen.c`, generated), icons, header/bar chrome (`ui_chrome.c`), screens (`ui_screens_a/b/c.c`), PIP rig drawing (`ui_mascot.c`), props (`ui_props.c`), animated weather icons (`ui_weather.c`), layout constants (`include/ui_layout.h`), the UI model (`include/ui_model.h`). |
+| `firmware/components/ui_core/` | 1-bit renderer: primitives (`ui_draw*.c`), fonts (`fonts_gen.c`, generated), icons, header/bar chrome (`ui_chrome.c`), screens (`ui_screens_a/b/c.c`), PIP rig drawing (`ui_mascot.c`), props (`ui_props.c`), slide transitions (`ui_slide.c`), animated weather icons (`ui_weather.c`), layout constants (`include/ui_layout.h`), the UI model (`include/ui_model.h`). |
 | `firmware/components/mascot_renderer/` | PIP rig geometry + scene engine (`mascot.c`) and choreography (`mascot_acts.c`): per-screen act libraries, 2-hour no-repeat history, reactions. Pure C, no drawing. |
 | `firmware/components/usb_protocol/` | Wire protocol v1 (framing, CRC, parser, payload structs) + `json_mini` (tiny JSON reader with escape decoding). |
 | other components | `usb_transport` (USB Serial/JTAG), `rlcd_display`, `audio_codec`, `rtc_calendar` (PCF85063 + SHTC3), `battery_monitor`, `button_gestures`, `local_timer`, `board_pins`. |
-| `firmware/sim/` | `sim_rlcd`: host-native simulator (`--tcp`), batch renderer (`--render-all`), act contact sheets (`--render-acts`). |
+| `firmware/sim/` | `sim_rlcd`: host-native simulator (`--tcp`), batch renderer (`--render-all`), act contact sheets (`--render-acts`), slide frames (`--render-slides`). |
 | `firmware/partitions.csv`, `sdkconfig.defaults` | 16 MB layout: nvs, otadata, ota_0/ota_1 (3.75 MB each), `model` (ESP-SR wake words), storage, coredump. `sdkconfig` is generated — edit the defaults and delete `sdkconfig` to regenerate. |
 | `host/service/` | FastAPI app (`main.py`), DI container (`services.py`), config (`config.py`, prefs in `data/settings.json`), `api/` routes, `state/` (manager, actions, reconcile, timer), `planner/` (Kimi, schema, local rules library), `speech/` (STT, TTS, voice pipeline), `alarms/` (scheduler, spoken wake-up audio), `calendar/`, `storage/` (SQLite + numbered migrations), `device/` (link, voice out, firmware updater), `transport/` (USB, Wi-Fi, auto, simulator), `ai_cost.py`, `weather.py`, `errors.py`. |
 | `host/desktop_ui/` | React 19 + Vite + Tailwind v4. Views: Today, Calendar (Outlook-style), Voice (brain dump), Focus, Alarms, Device, Settings. `npm run build` → `dist/` served by the host. |
@@ -92,14 +92,21 @@ device-frame interceptor in `app_main.c` (`device_frame()` handles DEVICE_CONFIG
 **Screens** (`ui_render.c` → `ui_screen_for()`): idle "Let's Focus", listening, thinking, focus running, paused,
 break, step done, today's calendar, alarm, confirm time, sleep, voice picker, error. Layout: header 0–34 px
 (24 px bold clock, alarm, indoor and animated outdoor weather; **no link status in the header** — it is in the
-bottom bar), PIP stage column x 4–147 (isometric floor at `STAGE_CX/STAGE_FY`), text column x 154–392, inverted
-bottom bar y 264–299. Fonts: DejaVu 11/12/12B/14/14B/16/16B/20B/24B/32B/64 (regenerate with
+bottom bar), PIP stage column x 4–147 (home spot `STAGE_CX/STAGE_FY`, a plain floor line — no isometric tile),
+text column x 154–392, inverted bottom bar y 264–299. **The idle screen is PIP's world** (ADR-021): PIP may use the
+whole width (`UI_STAGE_WORLD`), the text sits on a free-standing message board (`BOARD_*` in `ui_layout.h`, x
+150–393, y 40–194, on easel legs) and `pose.behind` draws PIP behind the board (legs show underneath). Screen
+changes **slide** (`ui_slide.c`, driven by `app_render_if_dirty()`): forward in the flow (idle → voice → plan →
+focus → done, calendar furthest right) pushes left, back pushes right, alarm/error/sleep drop in from the top;
+header and bar switch at once. The two 15 KB slide buffers are heap (PSRAM on the device), allocated on first use. Fonts: DejaVu 11/12/12B/14/14B/16/16B/20B/24B/32B/64 (regenerate with
 `tools/generate_fonts.py`; only Latin-1 + `· — … °` are mapped — avoid other UTF-8 in device strings).
 
 **PIP mascot** (ADR-017): `mascot_pose_t` → `mascot_rig()` (cylinder model: yaw reveals profile/back, arms open
 into a V when raised) → `ui_draw_mascot()` (clipped to the stage). Scene engine: `mascot_set_mode()` per screen,
 acts are pure functions of time in `mascot_acts.c` (tables `IDLE[]`, `FOCUS[]`, ...). A performance is
-(mode, act, variant, dir, mood); the idle library offers 420 and none repeats within 2 h (C test simulates 2 h).
+(mode, act, variant, dir, mood); the idle library offers 480 and none repeats within 2 h (C test simulates 2 h).
+Idle acts may roam the world (`PIP_BOARD_DX`, `PIP_WORLD_L/R`, `PIP_OFFSCREEN` in `mascot.h`): they may only flip
+`behind` while PIP is clear of the board or off-screen, and must start and end at home — `test_ui` checks both.
 To add an act: write `static void a_xxx(mascot_pose_t *p, float t, float D, int v, float s, int mood)`, start and
 end near the home pose, add it to a table with duration and variant count, run `test_ui` (smoothness + no-repeat)
 and look at it: `build/host/sim_rlcd --render-acts artifacts/rlcd_acts && python tools/act_sheet.py`.
@@ -257,8 +264,11 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   "Jarvis" via WAKE_TEST; live "Hi ESP" by the user), cost meter against the real Moonshot API.
 - Cable pulled: the host moved to Wi-Fi 0.1 s later without a visible disconnect; PIP kept working on battery
   (screen, speech with 0 dropped chunks, link stable).
+- Firmware 1.2.0 (idle world + slides, ADR-021) on hardware via in-app OTA: the room/board renders
+  (`artifacts/rlcd/hardware/hw_idle_world_v120.png`), uptime > 100 s on one boot, reset SW, 37 KB internal heap.
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
-  end-of-speech timing in a real room.
+  end-of-speech timing in a real room, a slide transition on the panel (needs a real button press:
+  `simulate-button` is simulator-only; slide buffers come from PSRAM on first use).
 - To exercise the app over Wi-Fi while the cable stays plugged in, start the host with `PIP_TRANSPORT=wifi`.
 - Wake word: stock Espressif words only; a custom "Hey PIP" needs a trained model (paid service) or a PC-side
   detector (rejected by the user in favour of on-device privacy).

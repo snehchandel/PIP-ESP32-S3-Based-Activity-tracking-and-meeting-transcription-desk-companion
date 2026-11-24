@@ -124,3 +124,25 @@ Every API response's `usage` is priced and stored (`ai_usage`, migration 005) wi
 Settings. An optional monthly cap warns at 80 % and stops planning at 100 % with an "AI budget reached" screen —
 words are parked, never lost. Reasoning tokens count as output, so k3.1-pro calls cost more than the visible text
 suggests (~$0.006 for an 83-word wake-up script).
+
+## ADR-021 — The idle screen is PIP's world; screens slide
+User request (with a lab-scene reference): on "Let's Focus" PIP should be able to use the whole screen, the
+isometric floor tile goes, and moving between screens should be smooth.
+- **World, not column:** the idle screen draws a room (floor with perspective planks, a window) across the full
+  width; PIP's clip is the whole world (`UI_STAGE_WORLD`). The text moves onto a free-standing message board so it
+  stays readable *and* becomes something to play with. The board has a fixed size (x 150–393, y 40–194): PIP's
+  body and legs show under it when it walks behind (`pose.behind`, drawn before the board), so "hiding" reads as a
+  joke instead of PIP vanishing. Agenda rows are capped at 3 with a "+N more" hint; the date fills spare room.
+- **New idle acts:** behind the board (peeks out of its edge), lean on the board, present the board, kick a ball
+  across the room (rolls under the board, off the far wall and back), lap of the room (exits right behind the
+  board, re-enters from the left). Hide-and-seek now leaves through the left screen edge; the paper plane loops
+  over the board; the balloon lifts higher. Emotes switch to PIP's left side next to the board so they never cover
+  text. Depth may only flip while PIP is clear of the board or off-screen (tested), so cross-fades never pop.
+- **Other screens** keep PIP in the left column (it must not cover a timer or a question) on a plain floor line.
+  The feet line is the same everywhere (y 236) so PIP stays put between screens.
+- **Slides:** on a screen change `app_render_if_dirty()` snapshots the panel and composes old/new for 420 ms
+  (360 ms vertical) with an ease-out at <= 25 FPS; header and bar switch immediately. Direction follows the flow
+  (rank table in `ui_slide.c`); pause/resume switches instantly (same layout). Each output row is a 400-px window
+  into the two source rows side by side, so a frame costs a few thousand byte shifts plus one normal render. The
+  two frame buffers are heap-allocated on first use (PSRAM on the device: allocations > 4 KB go there); if
+  allocation fails the screen simply switches. Firmware 1.2.0.

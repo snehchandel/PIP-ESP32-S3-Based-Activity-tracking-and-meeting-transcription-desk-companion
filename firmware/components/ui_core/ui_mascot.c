@@ -1,6 +1,6 @@
-/* Draws the PIP rig on its isometric floor: body parts back-to-front by depth, live eyes and mouth,
- * held / floor / flying props, animated emote symbols and the glass glare when PIP presses against
- * the screen. Everything is clipped to the stage column so PIP never draws over the text. */
+/* Draws the PIP rig on its stage: body parts back-to-front by depth, live eyes and mouth, held / floor /
+ * flying props, animated emote symbols and the glass glare when PIP presses against the screen. Everything
+ * is clipped to the stage: the left column on most screens, the whole world on the idle screen. */
 #include <math.h>
 #include <stdio.h>
 
@@ -10,44 +10,16 @@
 
 #define PI_F 3.14159265f
 
-static float SX(float x) { return (float)STAGE_CX + x; }
-static float SY(float y) { return (float)STAGE_FY + y; }
-static int ri(float v) { return (int)lroundf(v); }
+const ui_stage_t UI_STAGE_COLUMN = {STAGE_X, ZONE_TOP + 1, STAGE_W, BAR_Y - ZONE_TOP - 1, STAGE_CX, STAGE_FY, 0};
+const ui_stage_t UI_STAGE_WORLD = {WORLD_X, ZONE_TOP + 1, WORLD_W, BAR_Y - ZONE_TOP - 1, STAGE_CX, STAGE_FY, BOARD_X};
 
-/* ---- floor ---------------------------------------------------------------------------------- */
-static void iso_floor(rlcd_fb_t *fb)
-{
-    const int cx = STAGE_CX, cy = STAGE_FY, hw = 64, hh = 22, th = 7;
-    int top_x[4] = {cx, cx + hw, cx, cx - hw}, top_y[4] = {cy - hh, cy, cy + hh, cy};
-    /* side faces: left darker, right lighter (light from the top-right, toward the text) */
-    int lx[4] = {cx - hw, cx, cx, cx - hw}, ly[4] = {cy, cy + hh, cy + hh + th, cy + th};
-    int rx[4] = {cx, cx + hw, cx + hw, cx}, ry[4] = {cy + hh, cy, cy + th, cy + hh + th};
-    fb_fill_quad_pat(fb, lx, ly, 1);
-    fb_fill_quad_pat(fb, rx, ry, 2);
-    fb_fill_quad(fb, top_x, top_y, INK_WHITE);
-    for (int i = 0; i < 4; i++) {
-        int j = (i + 1) % 4;
-        fb_line(fb, top_x[i], top_y[i], top_x[j], top_y[j], 2, INK_BLACK);
-    }
-    fb_line(fb, cx - hw, cy, cx - hw, cy + th, 2, INK_BLACK);
-    fb_line(fb, cx + hw, cy, cx + hw, cy + th, 2, INK_BLACK);
-    fb_line(fb, cx, cy + hh, cx, cy + hh + th, 1, INK_BLACK);
-    fb_line(fb, cx - hw, cy + th, cx, cy + hh + th, 2, INK_BLACK);
-    fb_line(fb, cx + hw, cy + th, cx, cy + hh + th, 2, INK_BLACK);
-    /* tile grid: dotted iso lines parallel to both edge directions */
-    const float Lx = (float)(cx - hw), Ly = (float)cy, Tx = (float)cx, Ty = (float)(cy - hh);
-    const float Rx = (float)(cx + hw), Ry = (float)cy, Bx = (float)cx, By = (float)(cy + hh);
-    for (int k = 1; k < 4; k++) {
-        float f = (float)k / 4.0f;
-        float p0x = Lx + (Bx - Lx) * f, p0y = Ly + (By - Ly) * f, q0x = Tx + (Rx - Tx) * f, q0y = Ty + (Ry - Ty) * f;
-        float p1x = Lx + (Tx - Lx) * f, p1y = Ly + (Ty - Ly) * f, q1x = Bx + (Rx - Bx) * f, q1y = By + (Ry - By) * f;
-        for (int d = 2; d < 64; d += 4) {
-            float u = (float)d / 64.0f;
-            fb_set(fb, ri(p0x + (q0x - p0x) * u), ri(p0y + (q0y - p0y) * u), INK_BLACK);
-            fb_set(fb, ri(p1x + (q1x - p1x) * u), ri(p1y + (q1y - p1y) * u), INK_BLACK);
-        }
-    }
-}
+static const ui_stage_t *g_stage = &UI_STAGE_COLUMN;
+
+const ui_stage_t *ui_stage_current(void) { return g_stage; }
+
+static float SX(float x) { return (float)g_stage->cx + x; }
+static float SY(float y) { return (float)g_stage->fy + y; }
+static int ri(float v) { return (int)lroundf(v); }
 
 /* ---- eyes & mouth (white on the black visor) ------------------------------------------------ */
 static void eye(rlcd_fb_t *fb, int style, float cx, float cy, float w, float s, float lid, float lookx, float looky,
@@ -263,6 +235,9 @@ static void emote(rlcd_fb_t *fb, const pip_rig_t *r, const mascot_pose_t *p)
 {
     float t = p->emote_t, s = r->s;
     float side = p->yaw < -20.0f ? -1.0f : 1.0f;
+    if (side > 0.0f && g_stage->text_x && SX(r->hx + r->hw / 2.0f) + 36.0f > (float)g_stage->text_x && !p->behind) {
+        side = -1.0f; /* next to the message board: emote on the other side */
+    }
     float ex = SX(r->hx + side * (r->hw / 2.0f + 2.0f)), ey = SY(r->h_top) - 2.0f;
     switch (p->emote) {
     case EMOTE_FOCUS: { /* three lines that shoot out in turn */
@@ -385,7 +360,7 @@ static void glass(rlcd_fb_t *fb, float g)
     }
     int len = ri(60.0f * g);
     for (int k = 0; k < 2; k++) {
-        int x0 = STAGE_X + 18 + k * 14, y0 = ZONE_TOP + 22 + k * 6;
+        int x0 = ri(SX(-58.0f)) + k * 14, y0 = ZONE_TOP + 22 + k * 6;
         for (int i = 0; i < len; i++) {
             for (int w = 0; w < (k == 0 ? 4 : 2); w++) {
                 int x = x0 + i + w, y = y0 + i;
@@ -395,17 +370,17 @@ static void glass(rlcd_fb_t *fb, float g)
     }
 }
 
-void ui_draw_mascot(rlcd_fb_t *fb, const mascot_pose_t *p)
+void ui_draw_mascot_on(rlcd_fb_t *fb, const mascot_pose_t *p, const ui_stage_t *st)
 {
-    fb_clip(STAGE_X, ZONE_TOP + 1, STAGE_W, BAR_Y - ZONE_TOP - 1);
-    iso_floor(fb);
+    g_stage = st;
+    fb_clip(st->x, st->y, st->w, st->h);
     pip_rig_t r;
     mascot_rig(p, &r);
     /* shadow stays on the floor and shrinks as PIP leaves it */
     float air = p->y < 0.0f ? -p->y : 0.0f;
     float sh = 1.0f / (1.0f + air / 40.0f);
     if (p->y < 26.0f) {
-        fb_fill_ellipse_pat(fb, ri(SX(p->x)), ri(SY(p->y > 0.0f ? p->y : 0.0f) + 1.0f), ri(25.0f * r.s * sh), ri(6.0f * r.s * sh), 1);
+        fb_fill_ellipse_pat(fb, ri(SX(p->x)), ri(SY(p->y > 0.0f ? p->y : 0.0f) + 2.0f), ri(25.0f * r.s * sh), ri(5.0f * r.s * sh), 1);
     }
     bool fp_behind = p->floor_prop && p->fp_y < p->y;
     if (fp_behind) {
@@ -426,20 +401,23 @@ void ui_draw_mascot(rlcd_fb_t *fb, const mascot_pose_t *p)
     for (int i = 0; i < 2; i++) {
         if (r.ear_z[i] >= 0.0f) ear(fb, &r, i, phones);
     }
-    ui_prop_held(fb, p, &r, STAGE_CX, STAGE_FY, true); /* props that sit behind the near arm */
+    ui_prop_held(fb, p, &r, st->cx, st->fy, true); /* props that sit behind the near arm */
     for (int i = 0; i < 2; i++) {
         if (r.arm_z[i] >= 0.0f) arm(fb, &r, i);
     }
-    ui_prop_held(fb, p, &r, STAGE_CX, STAGE_FY, false);
+    ui_prop_held(fb, p, &r, st->cx, st->fy, false);
     if (p->floor_prop && !fp_behind) {
         ui_prop_floor(fb, p, SX(p->fp_x), SY(p->fp_y));
     }
     if (p->obj) {
-        ui_prop_flying(fb, p, &r, STAGE_CX, STAGE_FY);
+        ui_prop_flying(fb, p, &r, st->cx, st->fy);
     }
     if (p->emote) {
         emote(fb, &r, p);
     }
     glass(fb, p->glass);
     fb_clip_reset();
+    g_stage = &UI_STAGE_COLUMN;
 }
+
+void ui_draw_mascot(rlcd_fb_t *fb, const mascot_pose_t *p) { ui_draw_mascot_on(fb, p, &UI_STAGE_COLUMN); }

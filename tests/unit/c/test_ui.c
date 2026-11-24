@@ -144,7 +144,33 @@ int main(void)
             libs_checked++;
         }
     }
-    CHECK(mascot_act_count(PIP_MODE_IDLE) >= 25);
+    /* idle world: PIP only changes depth (in front of / behind the board) while clear of it, and an act
+     * never starts or ends behind the board where the next act's cross-fade would pop it to the front */
+    for (int act = 0; act < mascot_act_count(PIP_MODE_IDLE); act++) {
+        for (int v = 0; v < 4; v++) {
+            pip_perf_t pf = {PIP_MODE_IDLE, (uint8_t)act, (uint8_t)v, 1, 1};
+            float D = mascot_perf_seconds(&pf);
+            mascot_pose_t prev, cur;
+            mascot_perf_pose(&pf, 0.0f, D, &prev);
+            CHECK(!prev.behind || prev.x + 40.0f < PIP_BOARD_DX);
+            for (float t = 0.05f; t <= D + 0.001f; t += 0.05f) {
+                mascot_perf_pose(&pf, t, D, &cur);
+                if (cur.behind != prev.behind) {
+                    bool clear = cur.x + 40.0f < PIP_BOARD_DX || prev.x > PIP_WORLD_R + PIP_OFFSCREEN - 1.0f ||
+                                 cur.x < PIP_WORLD_L - PIP_OFFSCREEN + 1.0f;
+                    if (!clear) {
+                        printf("depth pop in %s at %.2f s (x %.1f)\n", mascot_act_name(PIP_MODE_IDLE, act), (double)t,
+                               (double)cur.x);
+                    }
+                    CHECK(clear);
+                }
+                CHECK(cur.x >= PIP_WORLD_L - PIP_OFFSCREEN - 1.0f && cur.x <= PIP_WORLD_R + PIP_OFFSCREEN + 1.0f);
+                prev = cur;
+            }
+            CHECK(fabsf(prev.x) < 12.0f); /* back home */
+        }
+    }
+    CHECK(mascot_act_count(PIP_MODE_IDLE) >= 30);
     CHECK(mascot_act_count(PIP_MODE_FOCUS) >= 8);
     CHECK(libs_checked > 50);
 
@@ -214,6 +240,66 @@ int main(void)
     m.pose.scale = 1.7f;
     ui_draw_mascot(&fb, &m.pose);
     CHECK_EQ(ink_in(STAGE_X + STAGE_W, 0, 399, 299), 0);
+
+    /* idle: PIP walking behind the board is hidden by it; the board text is untouched */
+    static rlcd_fb_t ref;
+    m.state = UI_STATE_IDLE_READY;
+    m.page = PAGE_FOCUS;
+    mascot_home_pose(&m.pose);
+    m.pose.x = 2000.0f; /* far off-screen */
+    ui_render(&ref, &m, NULL);
+    m.pose.x = 160.0f;
+    m.pose.behind = 1;
+    ui_render(&fb, &m, NULL);
+    for (int y = BOARD_Y + 6; y < BOARD_B - 6; y++) {
+        CHECK(memcmp(fb.px + y * RLCD_STRIDE + (BOARD_X + 8) / 8, ref.px + y * RLCD_STRIDE + (BOARD_X + 8) / 8,
+                     (size_t)((BOARD_R - 8) / 8 - (BOARD_X + 8) / 8)) == 0);
+    }
+    int shown = 0; /* PIP's body and legs show under the board */
+    for (int y = BOARD_B + 6; y < FLOOR_Y; y++) {
+        for (int x = BOARD_X; x <= BOARD_R; x++) {
+            shown += fb_get(&fb, x, y) != fb_get(&ref, x, y);
+        }
+    }
+    CHECK(shown > 200);
+    m.pose.behind = 0; /* in front it covers the board */
+    ui_render(&fb, &m, NULL);
+    CHECK(memcmp(fb.px, ref.px, sizeof fb.px) != 0);
+    CHECK(ink_in(STAGE_X + STAGE_W, ZONE_TOP, 399, BAR_Y - 1) > 0);
+    mascot_home_pose(&m.pose);
+
+    /* slides: whole screens move, header and bar always show the new screen */
+    static rlcd_fb_t from, to, out;
+    fb_clear(&from, INK_WHITE);
+    fb_clear(&to, INK_BLACK);
+    ui_slide_compose(&out, &from, &to, 1, 0.0f, ZONE_TOP, BAR_Y);
+    memcpy(&fb, &out, sizeof fb);
+    CHECK_EQ(ink_in(0, ZONE_TOP, 399, BAR_Y - 1), 0);
+    CHECK_EQ(ink_in(0, 0, 399, ZONE_TOP - 1), 400 * ZONE_TOP);
+    ui_slide_compose(&out, &from, &to, 1, 0.25f, ZONE_TOP, BAR_Y);
+    memcpy(&fb, &out, sizeof fb);
+    CHECK_EQ(ink_in(0, ZONE_TOP, 299, BAR_Y - 1), 0); /* old moved left by 100 */
+    CHECK_EQ(ink_in(300, ZONE_TOP, 399, BAR_Y - 1), 100 * (BAR_Y - ZONE_TOP));
+    ui_slide_compose(&out, &from, &to, -1, 0.25f, ZONE_TOP, BAR_Y);
+    memcpy(&fb, &out, sizeof fb);
+    CHECK_EQ(ink_in(0, ZONE_TOP, 99, BAR_Y - 1), 100 * (BAR_Y - ZONE_TOP)); /* new enters from the left */
+    CHECK_EQ(ink_in(100, ZONE_TOP, 399, BAR_Y - 1), 0);
+    ui_slide_compose(&out, &from, &to, 1, 0.37f, ZONE_TOP, BAR_Y); /* odd bit offsets */
+    memcpy(&fb, &out, sizeof fb);
+    CHECK_EQ(ink_in(0, ZONE_TOP, 399, BAR_Y - 1), 148 * (BAR_Y - ZONE_TOP));
+    ui_slide_compose(&out, &from, &to, 2, 0.5f, ZONE_TOP, BAR_Y);
+    memcpy(&fb, &out, sizeof fb);
+    CHECK_EQ(ink_in(0, ZONE_TOP, 399, ZONE_TOP + 113), 400 * 114); /* top half: the new screen */
+    CHECK_EQ(ink_in(0, ZONE_TOP + 114, 399, BAR_Y - 1), 0);
+    ui_slide_compose(&out, &from, &to, -2, 1.0f, ZONE_TOP, BAR_Y);
+    memcpy(&fb, &out, sizeof fb);
+    CHECK_EQ(ink_in(0, 0, 399, 299), 400 * 300);
+    CHECK_EQ(ui_slide_dir(SCREEN_IDLE_READY, SCREEN_LISTENING), 1);
+    CHECK_EQ(ui_slide_dir(SCREEN_FOCUS_RUNNING, SCREEN_IDLE_READY), -1);
+    CHECK_EQ(ui_slide_dir(SCREEN_FOCUS_RUNNING, SCREEN_PAUSED), 0);
+    CHECK_EQ(ui_slide_dir(SCREEN_IDLE_READY, SCREEN_DAILY_TASKS), 1);
+    CHECK_EQ(ui_slide_dir(SCREEN_IDLE_READY, SCREEN_ALARM_RINGING), 2);
+    CHECK_EQ(ui_slide_dir(SCREEN_ERROR, SCREEN_IDLE_READY), -2);
 
     /* host render budget: <= 2 ms per full frame */
     m.page = PAGE_FOCUS;

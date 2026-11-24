@@ -1,5 +1,7 @@
 /* sim_rlcd: host-native PIP device simulator built from the exact portable firmware modules.
- *   sim_rlcd --render-all <dir>          batch render all 11 screens (PNG + meta JSON)
+ *   sim_rlcd --render-all <dir>          batch render all 13 screens (PNG + meta JSON)
+ *   sim_rlcd --render-acts <dir>         4 frames of every PIP act (contact sheets: tools/act_sheet.py)
+ *   sim_rlcd --render-slides <dir>       frames of the screen-to-screen slide transitions
  *   sim_rlcd --tcp 127.0.0.1:18422       virtual device speaking USB protocol v1 over TCP
  */
 #include <stdio.h>
@@ -8,11 +10,13 @@
 
 int sim_render_all(const char *dir);
 int sim_render_acts(const char *dir);
+int sim_render_slides(const char *dir);
 int sim_tcp_run(const char *host, int port, const char *offline_events_json);
 
 static void usage(void)
 {
-    fprintf(stderr, "usage: sim_rlcd --render-all <dir> | --tcp <host:port> [--offline-events <json>]\n");
+    fprintf(stderr, "usage: sim_rlcd --render-all|--render-acts|--render-slides <dir> | --tcp <host:port> "
+                    "[--offline-events <json>]\n");
 }
 
 int main(int argc, char **argv)
@@ -22,6 +26,9 @@ int main(int argc, char **argv)
     }
     if (argc >= 3 && strcmp(argv[1], "--render-acts") == 0) {
         return sim_render_acts(argv[2]);
+    }
+    if (argc >= 3 && strcmp(argv[1], "--render-slides") == 0) {
+        return sim_render_slides(argv[2]);
     }
     if (argc >= 3 && strcmp(argv[1], "--tcp") == 0) {
         char host[64];

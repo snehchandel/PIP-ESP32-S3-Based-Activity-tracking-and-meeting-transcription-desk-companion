@@ -6,6 +6,7 @@
 
 #include "ui_draw.h"
 #include "ui_layout.h"
+#include "ui_render.h"
 
 #define PI_F 3.14159265f
 #define TAU_F 6.2831853f
@@ -87,7 +88,7 @@ void ui_prop_floor(rlcd_fb_t *fb, const mascot_pose_t *p, float x, float y)
         fb_fill_triangle(fb, ri(x + 7.0f), ri(y - 6.0f), ri(x + 7.0f), ri(y - 2.0f), ri(x + 12.0f), ri(y - 5.0f), INK_BLACK);
         break;
     case PROP_TELESCOPE: {
-        float px = x, py = y - 26.0f, dir = x >= (float)STAGE_CX ? 1.0f : -1.0f;
+        float px = x, py = y - 26.0f, dir = x >= (float)ui_stage_current()->cx ? 1.0f : -1.0f;
         fb_line_f(fb, px, py, x - 9.0f, y, 2.0f, INK_BLACK);
         fb_line_f(fb, px, py, x + 9.0f, y, 2.0f, INK_BLACK);
         fb_line_f(fb, px, py, x + 2.0f, y + 4.0f, 2.0f, INK_BLACK);
@@ -234,7 +235,7 @@ static void held_one(rlcd_fb_t *fb, int prop, const mascot_pose_t *p, const pip_
         }
         fb_line_f(fb, sx, sy, ex, ey, 2.5f, INK_BLACK);
         if (t > 0.3f) {
-            float ph = fmodf((float)STAGE_FY + p->held_t * 997.0f, 1.0f);
+            float ph = fmodf((float)ui_stage_current()->fy + p->held_t * 997.0f, 1.0f);
             for (int k = 0; k < 4; k++) {
                 float dy = fmodf(((float)k * 7.0f + ph * 7.0f + t * 30.0f), 28.0f);
                 fb_disc_f(fb, ex + side * 2.0f, ey + 3.0f + dy, 1.2f, INK_BLACK);
@@ -311,8 +312,9 @@ static void held_one(rlcd_fb_t *fb, int prop, const mascot_pose_t *p, const pip_
         fb_line_f(fb, ux, uy - R * 0.75f, ux, uy - R * 0.75f - 4.0f, 2.0f, INK_BLACK);
         /* rain everywhere except under the canopy */
         for (int i = 0; i < 18; i++) {
-            float rx0 = (float)STAGE_X + fmodf((float)i * 37.0f, (float)STAGE_W);
-            float ry0 = (float)ZONE_TOP + fmodf((float)i * 53.0f + t * 90.0f, (float)(STAGE_FY - ZONE_TOP));
+            const ui_stage_t *st = ui_stage_current();
+            float rx0 = ux - 72.0f + fmodf((float)i * 37.0f, 144.0f); /* a shower that follows PIP */
+            float ry0 = (float)ZONE_TOP + fmodf((float)i * 53.0f + t * 90.0f, (float)(st->fy - ZONE_TOP));
             if (rx0 > ux - R && rx0 < ux + R && ry0 > uy - R) {
                 continue;
             }

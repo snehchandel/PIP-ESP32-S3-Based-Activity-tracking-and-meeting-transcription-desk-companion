@@ -23,6 +23,7 @@ set(CORE_SRC
     ${FW}/components/ui_core/ui_mascot.c
     ${FW}/components/ui_core/ui_draw_ext.c
     ${FW}/components/ui_core/ui_props.c
+    ${FW}/components/ui_core/ui_slide.c
     ${FW}/components/ui_core/ui_weather.c
     ${FW}/components/ui_core/ui_render.c
     ${FW}/components/ui_core/fonts_gen.c

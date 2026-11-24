@@ -21,7 +21,7 @@
 #define APP_RING_CHIME_MS 2500u     /* offline ringing: repeat the alarm chime... */
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
-#define APP_FW_VERSION "1.1.2" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_FW_VERSION "1.2.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum { CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM } chime_id_t;
 
@@ -104,6 +104,14 @@ typedef struct {
     uint32_t error_since_ms;
     bool error_local; /* raised by the device itself (vs. pushed by the host) */
     bool hands_free;  /* recording started by the wake word: the device ends it on silence */
+
+    /* screen slide transitions (buffers are heap: PSRAM on the device) */
+    ui_screen_t shown_screen;
+    bool shown_valid;
+    bool sliding;
+    int8_t slide_dir;
+    uint32_t slide_start_ms, slide_last_ms, slide_dur_ms;
+    rlcd_fb_t *slide_from, *slide_to;
 } app_t;
 
 #define APP_PICK_TIMEOUT_MS 20000u
@@ -125,7 +133,8 @@ void app_local_error(app_t *a, const char *title, const char *text);
 bool app_voice_wake(app_t *a);
 /* End a hands-free recording (silence detected / time limit). */
 void app_voice_end(app_t *a);
-/* Re-render into a->fb if anything changed; returns true when the panel needs a flush. */
+/* Re-render into a->fb if anything changed (or a slide transition is running); returns true when the panel
+ * needs a flush. */
 bool app_render_if_dirty(app_t *a);
 
 /* internal (shared between app_*.c files) */

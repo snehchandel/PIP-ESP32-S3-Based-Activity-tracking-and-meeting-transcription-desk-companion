@@ -3,6 +3,8 @@
 #include <string.h>
 
 #include "app_controller.h"
+#include "ui_layout.h"
+#include "ui_render.h"
 #include "tinytest.h"
 
 typedef struct {
@@ -307,5 +309,36 @@ int main(void)
     CHECK(A.m.today[0].done);
     CHECK_EQ(A.alarm_count, 1);
     CHECK(strcmp(A.m.date_label, "Mon, Nov 23") == 0);
+
+    /* screen changes slide: frames keep coming for SLIDE_MS, then the plain new screen */
+    static rlcd_fb_t plain;
+    uint32_t t = A.now_ms + 1000u;
+    A.m.state = UI_STATE_IDLE_READY;
+    A.m.page = PAGE_FOCUS;
+    A.now_ms = t;
+    A.dirty = true;
+    app_render_if_dirty(&A);
+    A.sliding = false;
+    A.m.page = PAGE_AGENDA; /* 2x: calendar -> slides in from the right */
+    A.dirty = true;
+    CHECK(app_render_if_dirty(&A));
+    CHECK(A.sliding && A.slide_dir == 1);
+    int frames = 1;
+    for (t += 10u; t < A.slide_start_ms + SLIDE_MS + 100u; t += 10u) {
+        A.now_ms = t;
+        frames += app_render_if_dirty(&A);
+    }
+    CHECK(!A.sliding);
+    CHECK(frames >= 8 && frames <= 14); /* ~25 FPS, then one final frame */
+    ui_render(&plain, &A.m, NULL);
+    CHECK(memcmp(plain.px, A.fb.px, sizeof plain.px) == 0);
+    A.m.page = PAGE_FOCUS; /* and back: from the left */
+    A.dirty = true;
+    app_render_if_dirty(&A);
+    CHECK(A.sliding && A.slide_dir == -1);
+    A.m.state = UI_STATE_ALARM_RINGING; /* interrupted mid-slide: alarms drop in from the top */
+    A.now_ms += 100u;
+    app_render_if_dirty(&A);
+    CHECK(A.sliding && A.slide_dir == 2);
     TT_DONE();
 }

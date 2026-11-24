@@ -93,11 +93,22 @@ void ui_chrome_top(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     fb_hline(fb, UI_MARGIN, TOPBAR_RULE_Y, RLCD_W - 2 * UI_MARGIN, 1, INK_BLACK);
 }
 
+/* the ground PIP stands on in its column: a short floor line that fades out at both ends */
+static void column_floor(rlcd_fb_t *fb)
+{
+    fb_hline(fb, STAGE_X + 14, FLOOR_Y, STAGE_W - 28, 2, INK_BLACK);
+    for (int x = STAGE_X + 4; x < STAGE_X + 14; x += 3) {
+        fb_set(fb, x, FLOOR_Y, INK_BLACK);
+        fb_set(fb, STAGE_X + STAGE_W - 1 - (x - STAGE_X), FLOOR_Y, INK_BLACK);
+    }
+}
+
 void ui_chrome_mascot(rlcd_fb_t *fb, const ui_model_t *m, int expr, const char *label, ui_meta_t *meta)
 {
-    /* PIP lives on its own little isometric floor in the left column and looks toward the text. */
+    /* PIP stands in the left column and looks toward the text. */
     (void)label;
     (void)expr;
+    column_floor(fb);
     ui_draw_mascot(fb, &m->pose);
     ui_meta_add(meta, "mascot_stage", MASCOT_X, MASCOT_Y, MASCOT_W, MASCOT_H, -1);
 }

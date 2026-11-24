@@ -426,7 +426,7 @@ static void a_plane(mascot_pose_t *p, float t, float D, int v, float s, int mood
         float ang = u * TAU_F * loops;
         p->obj = PROP_PLANE;
         p->obj_t = ang * s; /* heading */
-        p->obj_x = s * 52.0f * sinf(ang);
+        p->obj_x = 50.0f + s * 110.0f * sinf(ang); /* loops across the room, over the board */
         p->obj_y = -110.0f + 40.0f * cosf(ang) - 20.0f * sinf(ang * 2.0f);
         /* PIP turns its whole body to follow the plane */
         p->yaw = 90.0f * s * sinf(ang) + (cosf(ang) < 0.0f ? 180.0f * (1.0f - fabsf(sinf(ang))) : 0.0f);
@@ -477,7 +477,7 @@ static void a_balloon(mascot_pose_t *p, float t, float D, int v, float s, int mo
     p->held = PROP_BALLOON;
     p->arm_r = (165.0f - 5.0f * wav(t, 2.0f)) * in;
     p->obj = PROP_BALLOON;
-    p->y = -26.0f * lift + 2.0f * wav(t, 2.2f) * lift;
+    p->y = -46.0f * lift + 2.0f * wav(t, 2.2f) * lift;
     p->x = s * 10.0f * wav(t, 7.0f) * lift;
     p->leg_l = 4.0f * lift;
     p->leg_r = 2.0f * lift;
@@ -524,25 +524,27 @@ static void a_spin(mascot_pose_t *p, float t, float D, int v, float s, int mood)
 
 static void a_hide(mascot_pose_t *p, float t, float D, int v, float s, int mood)
 {
-    /* sneaks off one side, peeks in from the other, scampers back */
-    float off = 120.0f;
-    walk(p, t, 0.5f, 3.5f, 0.0f, s * off);
+    /* sneaks out through the left edge of the screen, peeks back in, scampers home */
+    const float off = PIP_WORLD_L - PIP_OFFSCREEN;
+    walk(p, t, 0.5f, 3.5f, 0.0f, off);
     if (t >= 3.5f && t < D * 0.55f) {
-        p->x = s * off;
+        p->x = off;
     }
     if (t >= D * 0.55f) {
         float peek = win(t, D * 0.55f, D * 0.8f, 1.0f);
-        p->x = -s * (off - 70.0f * peek);
-        p->yaw = 60.0f * s;
-        p->lean = 8.0f * s * peek;
+        p->x = off + 50.0f * peek;
+        p->yaw = 60.0f;
+        p->lean = 8.0f * peek;
         p->look_x = 0.0f;
         p->eyes = EYE_WIDE;
         if (peek > 0.5f) emote(p, v == 0 ? EMOTE_QUESTION : EMOTE_EXCLAIM, t, D * 0.6f);
         if (t >= D * 0.8f) {
-            walk(p, t, D * 0.8f, D - 0.5f, -s * off * 0.42f, 0.0f);
+            walk(p, t, D * 0.8f, D - 0.5f, off + 50.0f * peek, 0.0f);
             p->mouth = MOUTH_GRIN;
         }
     }
+    (void)s;
+    (void)mood;
 }
 
 static void a_stretch(mascot_pose_t *p, float t, float D, int v, float s, int mood)
@@ -752,6 +754,173 @@ static void a_gift(mascot_pose_t *p, float t, float D, int v, float s, int mood)
         p->arm_r = p->arm_l;
         emote(p, v == 0 ? EMOTE_HEART : EMOTE_SPARKLE, t, D * 0.6f);
     }
+}
+
+/* ---- idle world: the message board and the whole room ---------------------------------------- */
+/* head centre right at the board's left edge: half of PIP's face shows */
+#define PEEK_X (PIP_BOARD_DX + 10.0f)
+
+static void a_behind(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* strolls behind the board (only its legs show underneath), then peeks out from its edge */
+    p->behind = 1;
+    float far = 150.0f + 40.0f * (float)v;
+    walk(p, t, 0.5f, 4.5f, 0.0f, far);
+    float back0 = D * 0.38f, peek0 = back0 + 3.0f, peek1 = D - 4.0f;
+    if (t > 4.5f && t <= back0) { /* waiting behind the board, tapping a foot */
+        p->leg_r = 3.0f * fmaxf2(0.0f, sinf(t * PI_F * 2.4f));
+        p->yaw = -20.0f;
+    }
+    if (t > back0) {
+        walk(p, t, back0, peek0, far, PEEK_X);
+    }
+    if (t > peek0 && t <= peek1) {
+        float w = win(t, peek0, peek1, 0.6f);
+        float bob = v == 1 ? 6.0f * bump(fmodf(t - peek0, 2.6f), 0.4f, 2.2f) : 3.0f * wav(t, 2.0f);
+        p->x = PEEK_X;
+        p->lean = (-10.0f - bob) * w;
+        p->yaw = -35.0f * w;
+        p->look_x = -0.3f * w;
+        p->eyes = EYE_WIDE;
+        p->mouth = MOUTH_GRIN;
+        emote(p, v == 0 ? mood_emote(mood, EMOTE_EXCLAIM, EMOTE_QUESTION, EMOTE_HEART) : EMOTE_QUESTION, t, peek0 + 0.4f);
+    }
+    if (t > peek1) {
+        walk(p, t, peek1, D - 0.5f, PEEK_X, 0.0f);
+        p->mouth = MOUTH_GRIN;
+    }
+    (void)s;
+}
+
+static void a_lean(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* walks over and leans on the board like it owns the place */
+    const float at = PIP_BOARD_DX - 30.0f;
+    walk(p, t, 0.5f, 3.0f, 0.0f, at);
+    walk(p, t, D - 3.0f, D - 0.5f, at, 0.0f);
+    float w = win(t, 3.0f, D - 3.0f, 0.7f);
+    p->lean = mixf(p->lean, 6.0f, w);
+    p->arm_r = mixf(p->arm_r, 112.0f, w); /* elbow on the board */
+    p->arm_l = mixf(p->arm_l, 25.0f, w);
+    p->leg_l = mixf(p->leg_l, 3.0f * fmaxf2(0.0f, sinf(t * PI_F * 1.6f)), w);
+    p->yaw = mixf(p->yaw, -15.0f, w);
+    p->eyes = w > 0.5f ? EYE_HAPPY : p->eyes;
+    p->mouth = MOUTH_SMILE;
+    if (w > 0.5f) emote(p, EMOTE_MUSIC, t, 3.5f); /* whistling */
+    float look0 = D * 0.5f;
+    float lk = win(t, look0, D - 3.5f, 0.6f);
+    if (lk > 0.0f) { /* reads the board, then nods at you */
+        p->yaw = mixf(p->yaw, 50.0f, lk);
+        p->look_x = mixf(p->look_x, 1.0f, lk);
+        p->look_y = mixf(p->look_y, -0.8f, lk);
+        p->eyes = EYE_PILL;
+        emote(p, v == 0 ? EMOTE_IDEA : mood_emote(mood, EMOTE_EXCLAIM, EMOTE_SPARKLE, EMOTE_HEART), t, look0);
+    }
+    (void)s;
+}
+
+static void a_present(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* presenter: points at the headline, then turns to you, ta-da */
+    const float at = 28.0f;
+    walk(p, t, 0.4f, 2.4f, 0.0f, at);
+    walk(p, t, D - 2.4f, D - 0.4f, at, 0.0f);
+    float pt = win(t, 2.4f, D * 0.55f, 0.5f);
+    p->yaw = mixf(p->yaw, 70.0f, pt);
+    p->arm_l = mixf(p->arm_l, 150.0f + 8.0f * wav(t, 0.8f), pt); /* the near arm in profile */
+    p->look_x = mixf(p->look_x, 1.0f, pt);
+    p->look_y = mixf(p->look_y, -1.0f, pt);
+    p->y += hop(t, 3.0f, 3.5f, 6.0f);
+    if (pt > 0.5f) emote(p, EMOTE_EXCLAIM, t, 2.8f);
+    float tada = win(t, D * 0.55f, D - 2.4f, 0.5f);
+    if (tada > 0.0f) {
+        p->yaw = mixf(p->yaw, 0.0f, tada);
+        p->look_x = mixf(p->look_x, 0.0f, tada);
+        p->look_y = mixf(p->look_y, 0.0f, tada);
+        p->arm_l = mixf(p->arm_l, v == 0 ? 125.0f : 165.0f, tada);
+        p->arm_r = mixf(p->arm_r, v == 0 ? 125.0f : 165.0f, tada);
+        p->y += hop(t, D * 0.55f + 0.3f, D * 0.55f + 0.9f, 8.0f);
+        p->eyes = EYE_HAPPY;
+        p->mouth = MOUTH_GRIN;
+        emote(p, mood_emote(mood, EMOTE_SPARKLE, EMOTE_HEART, EMOTE_SPARKLE), t, D * 0.55f);
+    }
+    (void)s;
+}
+
+static void a_kick(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* kicks a ball all the way across the room: under the board, off the far wall and back */
+    const float b0 = 22.0f, wall = PIP_WORLD_R - 8.0f, stop = 30.0f;
+    const float k0 = 2.2f, hit = 4.4f, back = D - 3.6f;
+    float bx = b0;
+    if (t > k0 && t <= hit) {
+        float u = (t - k0) / (hit - k0);
+        bx = b0 + (wall - b0) * u * (1.3f - 0.3f * u); /* fast, easing a little */
+    } else if (t > hit && t <= back) {
+        float u = (t - hit) / (back - hit);
+        bx = wall + (stop - wall) * (1.0f - (1.0f - u) * (1.0f - u));
+    } else if (t > back) {
+        bx = stop;
+    }
+    float hb = 0.0f;
+    if (v == 1 && t > k0 && t < back) { /* bouncy ball: hops that die down */
+        hb = fabsf(sinf((t - k0) * PI_F * 1.4f)) * 26.0f * (1.0f - (t - k0) / (back - k0));
+    }
+    p->obj = PROP_BALL;
+    p->obj_x = bx;
+    p->obj_y = -7.0f - hb;
+    p->obj_t = bx / 21.0f; /* rolls */
+    /* PIP: lines up, kicks, watches it go and come back, traps it */
+    p->yaw = 60.0f * win(t, 0.3f, D - 1.0f, 0.5f);
+    p->x = 4.0f * seg(t, 0.6f, 1.6f) * (1.0f - seg(t, D - 1.6f, D - 0.6f));
+    p->leg_r = 7.0f * bump(t, k0 - 0.35f, k0 + 0.15f) + 6.0f * bump(t, back - 0.3f, back + 0.4f);
+    p->arm_l = 40.0f * bump(t, k0 - 0.4f, k0 + 0.4f);
+    p->look_x = fminf2(1.0f, (bx - p->x) / 120.0f);
+    p->look_y = 0.6f;
+    p->mouth = MOUTH_GRIN;
+    if (t > hit - 0.2f && t < hit + 1.2f) {
+        p->eyes = EYE_WIDE;
+        p->mouth = MOUTH_O;
+        p->y += hop(t, hit - 0.1f, hit + 0.4f, 6.0f);
+        emote(p, EMOTE_EXCLAIM, t, hit - 0.2f);
+    }
+    if (t > back) {
+        p->eyes = EYE_HAPPY;
+        emote(p, mood_emote(mood, EMOTE_SPARKLE, EMOTE_MUSIC, EMOTE_HEART), t, back);
+    }
+    if (t > D - 1.0f) { /* park the ball in its home corner */
+        p->obj = PROP_NONE;
+        p->floor_prop = PROP_BALL;
+        p->fp_x = -52.0f;
+        p->fp_y = 6.0f;
+    }
+    (void)s;
+}
+
+static void a_lap(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* runs off behind the board on the right... and comes back in from the left */
+    const float out_r = PIP_WORLD_R + PIP_OFFSCREEN, in_l = PIP_WORLD_L - PIP_OFFSCREEN;
+    float gone = D * 0.42f, back = D * 0.5f;
+    if (t < gone) {
+        p->behind = 1;
+        walk(p, t, 0.5f, gone, 0.0f, out_r);
+        if (v == 1 && t > 1.0f) emote(p, EMOTE_MUSIC, t, 1.0f);
+    } else if (t < back) {
+        p->behind = 1;
+        p->x = out_r;
+    } else {
+        p->behind = 0; /* switched while off-screen: no pop */
+        walk(p, t, back, D - 1.6f, in_l, 0.0f);
+        if (t > back + 0.6f) {
+            p->eyes = EYE_HAPPY;
+            p->mouth = MOUTH_GRIN;
+            emote(p, mood_emote(mood, EMOTE_SPARKLE, EMOTE_HEART, EMOTE_MUSIC), t, back + 0.6f);
+        }
+        float wave = win(t, D - 1.6f, D - 0.2f, 0.3f);
+        p->arm_r = mixf(p->arm_r, 150.0f + 20.0f * wav(t, 0.5f), wave);
+    }
+    (void)s;
 }
 
 /* ==== FOCUS (timer running): keep catching your eye ========================================== */
@@ -1047,6 +1216,10 @@ static const act_t IDLE[] = {
     {"sign", a_sign, 12, 4},         {"idea", a_idea, 16, 2},
     {"laptop", a_laptop, 20, 2},     {"umbrella", a_umbrella, 18, 2},
     {"peekaboo", a_peekaboo, 14, 2}, {"gift", a_gift, 18, 2},
+    /* the whole room */
+    {"behind the board", a_behind, 22, 2}, {"lean on the board", a_lean, 20, 2},
+    {"present the board", a_present, 14, 2}, {"kick across the room", a_kick, 14, 2},
+    {"lap of the room", a_lap, 16, 2},
 };
 static const act_t FOCUS[] = {
     {"typing", f_type, 22, 2},   {"points at timer", f_point, 10, 1}, {"peeks over laptop", f_peek, 14, 1},

@@ -16,16 +16,22 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
   weather in °C with humidity (from the PC). The weather icon matches the sky and moves: spinning sun, moon and
   stars at night, sun or moon peeking past a cloud, drifting clouds, falling rain or drizzle, snow, a flickering
   storm bolt or fog. The inside reading can run a few degrees warm because the sensor sits next to PIP's electronics.
-- **Left:** PIP on its own little isometric floor. PIP is always doing something: on the Let's Focus screen it plays
-  with props (ball tricks, kite, paper plane, block tower, guitar, umbrella in the rain, telescope, plant…), gets
-  bored and sighs, checks its calendar, or walks right up to the glass and knocks to get your attention. No
+- **PIP:** on the Let's Focus screen the whole screen is PIP's room and your text sits on a message board. PIP
+  walks behind the board (you'll see its legs underneath) and peeks out from its edge, leans on it, points at it
+  like a presenter, kicks a ball under it to the far wall, runs off one side and comes back in from the other, and
+  plays with props (ball tricks, kite, paper plane, block tower, guitar, umbrella in the rain, telescope, plant…),
+  gets bored and sighs, checks its calendar, or walks right up to the glass and knocks to get your attention. No
   animation repeats within 2 hours there. Every other screen has its own set: it works at a laptop and cheers you
   on while the timer runs, leans in to listen, paces while planning, celebrates a finished step, dozes when resting.
   It turns its whole body to look at the option you're about to pick, and reacts to every button press (turns, spins,
   leans in). Its little symbols (focus lines, Zzz, ?, !, hearts, notes, sparkles) are animated too.
 - **Today's calendar:** double-click KEY. A timeline of today (time, task/reminder/alarm mark, title; done items
-  crossed out) with a marker for "now". The Let's Focus screen also previews the next few items.
-- **Right:** the important thing right now (timer, step, agenda, alarm or question).
+  crossed out) with a marker for "now". The Let's Focus board also previews the next few items ("+2 more" when
+  there are more than fit) and today's date when there is room.
+- **Moving between screens:** screens slide like pages — forward (talk → plan → focus → done, calendar) to the
+  left, back to the right. Alarms and messages drop in from the top and lift away when you dismiss them.
+- **Right:** the important thing right now (timer, step, agenda, alarm or question). On every screen except Let's
+  Focus PIP keeps to the left so it never covers this.
 - **Black bar at the bottom:** what the buttons do on this screen, the link icon (plus **OFFLINE** when PIP is on
   its own) and battery.
 
