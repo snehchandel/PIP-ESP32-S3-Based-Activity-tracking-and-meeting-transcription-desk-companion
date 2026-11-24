@@ -23,6 +23,9 @@ uint8_t audio_level_bars(const int16_t *mono, size_t n);
 /* Play a short synthesized chime (1 START .. 6 CONFIRM). Blocks ~0.2-0.6 s. */
 void audio_play_chime(uint8_t chime_id, uint8_t volume_pct);
 void audio_set_capture(bool on);
+/* Play mono 16 kHz PCM16 (host Piper voice) through ES8311; blocks for its real-time duration. */
+esp_err_t audio_play_mono(const int16_t *mono, size_t n);
+void audio_amp_off(void);
 
 /* pure helper: average L/R into mono, n = stereo frames */
 void audio_downmix(const int16_t *stereo, int16_t *mono, size_t n);

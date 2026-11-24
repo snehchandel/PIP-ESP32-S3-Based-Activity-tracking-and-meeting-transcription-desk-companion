@@ -57,6 +57,10 @@ void app_apply_ui_update(app_t *a, const char *j, size_t n)
     if (jm_get_str(j, n, "page", s, sizeof s)) {
         m->page = strcmp(s, "AGENDA") == 0 ? PAGE_AGENDA : PAGE_FOCUS;
     }
+    bool host_ringing = true;
+    if (m->state == UI_STATE_ALARM_RINGING && jm_get_bool(j, n, "alarm_ringing", &host_ringing) && !host_ringing) {
+        m->state = UI_STATE_IDLE_READY; /* host ended the alarm (dismissed in the app or auto-timeout) */
+    }
     if (jm_get_str(j, n, "ui_state", s, sizeof s) && m->state != UI_STATE_ALARM_RINGING) {
         ui_state_t ns = app_state_from_name(s);
         /* never let a stale host state interrupt an active local voice capture */
@@ -187,7 +191,10 @@ void app_on_frame(app_t *a, const pip_frame_t *f)
     case PIP_SIM_INPUT: return; /* consumed by the simulator transport */
     default:
         if (f->type == PIP_AUDIO_START_OUT || f->type == PIP_AUDIO_DATA_OUT || f->type == PIP_AUDIO_END_OUT) {
-            return; /* handled by the audio adapter */
+            if (a->io.play) {
+                a->io.play(a->io.ctx, f->type, f->payload, f->len); /* host voice (Piper TTS) */
+            }
+            break;
         }
         status = PIP_ACK_UNKNOWN_TYPE;
         break;

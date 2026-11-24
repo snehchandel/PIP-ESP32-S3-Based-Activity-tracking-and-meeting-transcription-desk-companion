@@ -158,3 +158,22 @@ esp_err_t audio_write_stereo(const int16_t *stereo, size_t frames)
 }
 
 void audio_amp_off(void) { gpio_set_level(PIN_SPK_AMP_EN, 0); }
+
+esp_err_t audio_play_mono(const int16_t *mono, size_t n)
+{
+    static int16_t st[AUDIO_CHUNK_SAMPLES * 2];
+    while (n > 0) {
+        size_t k = n > AUDIO_CHUNK_SAMPLES ? AUDIO_CHUNK_SAMPLES : n;
+        for (size_t i = 0; i < k; i++) {
+            st[2 * i] = mono[i];
+            st[2 * i + 1] = mono[i];
+        }
+        esp_err_t err = audio_write_stereo(st, k);
+        if (err != ESP_OK) {
+            return err;
+        }
+        mono += k;
+        n -= k;
+    }
+    return ESP_OK;
+}

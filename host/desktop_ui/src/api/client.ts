@@ -33,8 +33,9 @@ export const api = {
   plan: (text: string, auto_commit = false) => req<PlanResult>("POST", "/tasks/plan", { text, auto_commit }),
   commit: (plan: Plan, source_text: string, voice_session_id?: string) =>
     req<unknown>("POST", "/tasks/commit", { plan, source_text, activate: true, voice_session_id }),
-  createTask: (title: string, target_date: string) => req<unknown>("POST", "/tasks", { title, target_date }),
-  patchTask: (id: string, body: { title?: string; target_date?: string; status?: string }) =>
+  createTask: (title: string, target_date: string, start_hhmm?: string | null) =>
+    req<unknown>("POST", "/tasks", { title, target_date, start_hhmm: start_hhmm || null }),
+  patchTask: (id: string, body: { title?: string; target_date?: string; status?: string; start_hhmm?: string }) =>
     req<unknown>("PATCH", `/tasks/${id}`, body),
   deleteTask: (id: string) => req<unknown>("DELETE", `/tasks/${id}`),
   activateTask: (id: string) => req<FullState>("POST", `/tasks/${id}/activate`),
@@ -64,5 +65,12 @@ export const api = {
     "GET", "/device/diagnostics"),
   voiceSessions: () => req<VoiceSession[]>("GET", "/voice/sessions"),
   settings: () => req<Settings>("GET", "/settings"),
+  saveApiKey: (key: string) => req<Settings>("PUT", "/settings/api-key", { key }),
+  deleteApiKey: () => req<Settings>("DELETE", "/settings/api-key"),
+  testApiKey: (key?: string) => req<{ ok: boolean; detail: string }>("POST", "/settings/api-key/test", { key: key || null }),
+  setVoice: (piper_voice: string) => req<Settings>("PUT", "/settings/preferences", { piper_voice }),
+  preloadStt: () => req<Settings>("POST", "/speech/preload"),
+  sayOnDevice: (text: string) => req<{ played_on_device: boolean }>("POST", "/speech/say", { text }),
+  sayWavUrl: (text: string) => `${BASE}/speech/say.wav?text=${encodeURIComponent(text)}`,
   exportDiagnostics: () => req<Record<string, unknown>>("GET", "/diagnostics/export"),
 };

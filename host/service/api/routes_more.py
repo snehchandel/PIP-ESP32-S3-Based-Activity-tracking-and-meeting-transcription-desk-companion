@@ -153,20 +153,10 @@ def voice_sessions(req: Request) -> list[dict[str, Any]]:
     return svc(req).manager.device.voice_sessions()
 
 
-@router.get("/settings")
-def settings(req: Request) -> dict[str, Any]:
-    s = svc(req)
-    return {"planner_mode": s.planner_mode, "kimi_model": s.settings.moonshot_model if s.planner_mode == "KIMI" else None,
-            "stt": s.stt.status, "tts": s.tts.status, "timezone": s.settings.pip_timezone,
-            "transport_setting": s.settings.pip_transport, "host_port": s.settings.pip_host_port,
-            "privacy": ("Typed and spoken brain dumps are sent to Moonshot (Kimi) for planning."
-                        if s.planner_mode == "KIMI" else
-                        "Planning runs fully on this computer (Local Rule Engine). Nothing leaves your PC."),
-            "missed_alarms": s.alarm_scheduler.missed[-10:]}
-
-
 @router.get("/diagnostics/export")
 async def export(req: Request) -> dict[str, Any]:
+    from .routes_settings import settings  # local import: routes_settings imports this module's peers
+
     s = svc(req)
     return {"settings": settings(req), "health": health(req),
             "device": await diagnostics(req), "events": [dict(r) for r in s.db.query(

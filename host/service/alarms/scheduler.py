@@ -37,5 +37,5 @@ class AlarmScheduler:
         a = self.m.alarms.get(alarm_id)
         if a is None:
             return False
-        self.m.ring(a)
+        self.m.ring(a, test=True)
         return True

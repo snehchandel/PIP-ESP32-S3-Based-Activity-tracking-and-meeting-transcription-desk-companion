@@ -27,6 +27,19 @@ static void cap_send(void *ctx, uint8_t type, uint8_t flags, uint16_t seq, const
     }
 }
 
+static int played_bytes;
+static int play_events;
+
+static void cap_play(void *ctx, uint8_t type, const uint8_t *p, uint16_t len)
+{
+    (void)ctx;
+    (void)p;
+    play_events++;
+    if (type == PIP_AUDIO_DATA_OUT) {
+        played_bytes += len - 6;
+    }
+}
+
 static void cap_chime(void *ctx, uint8_t id)
 {
     (void)ctx;
@@ -50,7 +63,7 @@ static app_t A;
 
 int main(void)
 {
-    app_io_t io = {NULL, cap_send, cap_chime, NULL, NULL};
+    app_io_t io = {NULL, cap_send, cap_chime, NULL, NULL, cap_play};
     app_init(&A, &io, 1000, 5, false);
     app_tick(&A, 1000);
     CHECK_EQ(A.m.link, LINK_STANDALONE);
@@ -151,12 +164,25 @@ int main(void)
     frame(&A, PIP_DIAG_REPORT, 0, 61, NULL);
     CHECK_EQ(C.count[PIP_DIAG_REPORT], diags + 1);
     CHECK(strstr((const char *)C.last_payload, "\"fw_ver\":\"1.0.0\"") != NULL);
-    /* AUDIO_*_OUT (host TTS stream) is accepted without NACK in v1 (audio adapter consumes it) */
+    /* AUDIO_*_OUT (host Piper voice) reaches the playback adapter; reliable frames are ACKed OK */
     int acks = C.count[PIP_ACK];
     uint8_t aout[12] = {0};
     pip_frame_t of = {PIP_AUDIO_START_OUT, PIP_FLAG_ACK_REQUIRED, 62, 12, aout};
     app_on_frame(&A, &of);
-    CHECK_EQ(C.count[PIP_ACK], acks);
+    CHECK_EQ(C.count[PIP_ACK], acks + 1);
+    CHECK_EQ(C.last_payload[2], PIP_ACK_OK);
+    static uint8_t pcm[6 + 640];
+    pip_frame_t df = {PIP_AUDIO_DATA_OUT, 0, 63, sizeof pcm, pcm};
+    app_on_frame(&A, &df);
+    CHECK_EQ(play_events, 2);
+    CHECK_EQ(played_bytes, 640);
+
+    /* host can end a ringing alarm (app dismiss / 30 s test timeout) */
+    frame(&A, PIP_ALARM_TRIGGER, 0, 64, "{\"alarm_id\":\"t\",\"title\":\"Test\",\"hhmm\":\"10:00\",\"audio_mode\":\"CHIME\"}");
+    CHECK_EQ(A.m.state, UI_STATE_ALARM_RINGING);
+    frame(&A, PIP_UI_UPDATE, 0, 65, "{\"rev\":9,\"ui_state\":\"RUNNING\",\"alarm_ringing\":false,\"step_id\":\"s2\","
+                                    "\"timer_state\":\"RUNNING\",\"remaining_ms\":500000}");
+    CHECK_EQ(A.m.state, UI_STATE_RUNNING);
     /* unknown type is NACKed with UNKNOWN_TYPE */
     pip_frame_t uf = {0x99, PIP_FLAG_ACK_REQUIRED, 63, 0, NULL};
     app_on_frame(&A, &uf);

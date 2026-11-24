@@ -69,9 +69,13 @@ def commit(body: CommitIn, req: Request) -> dict[str, Any]:
     return out
 
 
+HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
 class TaskIn(BaseModel):
     title: str = Field(min_length=1, max_length=64)
     target_date: date
+    start_hhmm: str | None = Field(default=None, pattern=HHMM)
     steps: list[dict[str, Any]] | None = None
 
 
@@ -84,7 +88,7 @@ def list_tasks(req: Request, date_from: str | None = None, date_to: str | None =
 def create_task(body: TaskIn, req: Request) -> dict[str, Any]:
     s = svc(req)
     tid = s.manager.tasks.create_task(body.title, body.steps or steps_for(body.title), body.target_date.isoformat(),
-                                      s.manager.tz.key)
+                                      s.manager.tz.key, start_hhmm=body.start_hhmm)
     s.manager.changed()
     return s.manager.tasks.get_task(tid) or {}
 
@@ -94,13 +98,15 @@ class TaskPatch(BaseModel):
     target_date: date | None = None
     status: str | None = None
     if_then_cue: str | None = None
+    start_hhmm: str | None = Field(default=None, pattern=r"^$|^([01]\d|2[0-3]):[0-5]\d$")  # "" clears the time
 
 
 @router.patch("/tasks/{tid}")
 def patch_task(tid: str, body: TaskPatch, req: Request) -> dict[str, Any]:
     s = svc(req)
     if not s.manager.tasks.update_task(tid, title=body.title, status=body.status, if_then_cue=body.if_then_cue,
-                                       target_date=body.target_date.isoformat() if body.target_date else None):
+                                       target_date=body.target_date.isoformat() if body.target_date else None,
+                                       start_hhmm=body.start_hhmm):
         raise HTTPException(404, "task not found")
     s.manager.changed()
     return s.manager.tasks.get_task(tid) or {}

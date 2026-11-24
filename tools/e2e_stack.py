@@ -48,6 +48,8 @@ class Stack:
         self.start_sim()
         env = dict(os.environ, PIP_DB_PATH=str(Path(self.tmp) / "e2e.db"), PIP_TRANSPORT="sim",
                    PIP_SIM_ADDR=f"127.0.0.1:{self.sim_port}", PIP_HOST_PORT=str(self.port), MOONSHOT_API_KEY="",
+                   PIP_USE_KEYRING="0", PIP_STT_PRELOAD="0",
+                   PIP_PREFS_PATH=str(Path(self.tmp) / "prefs.json"),
                    PYTHONPATH=str(ROOT / "host"))
         self.svc = subprocess.Popen([sys.executable, "-m", "service.main"], cwd=ROOT / "host", env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -67,7 +67,8 @@ class LiveService:
 
         self.port = free_port()
         settings = Settings(pip_db_path=db, pip_transport="sim", pip_sim_addr=f"127.0.0.1:{sim_port}",
-                            moonshot_api_key="", pip_host_port=self.port)
+                            moonshot_api_key="", pip_host_port=self.port, pip_use_keyring=False,
+                            pip_stt_preload=False, pip_prefs_path=str(Path(db).parent / "prefs.json"))
         cfg = uvicorn.Config(create_app(settings), host="127.0.0.1", port=self.port, log_level="warning")
         self.server = uvicorn.Server(cfg)
         self.thread = threading.Thread(target=self.server.run, daemon=True)

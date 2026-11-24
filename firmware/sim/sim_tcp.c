@@ -59,6 +59,20 @@ static void sim_capture(void *ctx, bool start, uint32_t stream_id)
     }
 }
 
+static void sim_play(void *ctx, uint8_t type, const uint8_t *payload, uint16_t len)
+{
+    (void)ctx;
+    (void)payload;
+    static unsigned long bytes;
+    if (type == PIP_AUDIO_START_OUT) {
+        bytes = 0;
+    } else if (type == PIP_AUDIO_DATA_OUT && len > 6) {
+        bytes += (unsigned long)(len - 6);
+    } else if (type == PIP_AUDIO_END_OUT) {
+        printf("[sim] voice stream received: %lu bytes (simulator has no speaker)\n", bytes);
+    }
+}
+
 static void sim_diag(void *ctx, app_diag_t *d)
 {
     (void)ctx;
@@ -156,7 +170,7 @@ int sim_tcp_run(const char *host, int port, const char *offline_events)
         return 1;
     }
     S.client = SIM_SOCK_INVALID;
-    app_io_t io = {&S, sim_send, sim_chime, sim_capture, sim_diag};
+    app_io_t io = {&S, sim_send, sim_chime, sim_capture, sim_diag, sim_play};
     uint32_t now = sim_now_ms();
     app_init(&S.app, &io, now, (uint32_t)time(NULL), true);
     app_set_epoch(&S.app, (uint32_t)time(NULL));

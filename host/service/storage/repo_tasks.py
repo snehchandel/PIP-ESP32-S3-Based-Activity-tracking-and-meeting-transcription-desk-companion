@@ -16,12 +16,14 @@ class TaskRepo:
 
     # ---- tasks -------------------------------------------------------------------------
     def create_task(self, title: str, steps: list[dict[str, Any]], target_date: str, tz: str,
-                    status: str = "SCHEDULED", if_then_cue: str | None = None, priority: int = 0) -> str:
+                    status: str = "SCHEDULED", if_then_cue: str | None = None, priority: int = 0,
+                    start_hhmm: str | None = None) -> str:
         tid = new_id("task")
         now = utcnow()
         with self.db.tx() as c:
-            c.execute("INSERT INTO tasks(id,title,status,target_date,timezone,if_then_cue,priority,created_at,updated_at)"
-                      " VALUES (?,?,?,?,?,?,?,?,?)", (tid, title, status, target_date, tz, if_then_cue, priority, now, now))
+            c.execute("INSERT INTO tasks(id,title,status,target_date,timezone,if_then_cue,priority,created_at,updated_at,"
+                      "start_hhmm) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                      (tid, title, status, target_date, tz, if_then_cue, priority, now, now, start_hhmm or None))
             for i, s in enumerate(steps):
                 dur = int(s["duration_min"])
                 c.execute("INSERT INTO steps(id,task_id,position,title,duration_min,is_starter,remaining_sec,status)"
@@ -57,8 +59,10 @@ class TaskRepo:
         return out
 
     def update_task(self, tid: str, **fields: Any) -> bool:
-        allowed = {"title", "status", "target_date", "if_then_cue", "priority"}
+        allowed = {"title", "status", "target_date", "if_then_cue", "priority", "start_hhmm"}
         sets = {k: v for k, v in fields.items() if k in allowed and v is not None}
+        if sets.get("start_hhmm") == "":
+            sets["start_hhmm"] = None  # "" clears the time (task becomes "anytime")
         if not sets:
             return self.db.one("SELECT 1 FROM tasks WHERE id=?", (tid,)) is not None
         cols = ", ".join(f"{k}=?" for k in sets)

@@ -127,7 +127,7 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
                 "clarification_text": _cut((self.pending or {}).get("question", ""), 90),
                 "thinking_stage": self.thinking_stage, "done_title": _cut(self.done_title, 90),
                 "break_remaining_ms": self.brk.remaining_ms if self.overlay == "BREAK" else 0,
-                "tz_offset_min": self.tz_offset_min(),
+                "tz_offset_min": self.tz_offset_min(), "alarm_ringing": bool(self.ringing),
             }
 
     def full_state(self) -> dict[str, Any]:

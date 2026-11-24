@@ -14,6 +14,7 @@ class SpeechToText:
         self._model: Any = None
         self._lock = threading.Lock()
         self.device = ""
+        self.loading = False
         self.error = ""
         try:
             import faster_whisper  # noqa: F401
@@ -29,14 +30,20 @@ class SpeechToText:
             return f"READY ({self.model_name} on {self.device})"
         if self.error:
             return f"ERROR ({self.error})"
-        return f"NOT_LOADED ({self.model_name}; loads on first voice capture)"
+        if self.loading:
+            return f"LOADING ({self.model_name})"
+        return f"NOT_LOADED ({self.model_name})"
 
     def _load(self) -> Any:
+        import numpy as np
         from faster_whisper import WhisperModel
 
         for device, compute in (("cuda", "float16"), ("cpu", "int8")):
             try:
                 model = WhisperModel(self.model_name, device=device, compute_type=compute)
+                # CUDA can construct fine yet fail at inference (e.g. cuBLAS DLL missing): prove it works.
+                segs, _ = model.transcribe(np.zeros(16000, dtype=np.float32), language="en", beam_size=1)
+                list(segs)
                 self.device = f"{device}/{compute}"
                 log.info("faster-whisper %s loaded on %s", self.model_name, self.device)
                 return model
@@ -44,6 +51,25 @@ class SpeechToText:
                 log.info("whisper load on %s failed: %s", device, e)
                 self.error = str(e)[:120]
         raise RuntimeError(self.error or "model load failed")
+
+    def preload(self) -> None:
+        """Load the model in the background at service start so the first voice capture is instant."""
+        if not self.installed or self._model is not None:
+            return
+
+        def run() -> None:
+            with self._lock:
+                if self._model is None:
+                    self.loading = True
+                    try:
+                        self._model = self._load()
+                        self.error = ""
+                    except Exception as e:
+                        log.warning("STT preload failed: %s", e)
+                    finally:
+                        self.loading = False
+
+        threading.Thread(target=run, name="pip-stt-preload", daemon=True).start()
 
     def transcribe(self, pcm16le: bytes, sample_rate: int = 16000) -> str:
         if not self.installed:

@@ -19,7 +19,7 @@ def test_wal_and_migrations_idempotent(tmp_path) -> None:  # type: ignore[no-unt
     assert db.migrate() == []  # second run applies nothing
     db.close()
     db2 = Database(path)
-    assert [r[0] for r in db2.query("SELECT version FROM schema_migrations")] == [1]
+    assert [r[0] for r in db2.query("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2]
     db2.close()
 
 

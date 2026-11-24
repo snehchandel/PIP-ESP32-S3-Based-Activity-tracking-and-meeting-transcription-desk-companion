@@ -12,6 +12,7 @@ export interface Step {
 export interface Task {
   id: string; title: string; status: "ACTIVE" | "SCHEDULED" | "COMPLETED" | "ARCHIVED"; target_date: string;
   timezone: string; if_then_cue: string | null; priority: number; revision: number; steps: Step[];
+  start_hhmm: string | null;
 }
 
 export interface Parked { id: string; title: string; source_text: string | null; status: string; created_at: string }
@@ -29,7 +30,7 @@ export interface TimerInfo { state: "STOPPED" | "RUNNING" | "PAUSED"; remaining_
 export interface FullState {
   revision: number; ui_state: UiState; page: "FOCUS" | "AGENDA"; active_task: Task | null;
   active_step_id: string | null; timer: TimerInfo; break_remaining_ms: number; tasks: Task[]; parked: Parked[];
-  reminders: Reminder[]; alarms: Alarm[]; ringing: { id: string; title: string; hhmm: string } | null;
+  reminders: Reminder[]; alarms: Alarm[]; ringing: { id: string; title: string; hhmm: string; test?: boolean; expires_at_ms?: number | null } | null;
   pending_confirmation: { question: string; items: ScheduledItem[] } | null; done_title: string; timezone: string;
   device: { transport: string; linked: boolean; telemetry: Record<string, unknown>; heartbeat: Record<string, unknown> };
   voice: { status: string; transcript?: string; error?: string; planner_mode?: string };
@@ -56,7 +57,11 @@ export interface PlanResult {
   voice_session_id: string; transcript: string; planner_mode: string; plan: Plan; committed: unknown;
 }
 
-export interface DayItems { date: string; items: { id: string; title: string; hhmm: string; kind: number; done: boolean; active: boolean }[] }
+export interface CalItem {
+  id: string; title: string; hhmm: string; kind: number; done: boolean; active: boolean;
+  duration_min: number; recurring?: boolean;
+}
+export interface DayItems { date: string; items: CalItem[] }
 
 export interface VoiceSession {
   id: string; status: string; transcript: string; planner_mode: string; raw_json: string;
@@ -66,4 +71,6 @@ export interface VoiceSession {
 export interface Settings {
   planner_mode: string; kimi_model: string | null; stt: string; tts: string; timezone: string;
   transport_setting: string; host_port: number; privacy: string; missed_alarms: string[];
+  api_key: { configured: boolean; source: "env" | "keyring" | "none"; hint: string; editable: boolean };
+  stt_ready: boolean; stt_loading: boolean; tts_enabled: boolean; piper_voice: string | null; voices: string[];
 }

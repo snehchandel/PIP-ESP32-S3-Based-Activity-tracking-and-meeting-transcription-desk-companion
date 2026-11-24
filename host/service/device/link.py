@@ -25,7 +25,7 @@ from ..protocol import (
 from ..protocol.fbimage import fb_to_png
 from ..speech.pipeline import VoicePipeline
 from ..state.manager import DeviceStateManager
-from ..transport import DeviceTransport, SimTcpTransport, UsbSerialTransport, find_board_port
+from ..transport import DeviceTransport, SimTcpTransport, UsbSerialTransport
 
 log = logging.getLogger("pip.link")
 LINK_TIMEOUT_S = 3.0
@@ -34,9 +34,11 @@ LINK_TIMEOUT_S = 3.0
 def make_transport(mode: str, sim_addr: str, serial_port: str) -> DeviceTransport | None:
     if mode == "none":
         return None
-    if mode == "usb" or (mode == "auto" and (serial_port or find_board_port())):
-        return UsbSerialTransport(serial_port or None)
-    return SimTcpTransport(sim_addr)
+    if mode == "sim":
+        return SimTcpTransport(sim_addr)
+    # "auto" / "usb": the physical board. The transport re-probes VID/PID every second, so PIP links
+    # whenever it is plugged in, even if the app started first.
+    return UsbSerialTransport(serial_port or None)
 
 
 class DeviceLink:

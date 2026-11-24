@@ -18,19 +18,31 @@ def day_items(tasks: list[dict[str, Any]], reminders: list[dict[str, Any]], alar
     items: list[dict[str, Any]] = []
     for t in tasks:
         if t["target_date"] == day.isoformat() and t["status"] != "ARCHIVED":
-            items.append({"id": t["id"], "title": t["title"], "hhmm": "", "kind": 0,
-                          "done": t["status"] == "COMPLETED", "active": t["status"] == "ACTIVE"})
+            steps = t.get("steps") or []
+            minutes = sum(s["duration_min"] for s in steps if s["status"] != "COMPLETED") or \
+                sum(s["duration_min"] for s in steps) or 30
+            items.append({"id": t["id"], "title": t["title"], "hhmm": t.get("start_hhmm") or "", "kind": 0,
+                          "done": t["status"] == "COMPLETED", "active": t["status"] == "ACTIVE",
+                          "duration_min": minutes})
     for r in reminders:
         d, hhmm = _local_day(r["due_utc"], tz)
         if d == day:
             items.append({"id": r["id"], "title": r["title"], "hhmm": hhmm, "kind": 1, "done": bool(r["done"]),
-                          "active": False})
+                          "active": False, "duration_min": 15})
+    weekday = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"][day.weekday()]
     for a in alarms:
-        if a.get("schedule_kind") == "ONCE" and a.get("fire_utc") and a.get("enabled"):
+        if not a.get("enabled"):
+            continue
+        if a.get("schedule_kind") == "ONCE" and a.get("fire_utc"):
             d, hhmm = _local_day(a["fire_utc"], tz)
-            if d == day:
-                items.append({"id": a["id"], "title": a["title"], "hhmm": hhmm, "kind": 2, "done": False,
-                              "active": False})
+            if d != day:
+                continue
+        elif a.get("schedule_kind") == "RECURRING" and weekday in (a.get("rrule_days") or "").split(","):
+            hhmm = a["local_hhmm"]
+        else:
+            continue
+        items.append({"id": a["id"], "title": a["title"], "hhmm": hhmm, "kind": 2, "done": False,
+                      "active": False, "duration_min": 10, "recurring": a.get("schedule_kind") == "RECURRING"})
     # active first, then timed items by time, then the rest; done items sink
     return sorted(items, key=lambda i: (i["done"], not i["active"], i["hhmm"] or "99:99"))
 

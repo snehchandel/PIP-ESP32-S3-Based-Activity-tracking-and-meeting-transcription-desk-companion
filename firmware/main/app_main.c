@@ -17,6 +17,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
+#include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "rlcd_display.h"
 #include "rtc_calendar.h"
@@ -43,6 +44,31 @@ static void io_send(void *ctx, uint8_t type, uint8_t flags, uint16_t seq, const 
 }
 
 static void io_chime(void *ctx, uint8_t id) { xQueueSend(s_chime_q, &id, 0); }
+
+/* Host voice (Piper TTS) arrives as AUDIO_*_OUT frames; a 1 s PSRAM stream buffer decouples USB from I2S. */
+#define VOICE_BUF_BYTES 32768
+static StreamBufferHandle_t s_voice;
+static StaticStreamBuffer_t s_voice_sb;
+static volatile bool s_voice_end;
+static volatile uint32_t s_voice_dropped;
+
+static void io_play(void *ctx, uint8_t type, const uint8_t *p, uint16_t len)
+{
+    if (!s_voice) {
+        return;
+    }
+    if (type == PIP_AUDIO_START_OUT) {
+        xStreamBufferReset(s_voice);
+        s_voice_end = false;
+    } else if (type == PIP_AUDIO_DATA_OUT && len > 6) {
+        size_t n = (size_t)(len - 6) & ~(size_t)1; /* whole 16-bit samples only */
+        if (s_capture || xStreamBufferSend(s_voice, p + 6, n, 0) < n) {
+            s_voice_dropped++; /* half-duplex: never speak over the mic; or buffer overrun */
+        }
+    } else if (type == PIP_AUDIO_END_OUT) {
+        s_voice_end = true;
+    }
+}
 
 static void io_capture(void *ctx, bool start, uint32_t stream_id)
 {
@@ -75,6 +101,7 @@ static void io_diag(void *ctx, app_diag_t *d)
     d->rtc_ok = pcf_rtc_present();
     d->display_ok = s_display_ok;
     d->audio_ok = audio_ok();
+    d->dropped_audio_chunks = s_voice_dropped;
     snprintf(d->i2c_addrs, sizeof d->i2c_addrs, "%s", s_i2c_found);
     snprintf(d->reset_reason, sizeof d->reset_reason, "%s", reset_reason());
 }
@@ -122,7 +149,7 @@ static void audio_task(void *arg)
 {
     static int16_t mono[AUDIO_CHUNK_SAMPLES];
     static uint8_t pkt[6 + AUDIO_CHUNK_BYTES];
-    bool was = false;
+    bool was = false, speaking = false;
     uint16_t chunk = 0;
     uint32_t samples = 0, stream = 0;
     for (;;) {
@@ -153,6 +180,17 @@ static void audio_task(void *arg)
             lock();
             app_send(&s_app, PIP_AUDIO_END, true, b, (uint16_t)pip_pack_audio_end(&e, b));
             unlock();
+        }
+        static int16_t voice[AUDIO_CHUNK_SAMPLES];
+        size_t got = s_voice ? xStreamBufferReceive(s_voice, voice, sizeof voice, 0) : 0;
+        if (got >= 2 && audio_ok()) {
+            audio_play_mono(voice, got / 2); /* blocks ~20 ms per chunk: paced by the codec */
+            speaking = true;
+            continue;
+        }
+        if (speaking && s_voice_end) { /* stream finished and fully drained */
+            audio_amp_off();
+            speaking = false;
         }
         uint8_t id;
         if (xQueueReceive(s_chime_q, &id, pdMS_TO_TICKS(20)) == pdTRUE && audio_ok()) {
@@ -188,6 +226,10 @@ void app_main(void)
 {
     s_lock = xSemaphoreCreateMutex();
     s_chime_q = xQueueCreate(4, sizeof(uint8_t));
+    uint8_t *voice_store = heap_caps_malloc(VOICE_BUF_BYTES + 1, MALLOC_CAP_SPIRAM);
+    if (voice_store) {
+        s_voice = xStreamBufferCreateStatic(VOICE_BUF_BYTES, 2, voice_store, &s_voice_sb);
+    }
     buttons_init();
     i2c_init();
     uint8_t es7210 = 0;
@@ -200,7 +242,7 @@ void app_main(void)
     }
     s_display_ok = rlcd_display_init() == ESP_OK;
 
-    app_io_t io = {NULL, io_send, io_chime, io_capture, io_diag};
+    app_io_t io = {NULL, io_send, io_chime, io_capture, io_diag, io_play};
     app_init(&s_app, &io, now_ms(), esp_random(), false);
     uint32_t epoch = pcf_rtc_read_epoch();
     if (epoch) {

@@ -1,10 +1,13 @@
 """Plan commits, time-confirmation flow, alarm ring/ack and idempotent offline-event reconciliation (D11)."""
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from ..planner.schema import IntentType, PlannerOutputV1
+
+TEST_RING_S = 30  # "Test on device" rings auto-dismiss after this many seconds
 
 if TYPE_CHECKING:
     from .manager import DeviceStateManager
@@ -67,7 +70,7 @@ class ReconcileMixin:
         if item["kind"] == "TASK":
             from ..planner.step_templates import steps_for
             return self.tasks.create_task(item["title"], steps_for(item["title"]), local.date().isoformat(),
-                                          self.tz.key)
+                                          self.tz.key, start_hhmm=local.strftime("%H:%M"))
         return self.tasks.add_reminder(item["title"], utc, self.tz.key)
 
     def confirm_pending(self: DeviceStateManager, items: list[dict[str, Any]] | None = None) -> list[str]:
@@ -92,11 +95,17 @@ class ReconcileMixin:
             self.changed()
 
     # ---- alarms ------------------------------------------------------------------------------
-    def ring(self: DeviceStateManager, alarm: dict[str, Any]) -> None:
+    def ring(self: DeviceStateManager, alarm: dict[str, Any], test: bool = False) -> None:
+        """test=True: a preview from the app. It auto-clears after TEST_RING_S and never changes the
+        alarm's stored state (a tested one-time alarm stays armed)."""
         with self.lock:
             self.ringing = {"id": alarm["id"], "title": alarm["title"], "hhmm": alarm["local_hhmm"],
-                            "audio_mode": alarm.get("audio_mode") or "CHIME", "snooze_min": alarm.get("snooze_min", 5)}
-            self.alarms.update(alarm["id"], ack_state="RINGING")
+                            "audio_mode": alarm.get("audio_mode") or "CHIME", "snooze_min": alarm.get("snooze_min", 5),
+                            "tts_script": alarm.get("tts_script") or "", "test": test, "since": self.clock(),
+                            "auto_dismiss_s": TEST_RING_S if test else None,
+                            "expires_at_ms": int(time.time() * 1000) + TEST_RING_S * 1000 if test else None}
+            if not test:
+                self.alarms.update(alarm["id"], ack_state="RINGING")
             self.changed("alarm_triggered", alarm_id=alarm["id"])
 
     def ack_alarm(self: DeviceStateManager, snooze: bool) -> None:
@@ -104,9 +113,20 @@ class ReconcileMixin:
         with self.lock:
             if not self.ringing:
                 return
-            apply_ack(self.alarms, self.ringing["id"], snooze)
+            if not self.ringing.get("test"):
+                apply_ack(self.alarms, self.ringing["id"], snooze)
             self.ringing = None
-            self.changed()
+            self.changed("alarm_cleared")
+
+    def expire_test_ring(self: DeviceStateManager) -> bool:
+        """Called ~1 Hz: a test ring that nobody dismissed goes away by itself."""
+        with self.lock:
+            r = self.ringing
+            if r and r.get("test") and self.clock() - r["since"] >= TEST_RING_S:
+                self.ringing = None
+                self.changed("alarm_cleared", reason="test_timeout")
+                return True
+            return False
 
     # ---- offline reconciliation -------------------------------------------------------------------
     def apply_offline_events(self: DeviceStateManager, events: list[dict[str, Any]]) -> int:

@@ -37,6 +37,8 @@ typedef struct {
     void (*chime)(void *ctx, uint8_t chime_id);
     void (*capture)(void *ctx, bool start, uint32_t stream_id); /* PTT mic capture on/off */
     void (*diag)(void *ctx, app_diag_t *d);
+    /* host->device voice stream: AUDIO_START_OUT / AUDIO_DATA_OUT (u32 stream, u16 seq, mono PCM16 16 kHz) / END */
+    void (*play)(void *ctx, uint8_t type, const uint8_t *payload, uint16_t len);
 } app_io_t;
 
 typedef struct {

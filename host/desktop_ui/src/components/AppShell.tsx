@@ -1,4 +1,5 @@
 import { AlarmClock, CalendarDays, Cpu, Crosshair, Mic, Settings, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../api/client";
@@ -20,13 +21,23 @@ export const NAV = [
 
 function AlarmBanner() {
   const { state, run } = useLive();
-  if (!state?.ringing) return null;
+  const [now, setNow] = useState(() => Date.now());
+  const r = state?.ringing;
+  useEffect(() => {
+    if (!r?.test) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [r?.test]);
+  if (!r) return null;
+  const left = r.test && r.expires_at_ms ? Math.max(0, Math.ceil((r.expires_at_ms - now) / 1000)) : null;
   return (
     <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#f2cfae]
       bg-amber-soft px-4 py-3">
-      <p className="text-sm font-semibold text-amber-ink">Alarm · {state.ringing.hhmm} — {state.ringing.title}</p>
+      <p className="text-sm font-semibold text-amber-ink">
+        {r.test ? "Test alarm" : "Alarm"} · {r.hhmm} — {r.title}
+        {left !== null && <span className="ml-2 font-normal">(closes by itself in {left} s)</span>}</p>
       <div className="flex gap-2">
-        <Button size="sm" onClick={() => run(() => api.ackAlarm(true))}>Snooze 5 min</Button>
+        {!r.test && <Button size="sm" onClick={() => run(() => api.ackAlarm(true))}>Snooze 5 min</Button>}
         <Button size="sm" variant="primary" onClick={() => run(() => api.ackAlarm(false))}>Dismiss</Button>
       </div>
     </div>
