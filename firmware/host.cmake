@@ -13,6 +13,7 @@ set(CORE_SRC
     ${FW}/components/button_gestures/button_gestures.c
     ${FW}/components/local_timer/local_timer.c
     ${FW}/components/mascot_renderer/mascot.c
+    ${FW}/components/mascot_renderer/mascot_acts.c
     ${FW}/components/ui_core/ui_draw.c
     ${FW}/components/ui_core/ui_text.c
     ${FW}/components/ui_core/ui_chrome.c
@@ -20,6 +21,9 @@ set(CORE_SRC
     ${FW}/components/ui_core/ui_screens_b.c
     ${FW}/components/ui_core/ui_screens_c.c
     ${FW}/components/ui_core/ui_mascot.c
+    ${FW}/components/ui_core/ui_draw_ext.c
+    ${FW}/components/ui_core/ui_props.c
+    ${FW}/components/ui_core/ui_weather.c
     ${FW}/components/ui_core/ui_render.c
     ${FW}/components/ui_core/fonts_gen.c
     ${FW}/components/ui_core/icons_gen.c

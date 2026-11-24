@@ -26,7 +26,8 @@ void ui_render(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta);
 int ui_meta_add(ui_meta_t *meta, const char *name, int x, int y, int w, int h, int parent);
 void ui_chrome_top(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta);
 void ui_chrome_mascot(rlcd_fb_t *fb, const ui_model_t *m, int expr, const char *label, ui_meta_t *meta);
-void ui_draw_mascot(rlcd_fb_t *fb, int x, int y, pip_expr_t e, const mascot_pose_t *pose);
+void ui_draw_mascot(rlcd_fb_t *fb, const mascot_pose_t *pose);
+void ui_weather_icon(rlcd_fb_t *fb, int x, int y, int code, uint32_t ms);
 typedef struct {
     int icon; /* ui_icon_t or -1 */
     const char *label;

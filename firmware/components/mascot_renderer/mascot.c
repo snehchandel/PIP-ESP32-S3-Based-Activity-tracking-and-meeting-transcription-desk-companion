@@ -1,87 +1,121 @@
+/* PIP rig geometry + scene engine (act selection, 2-hour no-repeat history, cross-fades, blinks,
+ * breathing and full-body button reactions). The choreography itself lives in mascot_acts.c. */
 #include "mascot.h"
 
 #include <math.h>
 #include <string.h>
 
-#include "pip_sprites.h"
+#include "mascot_acts.h"
 
-typedef char pip_sprite_count_guard_t[(PIP_SPRITE_COUNT == PIP_EXPR_COUNT) ? 1 : -1];
+#define PI_F 3.14159265f
+#define DEG (PI_F / 180.0f)
 
-const uint8_t *mascot_bits(pip_expr_t e)
+static float clamp01(float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+static float smooth(float x)
 {
-    return pip_sprites[(unsigned)e < PIP_EXPR_COUNT ? e : PIP_EXPR_READY];
+    x = clamp01(x);
+    return x * x * (3.0f - 2.0f * x);
 }
 
-void mascot_eye_spec(pip_expr_t e, eye_style_t *style, int *dx, int *dy, int *h)
+void mascot_home_pose(mascot_pose_t *p)
 {
-    const int8_t *s = pip_eye_spec[(unsigned)e < PIP_EXPR_COUNT ? e : PIP_EXPR_READY];
-    *style = (eye_style_t)s[0];
-    *dx = s[1];
-    *dy = s[2];
-    *h = s[3];
+    memset(p, 0, sizeof *p);
+    p->scale = 1.0f;
+    p->eyes = EYE_PILL;
+    p->mouth = MOUTH_SMILE;
 }
 
-void mascot_eye_anchors(int *lx, int *ly, int *rx, int *ry)
+/* ---- rig ---------------------------------------------------------------------------------- */
+void mascot_rig(const mascot_pose_t *p, pip_rig_t *r)
 {
-    *lx = PIP_EYE_L_X;
-    *ly = PIP_EYE_L_Y;
-    *rx = PIP_EYE_R_X;
-    *ry = PIP_EYE_R_Y;
-}
-
-const char *mascot_expr_name(pip_expr_t e)
-{
-    static const char *const names[PIP_EXPR_COUNT] = {"READY",  "LISTENING", "THINKING", "WORKING",
-                                                      "PAUSED", "DONE",      "ALARM",    "SLEEP"};
-    return (unsigned)e < PIP_EXPR_COUNT ? names[e] : "READY";
-}
-
-/* ---- easing helpers (t in permille) ---------------------------------------------------- */
-static float ease(float x) { return x <= 0 ? 0 : (x >= 1 ? 1 : x * x * (3 - 2 * x)); } /* smoothstep */
-static int8_t r8(float v) { return (int8_t)lroundf(v); }
-
-/* 0 -> peak -> 0 hold shape: rise over [0,a], hold, fall over [b,1] */
-static float hold(float t, float a, float b) { return t < a ? ease(t / a) : (t > b ? ease((1 - t) / (1 - b)) : 1); }
-
-mascot_pose_t mascot_event_pose(anim_kind_t k, int t_permille)
-{
-    mascot_pose_t p;
-    memset(&p, 0, sizeof p);
-    float t = (float)t_permille / 1000.0f;
-    switch (k) {
-    case ANIM_BLINK: p.lid = (uint8_t)lroundf(8.0f * (1.0f - fabsf(2.0f * t - 1.0f))); break;
-    case ANIM_DOUBLE_BLINK: {
-        float u = t < 0.5f ? t * 2 : (t - 0.5f) * 2;
-        p.lid = (uint8_t)lroundf(8.0f * (1.0f - fabsf(2.0f * u - 1.0f)));
-        break;
+    memset(r, 0, sizeof *r);
+    float s = p->scale > 0.2f ? p->scale : 1.0f;
+    float yaw = p->yaw * DEG, c = cosf(yaw), sn = sinf(yaw);
+    float sit = clamp01(p->sit);
+    r->s = s;
+    r->sitting = sit > 0.5f;
+    float leg_full = 12.0f * s;
+    float leg = leg_full * (1.0f - 0.75f * sit);
+    r->leg_w = 9.0f * s;
+    float lift[2] = {p->leg_l, p->leg_r};
+    for (int i = 0; i < 2; i++) {
+        float side = i == 0 ? -1.0f : 1.0f;
+        r->foot[i].x = p->x + side * 10.0f * s * c + sit * 6.0f * s * sn;
+        r->foot[i].y = p->y - lift[i] * s;
+        r->leg_len[i] = leg;
     }
-    case ANIM_GLANCE_TEXT: {
-        float g = hold(t, 0.18f, 0.80f);
-        p.look_x = r8(4 * g);
-        p.look_y = r8(1 * g);
-        break;
-    }
-    case ANIM_LOOK_AROUND:
-        if (t < 0.45f) {
-            p.look_x = r8(-4 * hold(t / 0.45f, 0.3f, 0.75f));
-        } else {
-            p.look_x = r8(4 * hold((t - 0.45f) / 0.55f, 0.3f, 0.75f));
+    /* body */
+    r->bw = 40.0f * s;
+    r->bx = p->x + p->lean * 0.3f;
+    r->b_bot = p->y - leg;
+    r->b_top = r->b_bot - 34.0f * s;
+    /* head */
+    r->hw = 64.0f * s;
+    r->hx = p->x + p->lean;
+    r->h_bot = r->b_top - 1.0f * s + p->head_dy;
+    r->h_top = r->h_bot - 50.0f * s;
+    float hr = 30.0f * s, hcy = (r->h_top + r->h_bot) * 0.5f;
+    /* visor: the face band spans +-50 deg around the front of a cylinder of radius hr */
+    float a0 = -50.0f * DEG + yaw, a1 = 50.0f * DEG + yaw;
+    if (a0 < 90.0f * DEG && a1 > -90.0f * DEG) {
+        float l = sinf(a0 < -90.0f * DEG ? -90.0f * DEG : a0) * hr * 0.92f;
+        float rr = sinf(a1 > 90.0f * DEG ? 90.0f * DEG : a1) * hr * 0.92f;
+        if (rr - l > 6.0f * s) {
+            r->visor = true;
+            r->v_l = r->hx + l;
+            r->v_r = r->hx + rr;
+            r->v_top = hcy - 15.0f * s;
+            r->v_bot = hcy + 15.0f * s;
         }
-        break;
-    case ANIM_LOOK_UP: {
-        float g = hold(t, 0.2f, 0.75f);
-        p.look_x = r8(2 * g);
-        p.look_y = r8(-3 * g);
-        break;
     }
-    case ANIM_HOP: p.dy = r8(-6.0f * sinf(3.14159f * t)); break;
-    case ANIM_NOD: p.dy = r8(2.0f * sinf(3.14159f * t)); p.look_y = r8(1.0f * sinf(3.14159f * t)); break;
-    case ANIM_TYPE: p.dy = (int8_t)(((int)(t * 12)) % 2); p.look_x = 3; p.look_y = 2; break;
-    default: break;
+    r->face_dx = sn * hr * 0.75f;
+    for (int i = 0; i < 2; i++) {
+        float th = (i == 0 ? -17.0f : 17.0f) * DEG + yaw;
+        float z = cosf(th);
+        r->eye_vis[i] = r->visor && z > 0.25f;
+        r->eye_w[i] = 8.0f * s * (z < 0.4f ? 0.4f : z);
+        r->eye[i].x = r->hx + sinf(th) * hr * 0.92f + p->look_x * 3.0f * s;
+        r->eye[i].y = hcy - 2.0f * s + p->look_y * 3.0f * s;
+        float eth = (i == 0 ? -90.0f : 90.0f) * DEG + yaw;
+        r->ear[i].x = r->hx + sinf(eth) * hr * 1.06f;
+        r->ear[i].y = hcy;
+        r->ear_z[i] = cosf(eth);
     }
-    return p;
+    r->ant_base.x = r->hx;
+    r->ant_base.y = r->h_top;
+    r->ant_tip.x = r->hx + p->antenna * s;
+    r->ant_tip.y = r->h_top - 15.0f * s;
+    /* chest light / back panel on the body cylinder (radius 20) */
+    r->chest_vis = c > 0.3f;
+    r->chest.x = r->bx + sn * 20.0f * s * 0.8f;
+    r->chest.y = (r->b_top + r->b_bot) * 0.5f;
+    r->back_vis = c < -0.3f;
+    r->back.x = r->bx - sn * 20.0f * s * 0.8f;
+    r->back.y = r->chest.y;
+    /* arms: screen-left/right at yaw 0, swinging toward the facing direction in profile */
+    float arm[2] = {p->arm_l, p->arm_r};
+    for (int i = 0; i < 2; i++) {
+        float side = i == 0 ? -1.0f : 1.0f;
+        float sth = (i == 0 ? -90.0f : 90.0f) * DEG + yaw;
+        r->shoulder[i].x = r->bx + sinf(sth) * 20.0f * s;
+        r->shoulder[i].y = r->b_top + 8.0f * s;
+        r->arm_z[i] = cosf(sth);
+        float dirx = side * c + sn * (1.0f - fabsf(c));
+        dirx = dirx > 1.0f ? 1.0f : (dirx < -1.0f ? -1.0f : dirx);
+        if (fabsf(dirx) < 0.35f) {
+            dirx = dirx < 0.0f ? -0.35f : 0.35f;
+        }
+        float a = arm[i] * DEG, len = 24.0f * s;
+        float out = sinf(a);
+        if (arm[i] > 90.0f && out < 0.62f) { /* raised arms open into a V so they clear the head */
+            out = 0.62f;
+        }
+        r->hand[i].x = r->shoulder[i].x + out * dirx * len;
+        r->hand[i].y = r->shoulder[i].y + cosf(a) * len;
+    }
 }
 
+/* ---- engine --------------------------------------------------------------------------------- */
 static uint32_t rnd(mascot_anim_t *a)
 {
     a->rng ^= a->rng << 13;
@@ -90,93 +124,242 @@ static uint32_t rnd(mascot_anim_t *a)
     return a->rng;
 }
 
-static const uint32_t DURATION[ANIM_COUNT] = {0, 180, 420, 1800, 2400, 1500, 600, 500, 1000};
+uint16_t mascot_perf_key(const pip_perf_t *p)
+{
+    return (uint16_t)(((unsigned)p->mode & 15u) << 12 | ((unsigned)p->act & 63u) << 6 | ((unsigned)p->variant & 7u) << 3 |
+                      ((unsigned)p->dir & 1u) << 2 | ((unsigned)p->mood & 3u));
+}
+
+/* ms since this key was last performed (UINT32_MAX = not within the history window) */
+static uint32_t seen_ago(const mascot_anim_t *a, uint16_t key, uint32_t now)
+{
+    uint32_t best = UINT32_MAX;
+    for (int i = 0; i < a->hist_n; i++) {
+        if (a->hist_key[i] == key) {
+            uint32_t ago = now - a->hist_ms[i];
+            if (ago < best) {
+                best = ago;
+            }
+        }
+    }
+    return best;
+}
+
+static bool recent_act(const mascot_anim_t *a, pip_mode_t m, int act, int gap)
+{
+    int n = a->recent_n[m];
+    for (int i = 0; i < n && i < gap; i++) {
+        if (a->recent[m][i] == act) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void remember(mascot_anim_t *a, uint32_t now)
+{
+    a->hist_key[a->hist_head] = mascot_perf_key(&a->perf);
+    a->hist_ms[a->hist_head] = now;
+    a->hist_head = (a->hist_head + 1) % MASCOT_HIST;
+    if (a->hist_n < MASCOT_HIST) {
+        a->hist_n++;
+    }
+    uint8_t *r = a->recent[a->mode];
+    memmove(r + 1, r, MASCOT_RECENT - 1);
+    r[0] = a->perf.act;
+    if (a->recent_n[a->mode] < MASCOT_RECENT) {
+        a->recent_n[a->mode]++;
+    }
+    a->perf_count++;
+}
+
+static void start_perf(mascot_anim_t *a, uint32_t now)
+{
+    pip_mode_t m = a->mode;
+    int n = mascot_act_count(m);
+    int gap = n / 2 < MASCOT_RECENT ? n / 2 : MASCOT_RECENT; /* an activity type sits out at least n/2 turns */
+    pip_perf_t best = {0};
+    uint32_t best_ago = 0;
+    bool have = false;
+    for (int tries = 0; tries < 600; tries++) {
+        pip_perf_t c;
+        c.mode = (uint8_t)m;
+        c.act = (uint8_t)(rnd(a) % (uint32_t)n);
+        if (n > 1 && recent_act(a, m, c.act, gap) && tries < 400) {
+            continue;
+        }
+        c.variant = (uint8_t)(rnd(a) % (uint32_t)mascot_act_variants(m, c.act));
+        c.dir = (uint8_t)(rnd(a) & 1u);
+        c.mood = (uint8_t)(rnd(a) % 3u);
+        uint32_t ago = seen_ago(a, mascot_perf_key(&c), now);
+        if (ago >= MASCOT_NO_REPEAT_MS) {
+            best = c;
+            have = true;
+            break;
+        }
+        if (!have || ago > best_ago) { /* fallback: the one seen longest ago */
+            best = c;
+            best_ago = ago;
+            have = true;
+        }
+    }
+    a->from = a->pose;
+    a->blend_start_ms = now;
+    a->perf = best;
+    a->act_start_ms = now;
+    a->act_dur_ms = (uint32_t)(mascot_perf_seconds(&best) * 1000.0f);
+    remember(a, now);
+}
 
 void mascot_anim_init(mascot_anim_t *a, uint32_t seed, uint32_t now_ms)
 {
     memset(a, 0, sizeof *a);
     a->rng = seed ? seed : 0x9E3779B9u;
-    a->next_at_ms = now_ms + 1500u;
+    mascot_home_pose(&a->pose);
+    a->from = a->pose;
+    a->mode = PIP_MODE_IDLE;
+    a->next_blink_ms = now_ms + 2000u;
+    a->last_frame_ms = now_ms - MASCOT_FRAME_MS;
+    a->pick_rows = 4;
 }
 
-void mascot_anim_trigger(mascot_anim_t *a, anim_kind_t k, uint32_t now_ms)
+void mascot_set_mode(mascot_anim_t *a, pip_mode_t mode, uint32_t now_ms)
 {
-    a->kind = k;
-    a->start_ms = now_ms;
-    a->dur_ms = DURATION[k];
+    if (a->started && mode == a->mode) {
+        return;
+    }
+    a->mode = mode;
+    a->started = true;
+    start_perf(a, now_ms);
 }
 
-/* Weighted idle repertoire per expression (weights out of 100). Closed-eye moods don't blink. */
-static anim_kind_t pick(mascot_anim_t *a, pip_expr_t e)
+void mascot_react(mascot_anim_t *a, pip_react_t r, uint32_t now_ms)
 {
-    /* columns: blink, double blink, glance at text, look around, look up, hop, nod, type */
-    static const uint8_t W[PIP_EXPR_COUNT][8] = {
-        {40, 10, 15, 15, 5, 10, 5, 0},  /* READY: lively */
-        {50, 0, 20, 0, 30, 0, 0, 0},    /* LISTENING */
-        {10, 0, 0, 45, 45, 0, 0, 0},    /* THINKING: looks around / up */
-        {35, 0, 25, 0, 0, 0, 10, 30},   /* WORKING: glances at the text, types */
-        {0, 0, 0, 0, 0, 0, 100, 0},     /* PAUSED: sips (nod) */
-        {30, 0, 10, 0, 0, 60, 0, 0},    /* DONE: happy hops */
-        {0, 0, 0, 0, 0, 0, 0, 0},       /* ALARM: continuous shake instead */
-        {0, 0, 0, 0, 0, 0, 0, 0},       /* SLEEP: breathing only */
-    };
-    const uint8_t *w = W[e];
-    uint32_t total = 0;
-    for (int i = 0; i < 8; i++) {
-        total += w[i];
+    a->react = r;
+    a->react_start_ms = now_ms;
+}
+
+void mascot_set_pick(mascot_anim_t *a, int row, int rows)
+{
+    a->pick_row = row;
+    a->pick_rows = rows > 0 ? rows : 1;
+}
+
+static float lerpf(float x, float y, float w) { return x + (y - x) * w; }
+
+static void blend(mascot_pose_t *out, const mascot_pose_t *from, float w)
+{
+    /* continuous channels cross-fade; props/emotes switch at once */
+    mascot_pose_t t = *out;
+    t.x = lerpf(from->x, out->x, w);
+    t.y = lerpf(from->y, out->y, w);
+    float dy = out->yaw - from->yaw;
+    while (dy > 180.0f) dy -= 360.0f;
+    while (dy < -180.0f) dy += 360.0f;
+    t.yaw = from->yaw + dy * w;
+    t.scale = lerpf(from->scale, out->scale, w);
+    t.lean = lerpf(from->lean, out->lean, w);
+    t.head_dy = lerpf(from->head_dy, out->head_dy, w);
+    t.look_x = lerpf(from->look_x, out->look_x, w);
+    t.look_y = lerpf(from->look_y, out->look_y, w);
+    t.arm_l = lerpf(from->arm_l, out->arm_l, w);
+    t.arm_r = lerpf(from->arm_r, out->arm_r, w);
+    t.leg_l = lerpf(from->leg_l, out->leg_l, w);
+    t.leg_r = lerpf(from->leg_r, out->leg_r, w);
+    t.antenna = lerpf(from->antenna, out->antenna, w);
+    t.sit = lerpf(from->sit, out->sit, w);
+    t.glass = lerpf(from->glass, out->glass, w);
+    *out = t;
+}
+
+static const uint32_t REACT_MS[PIP_REACT_COUNT] = {0, 900, 1200, 1400, 1100, 650};
+
+/* full-body reactions layered over whatever PIP is doing */
+static void apply_react(mascot_anim_t *a, mascot_pose_t *p, uint32_t now)
+{
+    if (a->react == PIP_REACT_NONE) {
+        return;
     }
-    if (!total) {
-        return ANIM_NONE;
+    uint32_t el = now - a->react_start_ms, dur = REACT_MS[a->react];
+    if (el >= dur) {
+        a->react = PIP_REACT_NONE;
+        return;
     }
-    uint32_t r = rnd(a) % total;
-    for (int i = 0; i < 8; i++) {
-        if (r < w[i]) {
-            return (anim_kind_t)(ANIM_BLINK + i);
+    float u = (float)el / (float)dur, b = sinf(PI_F * u);
+    switch (a->react) {
+    case PIP_REACT_PRESS: /* whip round toward the button, hop, then face you */
+        p->yaw = lerpf(p->yaw, 55.0f, b);
+        p->y -= 9.0f * b;
+        p->look_x = lerpf(p->look_x, 1.0f, b);
+        p->arm_r = lerpf(p->arm_r, 120.0f, b);
+        if (u > 0.2f && u < 0.8f) {
+            p->eyes = EYE_WIDE;
         }
-        r -= w[i];
+        break;
+    case PIP_REACT_DOUBLE: /* full spin with a hop */
+        p->yaw += 360.0f * smooth(u);
+        p->y -= 12.0f * b;
+        p->arm_l = lerpf(p->arm_l, 100.0f, b);
+        p->arm_r = lerpf(p->arm_r, 100.0f, b);
+        p->emote = EMOTE_SPARKLE;
+        p->emote_t = (float)el / 1000.0f;
+        break;
+    case PIP_REACT_HOLD: /* leans in, hand to ear */
+        p->scale *= 1.0f + 0.08f * smooth(u * 3.0f);
+        p->lean = lerpf(p->lean, 5.0f, smooth(u * 3.0f));
+        p->arm_r = lerpf(p->arm_r, 160.0f, smooth(u * 3.0f));
+        p->emote = EMOTE_SOUND;
+        p->emote_t = (float)el / 1000.0f;
+        break;
+    case PIP_REACT_BACK: /* turns away and back */
+        p->yaw += 180.0f * b;
+        p->y -= 4.0f * b;
+        break;
+    case PIP_REACT_NEXT:
+        p->y -= 6.0f * b;
+        p->x += 3.0f * b;
+        break;
+    default: break;
     }
-    return ANIM_BLINK;
 }
 
-bool mascot_anim_step(mascot_anim_t *a, pip_expr_t e, uint32_t now_ms)
+bool mascot_anim_step(mascot_anim_t *a, uint32_t now_ms)
 {
     if (now_ms - a->last_frame_ms < MASCOT_FRAME_MS) {
         return false;
     }
     a->last_frame_ms = now_ms;
-    if (e != a->expr) {
-        a->expr = e;
-        a->kind = ANIM_NONE;
-        a->next_at_ms = now_ms + 600u;
+    if (!a->started) {
+        mascot_set_mode(a, a->mode, now_ms);
     }
-    if (a->kind == ANIM_NONE && (int32_t)(now_ms - a->next_at_ms) >= 0) {
-        anim_kind_t k = pick(a, e);
-        if (k != ANIM_NONE) {
-            mascot_anim_trigger(a, k, now_ms);
-        }
-        a->next_at_ms = now_ms + 2500u + rnd(a) % 6000u; /* random interval: 2.5 - 8.5 s */
+    if (now_ms - a->act_start_ms >= a->act_dur_ms) {
+        start_perf(a, now_ms);
     }
     mascot_pose_t p;
-    memset(&p, 0, sizeof p);
-    if (a->kind != ANIM_NONE) {
-        uint32_t el = now_ms - a->start_ms;
-        if (el >= a->dur_ms) {
-            a->kind = ANIM_NONE;
-        } else {
-            p = mascot_event_pose(a->kind, (int)(el * 1000u / a->dur_ms));
-        }
+    float t = (float)(now_ms - a->act_start_ms) / 1000.0f;
+    if (a->mode == PIP_MODE_PICK) {
+        mascot_pick_pose(&p, t, a->pick_row, a->pick_rows);
+    } else {
+        mascot_perf_pose(&a->perf, t, (float)a->act_dur_ms / 1000.0f, &p);
     }
-    /* continuous moods layered on top */
-    float s = (float)now_ms;
-    if (e == PIP_EXPR_ALARM) {
-        p.dx = (int8_t)(((now_ms / 70u) % 2u) ? 2 : -2);
-    } else if (e == PIP_EXPR_SLEEP) {
-        p.dy = (int8_t)(p.dy + r8(1.4f * sinf(s * 6.2832f / 3200.0f)));
-    } else if (e == PIP_EXPR_LISTENING) {
-        p.dy = (int8_t)(p.dy + r8(1.2f * sinf(s * 6.2832f / 900.0f)));
-    } else if (e == PIP_EXPR_READY || e == PIP_EXPR_WORKING) {
-        p.dy = (int8_t)(p.dy + r8(0.6f * sinf(s * 6.2832f / 4000.0f))); /* calm breathing */
+    float w = smooth((float)(now_ms - a->blend_start_ms) / 450.0f);
+    if (w < 1.0f) {
+        blend(&p, &a->from, w);
     }
+    /* life layer: breathing + spontaneous blinks (only with open eyes) */
+    if (p.sit < 0.5f && p.y > -1.0f) {
+        p.head_dy += 0.9f * sinf((float)now_ms * 2.0f * PI_F / 3600.0f);
+    }
+    if ((int32_t)(now_ms - a->next_blink_ms) >= 0) {
+        a->blink_start_ms = now_ms;
+        a->next_blink_ms = now_ms + 2200u + rnd(a) % 4200u;
+    }
+    uint32_t be = now_ms - a->blink_start_ms;
+    if (be < 180u && (p.eyes == EYE_PILL || p.eyes == EYE_WIDE || p.eyes == EYE_ANGLED)) {
+        float bl = 1.0f - fabsf((float)be / 90.0f - 1.0f);
+        p.lid = p.lid > bl ? p.lid : bl;
+    }
+    apply_react(a, &p, now_ms);
     bool changed = memcmp(&p, &a->pose, sizeof p) != 0;
     a->pose = p;
     return changed;

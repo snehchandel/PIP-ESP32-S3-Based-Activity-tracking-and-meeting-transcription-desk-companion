@@ -114,7 +114,8 @@ def test_stuck_thinking_becomes_logged_error(manager) -> None:  # type: ignore[n
 
 def test_weather_icon_mapping() -> None:
     from service.weather import default_city, icon_for
-    assert [icon_for(c) for c in (0, 2, 45, 61, 73, 95)] == [0, 1, 5, 2, 3, 4]
+    assert [icon_for(c) for c in (0, 2, 3, 45, 53, 61, 73, 95)] == [0, 6, 1, 5, 9, 2, 3, 4]
+    assert [icon_for(c, is_day=False) for c in (0, 1, 2, 3)] == [7, 7, 8, 1]  # night sky: moon
     assert default_city("America/New_York") == "New York"
 
 

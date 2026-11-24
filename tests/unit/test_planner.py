@@ -151,3 +151,14 @@ def test_kimi_failure_shows_ai_left_and_keeps_the_thought(manager, now) -> None:
     assert manager.snapshot()["error_title"] == "AI has left the device"
     assert [p["title"] for p in manager.tasks.parked()] == ["Finish Q3 report"]  # words not lost
     assert manager.apply_button(1, 1) == "error_dismiss" and manager.ui_state() == "IDLE_READY"
+
+
+def test_auto_model_never_picks_expensive_highspeed() -> None:
+    import httpx
+    from service.planner.kimi import resolve_model
+
+    def models(ids: list[str]) -> httpx.Client:
+        return httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"data": [{"id": i} for i in ids]})))
+
+    assert resolve_model(models(["kimi-k3.1-pro-highspeed", "kimi-k3.1-pro"]), "http://x/v1", "k") == "kimi-k3.1-pro"
+    assert resolve_model(models(["kimi-k9-turbo", "kimi-k9-highspeed", "kimi-k8"]), "http://x/v1", "k") == "kimi-k8"

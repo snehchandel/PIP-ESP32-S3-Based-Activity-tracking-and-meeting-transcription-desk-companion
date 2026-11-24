@@ -29,7 +29,7 @@ typedef enum { PAGE_FOCUS = 0, PAGE_AGENDA = 1 } ui_page_t;
 typedef enum { LINK_STANDALONE = 0, LINK_TETHERED = 1 } link_state_t;
 typedef enum { TIMER_STOPPED = 0, TIMER_RUNNING = 1, TIMER_PAUSED = 2 } timer_state_t;
 
-#define UI_AGENDA_MAX 4
+#define UI_AGENDA_MAX 8
 #define UI_VOICE_CHOICES 4 /* picker order: Calendar, Brain dump, Focus, Alarms */
 
 typedef struct {
@@ -91,13 +91,14 @@ typedef struct {
     bool out_valid;
     int16_t out_temp_c10;
     uint8_t out_hum;
-    uint8_t out_code; /* 0 sun, 1 cloud, 2 rain, 3 snow, 4 storm, 5 fog */
+    uint8_t out_code; /* 0 sun, 1 cloud, 2 rain, 3 snow, 4 storm, 5 fog, 6 sun+cloud, 7 moon, 8 moon+cloud, 9 drizzle */
 
     char error_title[28];
     char error_text[120];
     bool error_flash; /* inverted frame of the attention flash */
 
     mascot_pose_t pose; /* live animation pose */
+    uint32_t anim_ms;   /* animation clock for header icons */
     char toast[40];
 } ui_model_t;
 
@@ -123,6 +124,8 @@ ui_screen_t ui_screen_for(const ui_model_t *m);
 const char *ui_screen_name(ui_screen_t s);
 /* Which mascot expression the current screen shows (drives the animation repertoire). */
 pip_expr_t ui_expr_for(const ui_model_t *m);
+/* Which PIP act library the current screen uses. */
+pip_mode_t ui_mode_for(const ui_model_t *m);
 /* Picker labels and their protocol activity ids (0 brain dump, 1 calendar, 2 focus, 3 alarms). */
 const char *ui_voice_choice_label(uint8_t choice);
 uint8_t ui_voice_choice_activity(uint8_t choice);

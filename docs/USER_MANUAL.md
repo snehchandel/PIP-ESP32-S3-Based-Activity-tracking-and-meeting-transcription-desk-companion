@@ -12,14 +12,22 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 4. To close PIP completely: right-click the tray icon → **Quit PIP**.
 
 ## 2. Reading the screen
-- **Top bar:** clock · LINKED (talking to your PC) or **OFFLINE** (working on its own) · 🔔 next alarm ·
-  🏠 inside temperature and humidity (PIP's own sensor) · ☀/☁/🌧 outside weather in °C with humidity (from the PC).
-  The inside reading can run a few degrees warm because the sensor sits next to PIP's electronics.
-- **Left:** PIP itself. Its mood shows what's going on (ready, listening, thinking, working, paused, done, alarm,
-  sleeping) and it's alive: it blinks, glances at the text when something changes, looks around, hops when a step
-  is done, sips its drink while paused, and breathes slowly when asleep — at random moments, smoothly.
+- **Top bar:** a big clock · 🔔 next alarm · 🏠 inside temperature and humidity (PIP's own sensor) · outside
+  weather in °C with humidity (from the PC). The weather icon matches the sky and moves: spinning sun, moon and
+  stars at night, sun or moon peeking past a cloud, drifting clouds, falling rain or drizzle, snow, a flickering
+  storm bolt or fog. The inside reading can run a few degrees warm because the sensor sits next to PIP's electronics.
+- **Left:** PIP on its own little isometric floor. PIP is always doing something: on the Let's Focus screen it plays
+  with props (ball tricks, kite, paper plane, block tower, guitar, umbrella in the rain, telescope, plant…), gets
+  bored and sighs, checks its calendar, or walks right up to the glass and knocks to get your attention. No
+  animation repeats within 2 hours there. Every other screen has its own set: it works at a laptop and cheers you
+  on while the timer runs, leans in to listen, paces while planning, celebrates a finished step, dozes when resting.
+  It turns its whole body to look at the option you're about to pick, and reacts to every button press (turns, spins,
+  leans in). Its little symbols (focus lines, Zzz, ?, !, hearts, notes, sparkles) are animated too.
+- **Today's calendar:** double-click KEY. A timeline of today (time, task/reminder/alarm mark, title; done items
+  crossed out) with a marker for "now". The Let's Focus screen also previews the next few items.
 - **Right:** the important thing right now (timer, step, agenda, alarm or question).
-- **Black bar at the bottom:** what the buttons do on this screen, plus link and battery.
+- **Black bar at the bottom:** what the buttons do on this screen, the link icon (plus **OFFLINE** when PIP is on
+  its own) and battery.
 
 ## 3. Buttons
 | | What it does |
@@ -47,7 +55,8 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 
 ## 5. The Companion app
 - **Today:** focus timer, steps (Alt+↑/↓ to reorder), today/tomorrow, parked tangents (Promote / let go).
-- **Calendar:** Month / Week / Day. Week and Day show the hours of the day; click any hour to add a task or
+- **Calendar:** Outlook-style Month / Week / Day: events are blocks with their title and time range, the
+  all-day/anytime row wraps long titles (+N more expands). Week and Day show the hours of the day; click any hour to add a task or
   reminder at that time. Click an item to move it, change its time, make it "anytime", or delete it.
 - **Brain Dump:** review and edit a plan before saving it.
 - **Focus:** the cut-in-half preview.
@@ -67,7 +76,8 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 ## 6. Kimi AI (required for planning)
 PIP uses Kimi to break tasks into steps. Set it up once: **Settings → Kimi API key → paste → Test this key →
 Save key**. The key is kept in Windows Credential Manager; the app shows only its last 4 characters. The model is
-picked automatically (newest available); you can pin one under **Kimi model**. Your brain-dump text is sent to
+picked automatically: the newest *standard* Kimi model (never the pricier "highspeed"/turbo variants); you
+can pin one under **Kimi model**. Your brain-dump text is sent to
 Moonshot for planning.
 
 If Kimi can't be reached, PIP flashes **"AI has left the device"** and waits. Press any button to dismiss — your

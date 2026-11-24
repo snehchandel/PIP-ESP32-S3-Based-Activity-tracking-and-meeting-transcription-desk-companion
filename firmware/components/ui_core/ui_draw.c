@@ -7,9 +7,21 @@ static int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v
 
 void fb_clear(rlcd_fb_t *fb, ink_t ink) { memset(fb->px, ink == INK_BLACK ? 0xFF : 0x00, RLCD_FB_BYTES); }
 
+static int clip_x0 = 0, clip_y0 = 0, clip_x1 = RLCD_W, clip_y1 = RLCD_H;
+
+void fb_clip(int x, int y, int w, int h)
+{
+    clip_x0 = clampi(x, 0, RLCD_W);
+    clip_y0 = clampi(y, 0, RLCD_H);
+    clip_x1 = clampi(x + w, 0, RLCD_W);
+    clip_y1 = clampi(y + h, 0, RLCD_H);
+}
+
+void fb_clip_reset(void) { fb_clip(0, 0, RLCD_W, RLCD_H); }
+
 void fb_set(rlcd_fb_t *fb, int x, int y, ink_t ink)
 {
-    if (x < 0 || y < 0 || x >= RLCD_W || y >= RLCD_H) {
+    if (x < clip_x0 || y < clip_y0 || x >= clip_x1 || y >= clip_y1) {
         return;
     }
     uint8_t *b = &fb->px[y * RLCD_STRIDE + (x >> 3)];

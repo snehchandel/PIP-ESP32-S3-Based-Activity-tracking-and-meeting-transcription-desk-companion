@@ -40,65 +40,65 @@ void ui_inverted_pill(rlcd_fb_t *fb, const font_t *f, int x, int y, const char *
     ui_meta_add(meta, name, x, y, w, h, -1);
 }
 
+/* one reading: [icon] 23° 41%  laid out right-to-left; returns the new right edge */
+static int reading(rlcd_fb_t *fb, int rx, int16_t c10, uint8_t hum, int icon, int weather_code, uint32_t ms)
+{
+    char t[12], h[8];
+    snprintf(t, sizeof t, "%d\xC2\xB0", (c10 + (c10 >= 0 ? 5 : -5)) / 10);
+    snprintf(h, sizeof h, "%u%%", (unsigned)hum);
+    rx -= text_width(&FONT_11, h);
+    text_draw(fb, &FONT_11, rx, 14, h, INK_BLACK);
+    rx -= text_width(&FONT_16B, t) + 3;
+    text_draw(fb, &FONT_16B, rx, 8, t, INK_BLACK);
+    if (weather_code >= 0) {
+        rx -= 26;
+        ui_weather_icon(fb, rx, 5, weather_code, ms);
+    } else {
+        rx -= UI_ICON_SIZE + 3;
+        fb_icon(fb, rx, 8, (ui_icon_t)icon, INK_BLACK);
+    }
+    return rx;
+}
+
 void ui_chrome_top(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
 {
-    const font_t *f = &FONT_14;
     int x = UI_MARGIN;
-    char buf[48];
-    if (m->clock_valid) {
+    char buf[24];
+    if (m->clock_valid) { /* big, bold clock: readable from across the desk */
         snprintf(buf, sizeof buf, "%02u:%02u", (unsigned)m->hh, (unsigned)m->mm);
-        x += text_draw_bold(fb, f, x, 4, buf, INK_BLACK) + 8;
+        x += text_draw_bold(fb, &FONT_24B, x, 3, buf, INK_BLACK) + 8;
     }
-    int left_x0 = UI_MARGIN;
-    if (m->link == LINK_TETHERED) {
-        x += text_draw(fb, f, x, 4, "\xC2\xB7 LINKED", INK_BLACK);
-        ui_meta_add(meta, "top_left", left_x0, 4, x - left_x0, f->line_h, -1);
-    } else {
-        ui_meta_add(meta, "top_left", left_x0, 4, x - left_x0, f->line_h, -1);
-        ui_inverted_pill(fb, f, x, 4, "OFFLINE", meta, "offline_pill");
-        x += text_width(f, "OFFLINE") + 14;
-    }
-    /* right cluster, laid out right-to-left: outdoor weather, indoor sensor, next alarm (if room) */
-    int rx = RLCD_W - UI_MARGIN, left_limit = x + 10;
-    int x_right = rx;
+    /* link status lives in the bottom bar only */
+    ui_meta_add(meta, "top_left", UI_MARGIN, 3, x - UI_MARGIN, 29, -1);
+    /* right cluster, right-to-left: outdoor weather (animated), indoor sensor, next alarm (if room) */
+    int rx = RLCD_W - UI_MARGIN, x_right = rx, left_limit = x + 8;
     if (m->out_valid) {
-        snprintf(buf, sizeof buf, "%d\xC2\xB0" "C %u%%", (m->out_temp_c10 + (m->out_temp_c10 >= 0 ? 5 : -5)) / 10,
-                 (unsigned)m->out_hum);
-        rx -= text_width(f, buf);
-        text_draw(fb, f, rx, 4, buf, INK_BLACK);
-        rx -= UI_ICON_SIZE + 3;
-        fb_icon(fb, rx, 3, (ui_icon_t)(ICON_SUN + (m->out_code > 5 ? 1 : m->out_code)), INK_BLACK);
-        rx -= 10;
+        rx = reading(fb, rx, m->out_temp_c10, m->out_hum, 0, m->out_code, m->anim_ms) - 8;
     }
     if (m->in_valid) {
-        snprintf(buf, sizeof buf, "%d\xC2\xB0" "C %u%%", (m->in_temp_c10 + (m->in_temp_c10 >= 0 ? 5 : -5)) / 10,
-                 (unsigned)m->in_hum);
-        rx -= text_width(f, buf);
-        text_draw(fb, f, rx, 4, buf, INK_BLACK);
-        rx -= UI_ICON_SIZE + 3;
-        fb_icon(fb, rx, 3, ICON_HOME, INK_BLACK);
-        rx -= 10;
+        rx = reading(fb, rx, m->in_temp_c10, m->in_hum, ICON_HOME, -1, 0) - 8;
     }
     if (m->next_alarm_hhmm[0]) {
-        int w = text_width(f, m->next_alarm_hhmm) + UI_ICON_SIZE + 3;
+        int w = text_width(&FONT_12B, m->next_alarm_hhmm) + UI_ICON_SIZE + 3;
         if (rx - w >= left_limit) {
-            rx -= text_width(f, m->next_alarm_hhmm);
-            text_draw(fb, f, rx, 4, m->next_alarm_hhmm, INK_BLACK);
+            rx -= text_width(&FONT_12B, m->next_alarm_hhmm);
+            text_draw(fb, &FONT_12B, rx, 10, m->next_alarm_hhmm, INK_BLACK);
             rx -= UI_ICON_SIZE + 3;
-            fb_icon(fb, rx, 3, ICON_BELL, INK_BLACK);
+            fb_icon(fb, rx, 8, ICON_BELL, INK_BLACK);
         }
     }
     if (rx < x_right) {
-        ui_meta_add(meta, "top_right", rx, 3, x_right - rx, f->line_h, -1);
+        ui_meta_add(meta, "top_right", rx, 5, x_right - rx, 26, -1);
     }
     fb_hline(fb, UI_MARGIN, TOPBAR_RULE_Y, RLCD_W - 2 * UI_MARGIN, 1, INK_BLACK);
 }
 
 void ui_chrome_mascot(rlcd_fb_t *fb, const ui_model_t *m, int expr, const char *label, ui_meta_t *meta)
 {
-    /* No stage box, ground line or pill: PIP shares the page with the text and looks toward it. */
+    /* PIP lives on its own little isometric floor in the left column and looks toward the text. */
     (void)label;
-    ui_draw_mascot(fb, MASCOT_X, MASCOT_Y, (pip_expr_t)expr, &m->pose);
+    (void)expr;
+    ui_draw_mascot(fb, &m->pose);
     ui_meta_add(meta, "mascot_stage", MASCOT_X, MASCOT_Y, MASCOT_W, MASCOT_H, -1);
 }
 
@@ -114,7 +114,7 @@ static void battery_glyph(rlcd_fb_t *fb, int x, int y, const ui_model_t *m)
 
 void ui_chrome_bar(rlcd_fb_t *fb, const ui_model_t *m, const ui_hint_t *hints, int n, ui_meta_t *meta)
 {
-    const font_t *f = &FONT_14;
+    const font_t *f = &FONT_12B;
     fb_fill_rect(fb, 0, BAR_Y, RLCD_W, BAR_H, INK_BLACK);
     int bar = ui_meta_add(meta, "bottom_bar", 0, BAR_Y, RLCD_W, BAR_H, -1);
     int ty = BAR_Y + (BAR_H - f->line_h) / 2;
@@ -125,9 +125,9 @@ void ui_chrome_bar(rlcd_fb_t *fb, const ui_model_t *m, const ui_hint_t *hints, i
             fb_icon(fb, x, iy, (ui_icon_t)hints[i].icon, INK_WHITE);
             x += UI_ICON_SIZE + 5;
         }
-        x += text_draw(fb, f, x, ty, hints[i].label, INK_WHITE) + 14;
+        x += text_draw(fb, f, x, ty, hints[i].label, INK_WHITE) + 12;
     }
-    ui_meta_add(meta, "bar_hints", UI_MARGIN, ty, x - UI_MARGIN - 14, f->line_h, bar);
+    ui_meta_add(meta, "bar_hints", UI_MARGIN, ty, x - UI_MARGIN - 12, f->line_h, bar);
 
     /* right cluster: link state, battery glyph, percentage */
     char pct[8];
@@ -143,6 +143,10 @@ void ui_chrome_bar(rlcd_fb_t *fb, const ui_model_t *m, const ui_hint_t *hints, i
     battery_glyph(fb, rx, BAR_Y + (BAR_H - 12) / 2, m);
     rx -= 26;
     fb_icon(fb, rx, iy, m->link == LINK_TETHERED ? ICON_LINK : ICON_LINK_OFF, INK_WHITE);
+    if (m->link != LINK_TETHERED) {
+        rx -= text_width(&FONT_11, "OFFLINE") + 4;
+        text_draw(fb, &FONT_11, rx, BAR_Y + (BAR_H - FONT_11.line_h) / 2, "OFFLINE", INK_WHITE);
+    }
     ui_meta_add(meta, "bar_status", rx, iy, RLCD_W - UI_MARGIN - rx, UI_ICON_SIZE, bar);
 }
 

@@ -19,10 +19,14 @@ OUT = ROOT / "firmware/components/ui_core"
 # extra code points remapped into 127.. so C can index a dense table
 EXTRA = {0x00B7: 127, 0x2014: 128, 0x2026: 129, 0x00B0: 130}
 FONTS = [  # (C name, ttf, px size, first, last)
+    ("FONT_11", "DejaVuSans.ttf", 11, 32, 130),
+    ("FONT_12", "DejaVuSans.ttf", 12, 32, 130),
+    ("FONT_12B", "DejaVuSans-Bold.ttf", 12, 32, 130),
     ("FONT_14", "DejaVuSans.ttf", 14, 32, 130),
     ("FONT_14B", "DejaVuSans-Bold.ttf", 14, 32, 130),
     ("FONT_16", "DejaVuSans.ttf", 16, 32, 130),
     ("FONT_16B", "DejaVuSans-Bold.ttf", 16, 32, 130),
+    ("FONT_20B", "DejaVuSans-Bold.ttf", 20, 32, 130),
     ("FONT_24B", "DejaVuSans-Bold.ttf", 24, 32, 130),
     ("FONT_32B", "DejaVuSans-Bold.ttf", 32, 32, 130),
     ("FONT_64", "DejaVuSansMono-Bold.ttf", 64, 32, 58),

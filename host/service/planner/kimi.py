@@ -15,7 +15,13 @@ from pydantic import ValidationError
 from .schema import PlannerOutputV1
 
 # Newest first; the first one the account actually offers is used unless the user picks one in Settings.
-PREFERRED_MODELS = ["kimi-k3.1-pro-highspeed", "kimi-k3.1-pro", "kimi-k3", "kimi-k2.6", "kimi-k2-0905-preview"]
+# Standard (non-"highspeed") models only: highspeed variants cost several times more per token.
+PREFERRED_MODELS = ["kimi-k3.1-pro", "kimi-k3", "kimi-k2.6", "kimi-k2-0905-preview"]
+EXPENSIVE_MARKERS = ("highspeed", "turbo")
+
+
+def is_expensive(model: str) -> bool:
+    return any(k in model for k in EXPENSIVE_MARKERS)
 
 ACTIVITY_RULES = {
     "BRAIN_DUMP": "The user is brain-dumping. Pick ONE task to act on now (active_task); everything unrelated goes to "
@@ -69,7 +75,7 @@ def resolve_model(client: httpx.Client, base_url: str, api_key: str, preferred: 
     for m in ([preferred] if preferred else []) + PREFERRED_MODELS:
         if m in available:
             return m
-    kimi = [m for m in available if m.startswith("kimi")]
+    kimi = [m for m in available if m.startswith("kimi") and not is_expensive(m)]
     if not kimi:
         raise PlannerError("no Kimi chat model available for this key")
     return str(sorted(kimi)[-1])

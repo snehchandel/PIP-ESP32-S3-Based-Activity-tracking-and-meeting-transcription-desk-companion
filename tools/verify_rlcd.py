@@ -66,9 +66,9 @@ def check_screen(path: Path, strict_meta: bool = True) -> list[str]:
     bar_black = ratio(b, 0, 264, 399, 299)
     if bar_black < 0.70 or (1 - bar_black) < 0.03:
         errs.append(f"status bar black {bar_black:.1%} (need >=70% black, >=3% white)")
-    stage = ratio(b, 16, 70, 135, 189)  # mascot region (MASCOT_Y = 70)
-    if not 0.12 <= stage <= 0.60:
-        errs.append(f"mascot stage ink {stage:.1%} outside 12-60%")
+    stage = ratio(b, 4, 38, 147, 259)  # PIP's stage column (isometric floor + rig)
+    if not 0.08 <= stage <= 0.60:
+        errs.append(f"mascot stage ink {stage:.1%} outside 8-60%")
     meta_path = META / f"{path.stem}.json"
     if strict_meta:
         if not meta_path.exists():

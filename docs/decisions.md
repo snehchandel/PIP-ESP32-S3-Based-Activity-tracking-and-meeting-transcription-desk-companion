@@ -88,3 +88,18 @@ dismissed: the host aborts the stream (AUDIO_END_OUT flag byte 1) and the device
 dismiss or host `alarm_ringing=false`. Offline the device repeats the chime itself for 60 s. Every scheduled item
 yields a toast (`toast`/`toast_id` in UI_UPDATE, ids unique across host restarts, each shown once for 6 s), a
 confirm chime and a spoken sentence.
+
+## ADR-017 — Procedural PIP rig, act libraries and a 2-hour no-repeat rule
+The 8 fixed sprites could not turn, hold props or move their bodies. PIP is now a procedural rig (head/visor on a
+cylinder so yaw reveals ears, profile and back panel; body, arms, legs, sitting, scale) drawn on an isometric floor
+in a clipped stage column, with ~23 props and 13 animated emotes. A scene engine plays per-screen act libraries
+(28 idle, 10 focus, others 1-6) with 450 ms cross-fades, blinks, breathing and full-body button reactions.
+"No animation repeats within 2 hours" is enforced on the performance = (act, variant, direction, mood): idle offers
+420 distinct performances (~18 s each, ~390 per 2 h); a history check rejects anything seen in the last 2 h and an
+activity type sits out at least half the library before returning. A C test simulates 2 h: 388 performances,
+0 repeats, no activity within 6 of itself. Header grew to 34 px (24 px bold clock); body text moved to 11-14 px.
+Weather codes gained day/night and partly-cloudy/drizzle variants (WMO + Open-Meteo is_day).
+
+## ADR-018 — Standard Kimi models only
+Auto model selection skips "highspeed"/"turbo" variants (several times the price); kimi-k3.1-pro is now chosen.
+A user can still pin any model explicitly in Settings.

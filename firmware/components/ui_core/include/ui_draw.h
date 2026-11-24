@@ -29,6 +29,24 @@ void fb_arc(rlcd_fb_t *fb, int cx, int cy, int r, int a0, int a1, int thick, ink
 void fb_fill_triangle(rlcd_fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2, ink_t ink);
 void fb_invert(rlcd_fb_t *fb);
 
+/* Clip window for every primitive (default: whole screen). */
+void fb_clip(int x, int y, int w, int h);
+void fb_clip_reset(void);
+
+/* 1-bit tones for shading: 0 solid, 1 = 50 % checker, 2 = 25 %, 3 = 12 %, 4 = diagonal hatch */
+int fb_pat(int pat, int x, int y);
+void fb_fill_ellipse(rlcd_fb_t *fb, int cx, int cy, int rx, int ry, ink_t ink);
+void fb_fill_ellipse_pat(rlcd_fb_t *fb, int cx, int cy, int rx, int ry, int pat);
+void fb_ellipse(rlcd_fb_t *fb, int cx, int cy, int rx, int ry, int thick, ink_t ink);
+void fb_fill_triangle_pat(rlcd_fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2, int pat);
+void fb_fill_quad(rlcd_fb_t *fb, const int *xs, const int *ys, ink_t ink);
+void fb_fill_quad_pat(rlcd_fb_t *fb, const int *xs, const int *ys, int pat);
+/* Float-coordinate conveniences used by the mascot renderer. */
+void fb_line_f(rlcd_fb_t *fb, float x0, float y0, float x1, float y1, float thick, ink_t ink);
+void fb_disc_f(rlcd_fb_t *fb, float cx, float cy, float r, ink_t ink);
+/* Outlined rounded box: black border of `thick` px, interior `fill` (INK_WHITE / INK_BLACK). */
+void fb_box_f(rlcd_fb_t *fb, float x0, float y0, float x1, float y1, float r, float thick, ink_t fill);
+
 /* Mask blit: every set bit draws `ink`; clear bits leave the canvas untouched. */
 void fb_blit_mask(rlcd_fb_t *fb, int x, int y, const uint8_t *bits, int w, int h, int stride, ink_t ink);
 /* Opaque blit: set bit = black, clear bit = white. */

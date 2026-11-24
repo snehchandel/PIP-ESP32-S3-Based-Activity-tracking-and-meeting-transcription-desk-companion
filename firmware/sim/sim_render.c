@@ -65,3 +65,62 @@ int sim_render_all(const char *dir)
     }
     return failures ? 1 : 0;
 }
+
+/* sim_rlcd --render-acts <dir>: 4 frames of every PIP act (+ the 10 weather icons) for contact sheets. */
+int sim_render_acts(const char *dir)
+{
+    static rlcd_fb_t fb;
+    char path[512];
+    MKDIR(dir);
+    snprintf(path, sizeof path, "%s/acts", dir);
+    MKDIR(path);
+    int failures = 0;
+    for (int mode = 0; mode < PIP_MODE_COUNT; mode++) {
+        ui_model_t m;
+        bool found = false;
+        for (int s = 0; s < SCREEN_COUNT && !found; s++) {
+            sim_scenario((ui_screen_t)s, &m);
+            found = ui_mode_for(&m) == (pip_mode_t)mode;
+        }
+        if (!found) {
+            continue;
+        }
+        int nacts = mode == PIP_MODE_PICK ? 1 : mascot_act_count((pip_mode_t)mode);
+        for (int act = 0; act < nacts; act++) {
+            for (int k = 0; k < 4; k++) {
+                pip_perf_t pf = {(uint8_t)mode, (uint8_t)act, (uint8_t)(k % mascot_act_count((pip_mode_t)mode) == 0 ? 0 : 0),
+                                 1, 1};
+                float D = mascot_perf_seconds(&pf);
+                float t = D * (0.2f + 0.2f * (float)k);
+                if (mode == PIP_MODE_PICK) {
+                    m.voice_choice = (uint8_t)k;
+                    mascot_anim_t an;
+                    mascot_anim_init(&an, 7, 0);
+                    mascot_set_mode(&an, PIP_MODE_PICK, 0);
+                    mascot_set_pick(&an, k, 4);
+                    for (uint32_t ms = 0; ms <= 1500; ms += 50) mascot_anim_step(&an, ms);
+                    m.pose = an.pose;
+                } else {
+                    mascot_perf_pose(&pf, t, D, &m.pose);
+                }
+                m.anim_ms = (uint32_t)(t * 1000.0f);
+                ui_render(&fb, &m, NULL);
+                snprintf(path, sizeof path, "%s/acts/%02d_%s__%02d_%s__%d.png", dir, mode, mascot_mode_name((pip_mode_t)mode),
+                         act, mode == PIP_MODE_PICK ? "pick" : mascot_act_name((pip_mode_t)mode, act), k);
+                failures += png_write_fb(path, &fb) != 0;
+            }
+        }
+    }
+    for (int code = 0; code < 10; code++) {
+        ui_model_t m;
+        sim_scenario(SCREEN_IDLE_READY, &m);
+        m.out_valid = true;
+        m.out_code = (uint8_t)code;
+        m.anim_ms = 1234u * (uint32_t)(code + 1);
+        ui_render(&fb, &m, NULL);
+        snprintf(path, sizeof path, "%s/acts/weather_%d.png", dir, code);
+        failures += png_write_fb(path, &fb) != 0;
+    }
+    printf("acts rendered (%d failures)\n", failures);
+    return failures ? 1 : 0;
+}

@@ -7,6 +7,7 @@
 #include <string.h>
 
 int sim_render_all(const char *dir);
+int sim_render_acts(const char *dir);
 int sim_tcp_run(const char *host, int port, const char *offline_events_json);
 
 static void usage(void)
@@ -18,6 +19,9 @@ int main(int argc, char **argv)
 {
     if (argc >= 3 && strcmp(argv[1], "--render-all") == 0) {
         return sim_render_all(argv[2]);
+    }
+    if (argc >= 3 && strcmp(argv[1], "--render-acts") == 0) {
+        return sim_render_acts(argv[2]);
     }
     if (argc >= 3 && strcmp(argv[1], "--tcp") == 0) {
         char host[64];

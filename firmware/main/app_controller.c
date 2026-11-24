@@ -272,16 +272,15 @@ void app_tick(app_t *a, uint32_t now_ms)
         a->dirty = true;
     }
     supervise_states(a, now_ms);
-    /* live mascot: random idle repertoire + a glance at the text whenever the screen changes */
-    pip_expr_t e = ui_expr_for(&a->m);
-    if (a->m.state != a->prev_state) {
-        if (e != PIP_EXPR_SLEEP && e != PIP_EXPR_ALARM) {
-            mascot_anim_trigger(&a->anim, ANIM_GLANCE_TEXT, now_ms);
-        }
-        a->prev_state = a->m.state;
+    /* live PIP: each screen has its own act library; the idle one never repeats within 2 hours */
+    a->prev_state = a->m.state;
+    mascot_set_mode(&a->anim, ui_mode_for(&a->m), now_ms);
+    if (a->anim.mode == PIP_MODE_PICK) {
+        mascot_set_pick(&a->anim, a->m.voice_choice, UI_VOICE_CHOICES);
     }
-    if (mascot_anim_step(&a->anim, e, now_ms)) {
+    if (mascot_anim_step(&a->anim, now_ms)) {
         a->m.pose = a->anim.pose;
+        a->m.anim_ms = now_ms;
         a->dirty = true;
     }
 }

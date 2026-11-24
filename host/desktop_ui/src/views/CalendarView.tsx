@@ -106,8 +106,9 @@ export default function CalendarView() {
           <Button size="sm" onClick={() => { setAnchor(todayIso()); setSelected(todayIso()); }}>Today</Button>
           <Button size="icon" aria-label="Next" onClick={() => setAnchor(addDays(anchor, step))}><ChevronRight size={16} /></Button>
         </div>} />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <Card aria-label="Calendar grid" className="p-3">
+      {/* week view gets the full width (like Outlook); the day panel then sits underneath */}
+      <div className={cn("grid gap-5", mode !== "week" && "xl:grid-cols-[minmax(0,1fr)_340px]")}>
+        <Card aria-label="Calendar grid" className="min-w-0 p-3">
           {mode === "month" ? (
             <div className="grid grid-cols-7 gap-1.5">
               {days.map((d) => {
@@ -120,10 +121,13 @@ export default function CalendarView() {
                       : "border-line bg-white/50 hover:bg-white", out && "opacity-45")}>
                     <span className={cn("text-xs font-bold", d.date === todayIso() && "rounded-full bg-amber px-1.5 text-white")}>{dt.getDate()}</span>
                     <span className="mt-1 block space-y-0.5">
-                      {d.items.slice(0, 3).map((i) => (
-                        <span key={i.id} className={cn("block truncate rounded px-1 text-[11px]", i.done ? "text-muted line-through" : "bg-paper-2")}>
+                      {d.items.slice(0, 4).map((i) => (
+                        <span key={i.id} title={i.title}
+                          className={cn("block truncate rounded-[4px] border-l-[3px] px-1 py-px text-xs",
+                            ["border-l-ink bg-[#eef0f3]", "border-l-sage bg-sage-soft", "border-l-amber bg-amber-soft"][i.kind],
+                            i.done && "text-muted line-through opacity-60")}>
                           {i.hhmm ? <span className="tabular font-semibold">{i.hhmm} </span> : null}{i.title}</span>))}
-                      {d.items.length > 3 && <span className="block text-[11px] text-muted">+{d.items.length - 3} more</span>}
+                      {d.items.length > 4 && <span className="block text-xs font-semibold text-muted">+{d.items.length - 4} more</span>}
                     </span>
                   </button>
                 );

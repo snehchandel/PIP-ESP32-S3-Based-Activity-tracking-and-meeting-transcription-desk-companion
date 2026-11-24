@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "host"))
 from service.planner.local_rule import LocalRulePlanner
 
-MODEL = "kimi-k3.1-pro-highspeed"
+MODEL = "kimi-k3.1-pro"
 
 
 class FakeKimi:
@@ -38,7 +38,7 @@ class FakeKimi:
             def do_GET(self) -> None:
                 if fake.down:
                     return self._send(503, {"error": {"message": "service unavailable"}})
-                self._send(200, {"data": [{"id": MODEL}, {"id": "kimi-k2.6"}]})
+                self._send(200, {"data": [{"id": "kimi-k3.1-pro-highspeed"}, {"id": MODEL}, {"id": "kimi-k2.6"}]})
 
             def do_POST(self) -> None:
                 fake.calls += 1

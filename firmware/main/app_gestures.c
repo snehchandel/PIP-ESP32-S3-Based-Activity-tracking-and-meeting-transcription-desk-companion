@@ -149,11 +149,30 @@ static void stop_listening(app_t *a, bool timeout)
     a->m.state = UI_STATE_TRANSCRIBING;
 }
 
+static void react(app_t *a, const gesture_event_t *e)
+{
+    /* full-body reaction to every press: PIP turns, spins or leans in */
+    pip_react_t r = PIP_REACT_NONE;
+    if (a->m.state == UI_STATE_VOICE_PICK && e->btn == BTN_KEY && e->gesture == GEST_SHORT) {
+        r = PIP_REACT_NEXT;
+    } else if (e->gesture == GEST_SHORT) {
+        r = e->btn == BTN_BOOT ? PIP_REACT_BACK : PIP_REACT_PRESS;
+    } else if (e->gesture == GEST_DOUBLE) {
+        r = PIP_REACT_DOUBLE;
+    } else if (e->gesture == GEST_HOLD_START) {
+        r = PIP_REACT_HOLD;
+    }
+    if (r != PIP_REACT_NONE) {
+        mascot_react(&a->anim, r, a->now_ms);
+    }
+}
+
 void app_on_gesture(app_t *a, const gesture_event_t *e)
 {
     ui_state_t st = a->m.state;
     a->idle_since_ms = a->now_ms;
     a->dirty = true;
+    react(a, e);
     if (st == UI_STATE_SLEEP) { /* any key wakes; the waking gesture is consumed */
         a->m.state = UI_STATE_IDLE_READY;
         return;

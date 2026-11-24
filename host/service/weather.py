@@ -19,18 +19,25 @@ GEOCODE = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST = "https://api.open-meteo.com/v1/forecast"
 REFRESH_S = 15 * 60
 
-# device icon ids: 0 sun, 1 cloud, 2 rain, 3 snow, 4 storm, 5 fog
-def icon_for(code: int) -> int:
-    if code == 0:
-        return 0
+# device icon ids: 0 sun, 1 cloud, 2 rain, 3 snow, 4 storm, 5 fog, 6 sun+cloud, 7 moon, 8 moon+cloud, 9 drizzle
+def icon_for(code: int, is_day: bool = True) -> int:
+    """WMO weather code (Open-Meteo) -> animated device icon; clear/partly cloudy skies follow day/night."""
+    if code in (0, 1):  # clear / mainly clear
+        return 0 if is_day else 7
+    if code == 2:  # partly cloudy
+        return 6 if is_day else 8
+    if code == 3:  # overcast
+        return 1
     if code in (45, 48):
         return 5
+    if 51 <= code <= 57:  # drizzle (incl. freezing)
+        return 9
+    if 61 <= code <= 67 or 80 <= code <= 82:
+        return 2
     if code in (71, 73, 75, 77, 85, 86):
         return 3
     if code >= 95:
         return 4
-    if 51 <= code <= 67 or 80 <= code <= 82:
-        return 2
     return 1
 
 
@@ -73,12 +80,13 @@ class WeatherService:
             if not loc:
                 raise RuntimeError("no weather location")
             r = await c.get(FORECAST, params={"latitude": loc["latitude"], "longitude": loc["longitude"],
-                                              "current": "temperature_2m,relative_humidity_2m,weather_code",
+                                              "current": "temperature_2m,relative_humidity_2m,weather_code,is_day",
                                               "timezone": "auto"})
             r.raise_for_status()
             cur = r.json()["current"]
         w = {"out_temp_c10": int(round(float(cur["temperature_2m"]) * 10)), "out_hum": int(cur["relative_humidity_2m"]),
-             "out_code": icon_for(int(cur["weather_code"])), "wmo_code": int(cur["weather_code"]),
+             "out_code": icon_for(int(cur["weather_code"]), bool(cur.get("is_day", 1))),
+             "wmo_code": int(cur["weather_code"]), "is_day": bool(cur.get("is_day", 1)),
              "place": loc["name"], "updated": datetime.now(UTC).isoformat()}
         with self.m.lock:
             self.m.weather = w

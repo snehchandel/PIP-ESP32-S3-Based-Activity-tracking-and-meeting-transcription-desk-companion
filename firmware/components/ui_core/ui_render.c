@@ -12,6 +12,7 @@ void ui_model_init(ui_model_t *m)
     m->link = LINK_STANDALONE;
     m->listen_max_s = 60;
     m->voice_choice = 1; /* Brain dump */
+    mascot_home_pose(&m->pose);
 }
 
 ui_screen_t ui_screen_for(const ui_model_t *m)
@@ -45,6 +46,15 @@ pip_expr_t ui_expr_for(const ui_model_t *m)
         PIP_EXPR_READY, PIP_EXPR_LISTENING, PIP_EXPR_THINKING, PIP_EXPR_WORKING, PIP_EXPR_PAUSED, PIP_EXPR_PAUSED,
         PIP_EXPR_DONE,  PIP_EXPR_READY,     PIP_EXPR_ALARM,    PIP_EXPR_THINKING, PIP_EXPR_SLEEP, PIP_EXPR_LISTENING,
         PIP_EXPR_THINKING};
+    return by_screen[ui_screen_for(m)];
+}
+
+pip_mode_t ui_mode_for(const ui_model_t *m)
+{
+    static const pip_mode_t by_screen[SCREEN_COUNT] = {
+        PIP_MODE_IDLE,   PIP_MODE_LISTEN,  PIP_MODE_THINK,   PIP_MODE_FOCUS, PIP_MODE_PAUSE,
+        PIP_MODE_BREAK,  PIP_MODE_DONE,    PIP_MODE_AGENDA,  PIP_MODE_ALARM, PIP_MODE_CONFIRM,
+        PIP_MODE_SLEEP,  PIP_MODE_PICK,    PIP_MODE_ERROR};
     return by_screen[ui_screen_for(m)];
 }
 
@@ -86,7 +96,7 @@ void ui_render(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     fns[s](fb, m, meta);
     if (m->toast[0] && s != SCREEN_STANDALONE_SLEEP && s != SCREEN_ERROR) {
         /* transient 2 s toast: inverted pill floating above the status bar */
-        const font_t *f = &FONT_16B;
+        const font_t *f = &FONT_14B;
         int w = text_width(f, m->toast) + 24;
         if (w > RLCD_W - 2 * UI_MARGIN) {
             w = RLCD_W - 2 * UI_MARGIN;

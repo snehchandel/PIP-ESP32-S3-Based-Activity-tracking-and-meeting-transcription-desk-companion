@@ -1,15 +1,15 @@
 {
   "screen": "10_needs_confirmation",
-  "render_ms": 0.0800,
+  "render_ms": 0.1000,
   "boxes": [
-    {"name": "top_left", "x": 8, "y": 4, "w": 109, "h": 17, "parent": -1},
-    {"name": "top_right", "x": 132, "y": 3, "w": 260, "h": 17, "parent": -1},
-    {"name": "mascot_stage", "x": 16, "y": 70, "w": 120, "h": 120, "parent": -1},
-    {"name": "primary_text", "x": 150, "y": 44, "w": 180, "h": 29, "parent": -1},
-    {"name": "question_card", "x": 150, "y": 84, "w": 238, "h": 64, "parent": -1},
-    {"name": "calm_text", "x": 150, "y": 206, "w": 162, "h": 17, "parent": -1},
+    {"name": "top_left", "x": 8, "y": 3, "w": 87, "h": 29, "parent": -1},
+    {"name": "top_right", "x": 161, "y": 5, "w": 231, "h": 26, "parent": -1},
+    {"name": "mascot_stage", "x": 4, "y": 38, "w": 144, "h": 224, "parent": -1},
+    {"name": "primary_text", "x": 154, "y": 44, "w": 154, "h": 24, "parent": -1},
+    {"name": "question_card", "x": 154, "y": 80, "w": 238, "h": 36, "parent": -1},
+    {"name": "calm_text", "x": 154, "y": 226, "w": 129, "h": 14, "parent": -1},
     {"name": "bottom_bar", "x": 0, "y": 264, "w": 400, "h": 36, "parent": -1},
-    {"name": "bar_hints", "x": 8, "y": 273, "w": 173, "h": 17, "parent": 6},
-    {"name": "bar_status", "x": 303, "y": 273, "w": 89, "h": 18, "parent": 6}
+    {"name": "bar_hints", "x": 8, "y": 274, "w": 166, "h": 15, "parent": 6},
+    {"name": "bar_status", "x": 306, "y": 273, "w": 86, "h": 18, "parent": 6}
   ]
 }

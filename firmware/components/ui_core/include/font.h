@@ -21,10 +21,14 @@ typedef struct {
     const uint8_t *bits;
 } font_t;
 
+extern const font_t FONT_11;
+extern const font_t FONT_12;
+extern const font_t FONT_12B;
 extern const font_t FONT_14;
 extern const font_t FONT_14B;
 extern const font_t FONT_16;
 extern const font_t FONT_16B;
+extern const font_t FONT_20B;
 extern const font_t FONT_24B;
 extern const font_t FONT_32B;
 extern const font_t FONT_64;
