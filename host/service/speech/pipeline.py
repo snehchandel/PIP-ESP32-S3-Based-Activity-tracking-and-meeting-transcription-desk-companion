@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .. import errors
-from ..planner import PlannerError, PlannerOutputV1, TaskPlanner
+from ..planner import BudgetExceeded, PlannerError, PlannerOutputV1, TaskPlanner
 from ..state.manager import DeviceStateManager
 from .stt import SpeechToText
 
@@ -20,6 +20,7 @@ log = logging.getLogger("pip.voice")
 MAX_BYTES = 60 * 16000 * 2  # 60 s of 16 kHz mono PCM
 ACTIVITIES = ["BRAIN_DUMP", "CALENDAR", "FOCUS", "ALARMS"]  # device AUDIO_START activity byte
 AI_GONE = ("AI has left the device", "Kimi couldn't be reached. Your words are saved as a parked note.")
+AI_BUDGET = ("AI budget reached", "This month's Kimi cap is spent. Words parked; raise the cap in Settings.")
 
 
 class AiUnavailable(RuntimeError):
@@ -111,7 +112,7 @@ class VoicePipeline:
             self.m.device.add_voice_session(key, "AI_UNAVAILABLE", text, "KIMI", "{}", False)
             self.m.tasks.park(text[:60].strip() or "Voice note", text)  # keep the thought
             self._set_overlay(None)
-            self.m.set_error(*AI_GONE)
+            self.m.set_error(*(AI_BUDGET if isinstance(e, BudgetExceeded) else AI_GONE))
             self._status("AI_UNAVAILABLE", error=str(e)[:160], transcript=text)
             raise AiUnavailable(str(e)) from e
         self._complete_wake_scripts(planner, plan)

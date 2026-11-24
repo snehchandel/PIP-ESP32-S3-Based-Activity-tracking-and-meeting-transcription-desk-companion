@@ -47,10 +47,12 @@ class FakeKimi:
                     return self._send(503, {"error": {"message": "service unavailable"}})
                 if "wake-up message" in req["messages"][0]["content"]:  # KimiPlanner.wake_script
                     words = ("Good morning sunshine, it is time to rise and shine. " * 9).strip()
-                    return self._send(200, {"choices": [{"message": {"content": words + " Time to get up."}}]})
+                    return self._send(200, {"choices": [{"message": {"content": words + " Time to get up."}}],
+                                            "usage": {"prompt_tokens": 120, "completion_tokens": 110}})
                 said = re.search(r"What I said: (.*)$", req["messages"][-1]["content"], re.DOTALL)
                 plan = planner.plan(said.group(1) if said else "")
-                self._send(200, {"choices": [{"message": {"content": plan.model_dump_json()}}]})
+                self._send(200, {"choices": [{"message": {"content": plan.model_dump_json()}}],
+                                 "usage": {"prompt_tokens": 3000, "completion_tokens": 400, "cached_tokens": 1000}})
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.base_url = f"http://127.0.0.1:{self.server.server_address[1]}/v1"

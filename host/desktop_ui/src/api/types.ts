@@ -79,6 +79,16 @@ export interface Settings {
   alarm_voice_female: string | null; alarm_voice_male: string | null;
 }
 
+export interface AiUsageDay {
+  date: string; calls: number; prompt_tokens: number; cached_tokens: number; completion_tokens: number; cost_usd: number;
+}
+export interface AiUsage {
+  days: AiUsageDay[]; today: AiUsageDay; active_model: string | null;
+  month: { calls: number; prompt_tokens: number; completion_tokens: number; cost_usd: number; by_model: { model: string; calls: number; cost: number }[] };
+  cap_usd: number | null; cap_used: number | null; cap_state: "OK" | "WARN" | "REACHED";
+  prices: Record<string, { input: number; cached: number; output: number }>;
+}
+
 export type Activity = "BRAIN_DUMP" | "CALENDAR" | "FOCUS" | "ALARMS";
 export interface Place { name: string; admin1: string; country: string; latitude: number; longitude: number }
 export interface WeatherInfo {

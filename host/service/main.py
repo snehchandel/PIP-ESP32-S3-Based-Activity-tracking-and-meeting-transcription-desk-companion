@@ -10,7 +10,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import routes_alarms, routes_core, routes_more, routes_settings
+from .api import routes_ai, routes_alarms, routes_core, routes_more, routes_settings
 from .config import ROOT, Settings, get_settings
 from .services import Services
 
@@ -35,6 +35,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     app.include_router(routes_more.router)
     app.include_router(routes_alarms.router)
     app.include_router(routes_settings.router)
+    app.include_router(routes_ai.router)
 
     @app.websocket("/ws/events")
     async def ws_events(ws: WebSocket) -> None:

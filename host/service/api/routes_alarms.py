@@ -98,10 +98,12 @@ class ScriptIn(BaseModel):
 @router.post("/alarms/script")
 def write_script(body: ScriptIn, req: Request) -> dict[str, Any]:
     """Kimi writes a ~30 second spoken wake-up script (70-90 words)."""
-    from ..planner import PlannerError
+    from ..planner import BudgetExceeded, PlannerError
     s = svc(req)
     try:
         script = s.planner().wake_script(body.title, body.note)
+    except BudgetExceeded as e:
+        raise HTTPException(429, f"AI budget reached: {e}") from None
     except PlannerError as e:
         raise HTTPException(503, f"AI has left the device: {e}") from None
     words = len(script.split())

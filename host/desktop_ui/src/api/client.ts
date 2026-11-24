@@ -1,4 +1,4 @@
-import type { Activity, Alarm, DayItems, FullState, Health, Place, Plan, PlanResult, Settings, VoiceSession, WeatherInfo } from "./types";
+import type { Activity, AiUsage, Alarm, DayItems, FullState, Health, Place, Plan, PlanResult, Settings, VoiceSession, WeatherInfo } from "./types";
 
 const BASE = "/api/v1";
 
@@ -66,6 +66,10 @@ export const api = {
     "GET", "/device/diagnostics"),
   voiceSessions: () => req<VoiceSession[]>("GET", "/voice/sessions"),
   settings: () => req<Settings>("GET", "/settings"),
+  aiUsage: () => req<AiUsage>("GET", "/ai/usage"),
+  setAiBudget: (monthly_cap_usd: number | null) => req<AiUsage>("PUT", "/ai/budget", { monthly_cap_usd }),
+  setAiPrice: (model: string, input: number, cached: number, output: number) =>
+    req<AiUsage>("PUT", "/ai/prices", { model, input, cached, output }),
   saveApiKey: (key: string) => req<Settings>("PUT", "/settings/api-key", { key }),
   deleteApiKey: () => req<Settings>("DELETE", "/settings/api-key"),
   testApiKey: (key?: string) => req<{ ok: boolean; detail: string }>("POST", "/settings/api-key/test", { key: key || null }),

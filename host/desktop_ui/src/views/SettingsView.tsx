@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
 import type { Settings } from "../api/types";
+import { AiUsageCard } from "../components/AiUsageCard";
 import { ApiKeyCard, SpeechCard } from "../components/SettingsCards";
 import { WeatherCard } from "../components/WeatherCard";
 import { Button } from "../components/ui/button";
@@ -33,6 +34,7 @@ export default function SettingsView() {
       {!s ? <p className="text-sm text-muted">Loading…</p> : (
         <div className="grid gap-5 lg:grid-cols-2">
           <ApiKeyCard s={s} onChange={update} />
+          <AiUsageCard />
           <SpeechCard s={s} onChange={update} />
           <WeatherCard />
           <Card aria-label="System">

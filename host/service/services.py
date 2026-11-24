@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from . import errors
+from .ai_cost import CostMeter
 from .alarms.audio import AlarmAudio
 from .alarms.scheduler import AlarmScheduler
 from .api.ws import WsHub
@@ -50,6 +51,7 @@ class Services:
         self.alarm_audio = AlarmAudio(self, data_dir / "alarm_audio")
         self.manager.voice_for_style = self.alarm_voice
         self.weather = WeatherService(settings, self.manager)
+        self.cost = CostMeter(self.db, settings)
         self._ticker: asyncio.Task[None] | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self._model_cache: tuple[object, str] = (None, "")
@@ -73,8 +75,10 @@ class Services:
         return self._model_cache[1]
 
     def planner(self) -> TaskPlanner:
+        """Kimi planner that meters every call; raises BudgetExceeded once the monthly cap is spent."""
         s = self.settings
-        return make_planner(s.api_key(), s.moonshot_base_url, self.kimi_model(), s.pip_timezone)
+        self.cost.check_budget()
+        return make_planner(s.api_key(), s.moonshot_base_url, self.kimi_model(), s.pip_timezone, on_usage=self.cost.record)
 
     def alarm_voice(self, style: str) -> str | None:
         """Piper voice for a spoken alarm: the user's choice in Settings, else the best installed one."""

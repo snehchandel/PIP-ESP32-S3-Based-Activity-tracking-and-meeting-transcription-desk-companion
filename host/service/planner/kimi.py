@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -66,6 +68,13 @@ class PlannerError(RuntimeError):
     pass
 
 
+class BudgetExceeded(PlannerError):
+    """The optional monthly AI spending cap (Settings) has been reached."""
+
+
+UsageSink = Callable[[str, str, dict[str, Any]], None]  # (model, purpose, usage) -> None
+
+
 def resolve_model(client: httpx.Client, base_url: str, api_key: str, preferred: str = "") -> str:
     """Pick the configured model if the account has it, else the newest preferred one it offers."""
     r = client.get(f"{base_url.rstrip('/')}/models", headers={"Authorization": f"Bearer {api_key}"}, timeout=15)
@@ -98,7 +107,7 @@ class KimiPlanner:
     mode = "KIMI"
 
     def __init__(self, api_key: str, base_url: str, model: str, tz: str = "America/Toronto",
-                 client: httpx.Client | None = None, timeout: float = 90.0) -> None:
+                 client: httpx.Client | None = None, timeout: float = 90.0, on_usage: UsageSink | None = None) -> None:
         if not api_key:
             raise PlannerError("no Kimi API key configured")
         self.api_key = api_key
@@ -106,13 +115,26 @@ class KimiPlanner:
         self.model = model
         self.tz = ZoneInfo(tz)
         self.client = client or httpx.Client(timeout=timeout)
+        self.on_usage = on_usage
 
-    def _call(self, messages: list[dict[str, str]]) -> str:
+    def _post(self, messages: list[dict[str, str]], purpose: str, json_mode: bool) -> httpx.Response:
+        body: dict[str, Any] = {"model": self.model, "messages": messages}
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        r = self.client.post(f"{self.base_url}/chat/completions", headers={"Authorization": f"Bearer {self.api_key}"},
+                             json=body)
+        if r.status_code < 400 and self.on_usage:
+            try:
+                usage = r.json().get("usage") or {}
+                if usage:
+                    self.on_usage(self.model, purpose, usage)
+            except (ValueError, AttributeError):
+                pass
+        return r
+
+    def _call(self, messages: list[dict[str, str]], purpose: str = "plan") -> str:
         try:
-            r = self.client.post(f"{self.base_url}/chat/completions",
-                                 headers={"Authorization": f"Bearer {self.api_key}"},
-                                 json={"model": self.model, "messages": messages,
-                                       "response_format": {"type": "json_object"}})
+            r = self._post(messages, purpose, json_mode=True)
         except httpx.HTTPError as e:  # timeout, DNS, connection reset...
             raise PlannerError(f"Kimi unreachable: {type(e).__name__}") from e
         if r.status_code >= 400:
@@ -131,13 +153,11 @@ class KimiPlanner:
     def wake_script(self, title: str, note: str = "") -> str:
         """~30 s (70-90 words) of warm spoken wake-up encouragement for a voice alarm."""
         try:
-            r = self.client.post(f"{self.base_url}/chat/completions", headers={"Authorization": f"Bearer {self.api_key}"},
-                                 json={"model": self.model, "messages": [
-                                     {"role": "system", "content": "Write a spoken wake-up message of 70-90 words "
-                                      "(about 30 seconds aloud), second person, warm, upbeat and encouraging, ending "
-                                      "with a gentle 'time to get up'. Plain sentences only: no emojis, no stage "
-                                      "directions, no quotes, no title."},
-                                     {"role": "user", "content": f"Alarm: {title}. {note}".strip()}]})
+            r = self._post([{"role": "system", "content": "Write a spoken wake-up message of 70-90 words "
+                             "(about 30 seconds aloud), second person, warm, upbeat and encouraging, ending "
+                             "with a gentle 'time to get up'. Plain sentences only: no emojis, no stage "
+                             "directions, no quotes, no title."},
+                            {"role": "user", "content": f"Alarm: {title}. {note}".strip()}], "wake_script", json_mode=False)
         except httpx.HTTPError as e:
             raise PlannerError(f"Kimi unreachable: {type(e).__name__}") from e
         if r.status_code >= 400:
