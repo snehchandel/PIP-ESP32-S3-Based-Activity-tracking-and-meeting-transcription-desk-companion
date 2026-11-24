@@ -21,7 +21,7 @@
 #define APP_RING_CHIME_MS 2500u     /* offline ringing: repeat the alarm chime... */
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
-#define APP_FW_VERSION "1.1.1" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_FW_VERSION "1.1.2" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum { CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM } chime_id_t;
 

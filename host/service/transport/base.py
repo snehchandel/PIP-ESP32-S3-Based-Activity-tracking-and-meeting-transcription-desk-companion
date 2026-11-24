@@ -29,6 +29,7 @@ class DeviceTransport(ABC):
         self.connected = False
         self.last_rx = 0.0
         self.disconnects = 0
+        self.down_at = 0.0  # monotonic time of the last link loss (lets the app ride out a quick reconnect)
 
     # -- subclass hooks ---------------------------------------------------------------
     @abstractmethod
@@ -78,6 +79,7 @@ class DeviceTransport(ABC):
         self.connected = False
 
     def _mark_down(self, err: Exception) -> None:
+        self.down_at = time.monotonic()
         if self.connected:
             log.info("%s link down: %s", self.kind, err)
             self.disconnects += 1

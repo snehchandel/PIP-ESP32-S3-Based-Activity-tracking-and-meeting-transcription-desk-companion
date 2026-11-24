@@ -39,7 +39,8 @@ static volatile bool s_capture;
 static volatile uint32_t s_stream;
 static int32_t s_batt_mv = -1;
 static dev_config_t s_cfg;
-static volatile int s_src; /* 0 USB, 1 Wi-Fi: replies go back over the link the PC last spoke on */
+static volatile int s_src;              /* 0 USB, 1 Wi-Fi: the link the PC last spoke on */
+static volatile uint32_t s_usb_rx_ms;  /* last frame from the PC over USB: the cable always wins */
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 static void lock(void) { xSemaphoreTake(s_lock, portMAX_DELAY); }
@@ -47,7 +48,9 @@ static void unlock(void) { xSemaphoreGive(s_lock); }
 
 static void io_send(void *ctx, uint8_t type, uint8_t flags, uint16_t seq, const uint8_t *p, uint16_t len)
 {
-    if (s_src == 1 && net_link_client_ready()) {
+    /* the USB cable wins whenever the PC is using it; Wi-Fi only when the PC is not on the cable */
+    bool usb_active = s_usb_rx_ms != 0 && now_ms() - s_usb_rx_ms < 3000u && usb_transport_host_connected();
+    if (!usb_active && s_src == 1 && net_link_client_ready()) {
         net_link_send(type, flags, seq, p, len);
     } else {
         usb_transport_send(type, flags, seq, p, len);
@@ -188,6 +191,9 @@ static bool device_frame(const pip_frame_t *f)
 static void handle_frame(const pip_frame_t *f, int src)
 {
     s_src = src;
+    if (src == 0) {
+        s_usb_rx_ms = now_ms();
+    }
     lock();
     s_app.now_ms = now_ms();
     s_app.last_rx_ms = s_app.now_ms; /* device-only frames also prove the PC is there */

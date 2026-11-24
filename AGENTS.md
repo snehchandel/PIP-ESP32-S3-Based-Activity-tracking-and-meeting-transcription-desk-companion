@@ -235,6 +235,10 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   mapped Latin-1 glyphs.
 - **Sync FastAPI routes run in a thread pool** — anything that creates asyncio tasks must be `async def`.
 - **USB reconnects in < 1 s** after a reboot: detect device restarts by `boot_id`, not by waiting for a link drop.
+- **Windows occasionally drops PIP's COM port for a moment** ("ClearCommError ... device does not recognize the
+  command", seen even before Wi-Fi existed). Never treat that as "unplugged": `AutoTransport` re-opens USB while
+  the port is enumerated, uses Wi-Fi only when the cable is gone (or the port is unusable for 10 s), and moves back
+  to USB in place. The device answers over USB whenever the PC spoke over USB in the last 3 s (BUG-015).
 - **Kimi:** k3 models reject `temperature`, sometimes wrap JSON in a list or code fence (`extract_json`), count
   hidden reasoning tokens as output (budget accordingly), and planning takes 18–38 s (watchdogs: host 150 s for
   THINKING, device 180 s).
@@ -247,11 +251,14 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
 ## 9. Status and known gaps (keep this section current)
 
 - Verified on hardware: display/animations, buttons, voice capture → Whisper → Kimi, Piper speech, spoken alarms,
-  toasts, in-app OTA over USB (both slots), wake-word detection ("Hi ESP", "Jarvis" via WAKE_TEST injection; live
-  "Hi ESP" by the user), cost meter against the real Moonshot API.
-- **Not yet verified on hardware:** the Wi-Fi link end-to-end (needs the user to enter their Wi-Fi details in
-  Device → Connection), OTA over Wi-Fi, an actual rollback (needs a deliberately broken image), hands-free
-  recording end-of-speech timing in a real room.
+  toasts, in-app OTA over USB (both slots) **and over Wi-Fi** (~30 s, PIP rejoins Wi-Fi ~9 s after reboot),
+  the Wi-Fi link end-to-end (mDNS, HMAC handshake, wrong token rejected, screen capture, speech streaming,
+  wake test), cable preference (8 min with both links up: zero link changes), wake-word detection ("Hi ESP",
+  "Jarvis" via WAKE_TEST; live "Hi ESP" by the user), cost meter against the real Moonshot API.
+- **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
+  end-of-speech timing in a real room, the automatic USB→Wi-Fi fallback when the cable is physically pulled
+  (unit-tested; needs someone to unplug PIP).
+- To exercise the app over Wi-Fi while the cable stays plugged in, start the host with `PIP_TRANSPORT=wifi`.
 - Wake word: stock Espressif words only; a custom "Hey PIP" needs a trained model (paid service) or a PC-side
   detector (rejected by the user in favour of on-device privacy).
 - Four old ruff findings in tests (SIM117 ×2, RUF015, RUF059) are pre-existing and harmless.

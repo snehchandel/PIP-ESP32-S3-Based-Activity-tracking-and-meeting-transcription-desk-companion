@@ -1,19 +1,26 @@
-"""Auto transport: USB when the cable is in (fastest, also used to pair), otherwise Wi-Fi.
+"""Auto transport: the USB cable always wins when PIP is plugged in; Wi-Fi only when it is not.
 
-While on Wi-Fi it re-probes USB every few seconds and hops back to the cable as soon as PIP is plugged in;
-when the cable is pulled it falls back to Wi-Fi on the next reconnect (about a second)."""
+- While PIP's USB port is enumerated, a transient serial error (Windows sometimes reports ClearCommError for a
+  moment, e.g. while PIP's radio starts) is answered by re-opening USB, not by hopping to Wi-Fi. Wi-Fi is used
+  only if the cable is unplugged, or the port stays unusable for USB_GRACE_S (another program holds it).
+- While on Wi-Fi, USB is probed every USB_PROBE_S; when it can be opened the link switches over *in place*
+  (no disconnect seen by the app), and the Wi-Fi socket is closed."""
 from __future__ import annotations
 
+import logging
 import socket
 import time
 
 import serial
 
+from ..protocol import FrameParser
 from .base import DeviceTransport, FrameCallback
 from .usb_serial import find_board_port, open_serial
 from .wifi import WifiTarget, open_wifi
 
+log = logging.getLogger("pip.transport")
 USB_PROBE_S = 5.0
+USB_GRACE_S = 10.0
 
 
 class AutoTransport(DeviceTransport):
@@ -26,17 +33,31 @@ class AutoTransport(DeviceTransport):
         self._sock: socket.socket | None = None
         self._active = "DISCONNECTED"
         self._probe_at = 0.0
+        self._usb_fail_since: float | None = None
 
     @property  # type: ignore[override]
     def kind(self) -> str:
         return self._active
 
+    def _port(self) -> str | None:
+        return self.serial_port or find_board_port()
+
     def _open(self) -> None:
-        port = self.serial_port or find_board_port()
+        port = self._port()
         if port:
-            self._ser = open_serial(port)
-            self._active = "USB_HARDWARE"
-            return
+            try:
+                self._ser = open_serial(port)
+                self._active = "USB_HARDWARE"
+                self._usb_fail_since = None
+                return
+            except (OSError, serial.SerialException) as e:
+                now = time.monotonic()
+                self._usb_fail_since = self._usb_fail_since or now
+                if now - self._usb_fail_since < USB_GRACE_S:
+                    raise OSError(f"USB port busy, retrying the cable: {e}") from e
+                # plugged in but unusable for a while (port held elsewhere): use Wi-Fi meanwhile
+        else:
+            self._usb_fail_since = None
         if self.wifi_target:
             hosts, token = self.wifi_target()
             if token and hosts:
@@ -55,6 +76,24 @@ class AutoTransport(DeviceTransport):
             self._sock = None
         self._active = "DISCONNECTED"
 
+    def _switch_to_usb(self) -> bool:
+        """Called while on Wi-Fi: move to the cable without dropping the link."""
+        port = self._port()
+        if not port:
+            return False
+        try:
+            ser = open_serial(port)
+        except (OSError, serial.SerialException):
+            return False
+        if self._sock:
+            self._sock.close()
+            self._sock = None
+        self._ser = ser
+        self._active = "USB_HARDWARE"
+        self.parser = FrameParser()
+        log.info("PIP plugged in: switched from Wi-Fi to USB")
+        return True
+
     def _read(self) -> bytes:
         if self._ser:
             try:
@@ -64,8 +103,8 @@ class AutoTransport(DeviceTransport):
         assert self._sock is not None
         if time.monotonic() >= self._probe_at:
             self._probe_at = time.monotonic() + USB_PROBE_S
-            if find_board_port():
-                raise OSError("PIP plugged in: switching to USB")
+            if self._switch_to_usb():
+                return b""
         try:
             data = self._sock.recv(8192)
         except TimeoutError:

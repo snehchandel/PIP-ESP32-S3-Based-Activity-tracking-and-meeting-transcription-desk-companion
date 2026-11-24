@@ -224,3 +224,50 @@ def test_wake_event_and_self_test(tmp_path) -> None:  # type: ignore[no-untyped-
         link.linked = False  # offline: the choice is saved and sent to PIP on the next link-up
         w = c.put("/api/v1/device/wake", json={"enabled": False, "word": "jarvis"}).json()
         assert w["enabled"] is False and w["word"] == "jarvis" and svc.wake_settings()["word"] == "jarvis"
+
+
+class _FakeSerial:
+    def read(self, n: int) -> bytes:
+        return b""
+
+    def write(self, data: bytes) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def test_cable_wins_and_usb_hiccups_do_not_flap_to_wifi(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import service.transport.auto as auto
+    pip = FakePip()
+    monkeypatch.setattr("service.transport.wifi.PIP_TCP_PORT", pip.port)
+    monkeypatch.setattr(auto, "find_board_port", lambda: "COM3")
+    state = {"fail": True, "clock": 1000.0}
+    monkeypatch.setattr(auto.time, "monotonic", lambda: state["clock"])
+
+    def fake_open(port: str) -> _FakeSerial:
+        if state["fail"]:
+            raise OSError("ClearCommError failed (PermissionError 13)")
+        return _FakeSerial()
+    monkeypatch.setattr(auto, "open_serial", fake_open)
+    t = AutoTransport(None, lambda: (["127.0.0.1"], TOKEN))
+    with pytest.raises(OSError, match="retrying the cable"):  # plugged in + hiccup: keep trying USB, no Wi-Fi
+        t._open()
+    state["clock"] += 3.0
+    with pytest.raises(OSError, match="retrying the cable"):
+        t._open()
+    state["fail"] = False
+    t._open()
+    assert t.kind == "USB_HARDWARE"
+    t._close()
+    state["fail"] = True  # port held by another program for longer than the grace period -> Wi-Fi meanwhile
+    with pytest.raises(OSError):
+        t._open()
+    state["clock"] += auto.USB_GRACE_S + 1
+    t._open()
+    assert t.kind == "WIFI"
+    state["fail"] = False  # cable usable again: switch in place on the next probe, no disconnect
+    state["clock"] += auto.USB_PROBE_S + 1
+    t.connected = True
+    assert t._read() == b"" and t.kind == "USB_HARDWARE" and t._sock is None and t.connected
+    t._close()

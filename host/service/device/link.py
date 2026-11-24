@@ -29,6 +29,7 @@ from ..transport import AutoTransport, DeviceTransport, SimTcpTransport, UsbSeri
 
 log = logging.getLogger("pip.link")
 LINK_TIMEOUT_S = 3.0
+RECONNECT_GRACE_S = 2.5
 
 
 def make_transport(mode: str, sim_addr: str, serial_port: str,
@@ -93,7 +94,11 @@ class DeviceLink:
                 self._heartbeat()
                 if self.m.tick():
                     pass  # tick already pushed via change listener
-                linked = bool(self.t and self.t.connected and time.monotonic() - self.last_rx < LINK_TIMEOUT_S)
+                # a reconnect that completes within RECONNECT_GRACE_S (USB hiccup) is not shown as a disconnect
+                reconnecting = bool(self.t and not self.t.connected
+                                    and time.monotonic() - self.t.down_at < RECONNECT_GRACE_S)
+                linked = bool(self.t and (self.t.connected or reconnecting)
+                              and time.monotonic() - self.last_rx < LINK_TIMEOUT_S)
                 if linked != self.linked:
                     self.linked = linked
                     self.notify("device_link_changed", {"linked": linked, "transport": self.transport_kind})
