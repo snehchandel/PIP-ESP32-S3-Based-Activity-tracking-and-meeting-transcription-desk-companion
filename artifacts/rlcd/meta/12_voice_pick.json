@@ -7,8 +7,9 @@
     {"name": "mascot_stage", "x": 4, "y": 38, "w": 144, "h": 224, "parent": -1},
     {"name": "primary_text", "x": 154, "y": 42, "w": 188, "h": 24, "parent": -1},
     {"name": "choice_list", "x": 154, "y": 74, "w": 238, "h": 171, "parent": -1},
+    {"name": "wake_tip", "x": 154, "y": 249, "w": 238, "h": 15, "parent": -1},
     {"name": "bottom_bar", "x": 0, "y": 264, "w": 400, "h": 36, "parent": -1},
-    {"name": "bar_hints", "x": 8, "y": 274, "w": 248, "h": 15, "parent": 5},
-    {"name": "bar_status", "x": 306, "y": 273, "w": 86, "h": 18, "parent": 5}
+    {"name": "bar_hints", "x": 8, "y": 274, "w": 248, "h": 15, "parent": 6},
+    {"name": "bar_status", "x": 306, "y": 273, "w": 86, "h": 18, "parent": 6}
   ]
 }
