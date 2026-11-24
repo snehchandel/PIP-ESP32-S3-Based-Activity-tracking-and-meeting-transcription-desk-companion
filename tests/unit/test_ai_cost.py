@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-
 from service.ai_cost import CostMeter
 from service.config import Settings
 from service.main import create_app

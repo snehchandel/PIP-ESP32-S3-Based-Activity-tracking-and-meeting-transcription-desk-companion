@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 from service.storage.db import EVENT_LOG_MAX, Database
+from service.storage.db import MIGRATIONS as MIGRATIONS_DIR
 from service.storage.repo_tasks import TaskRepo
 
 STEPS = [{"title": "Open doc", "duration_min": 2, "is_starter": True}, {"title": "Write", "duration_min": 10},
@@ -18,7 +19,7 @@ def test_wal_and_migrations_idempotent(tmp_path) -> None:  # type: ignore[no-unt
     assert db.migrate() == []  # second run applies nothing
     db.close()
     db2 = Database(path)
-    assert [r[0] for r in db2.query("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4]
+    assert [r[0] for r in db2.query("SELECT version FROM schema_migrations ORDER BY version")] == sorted(int(p.name[:3]) for p in MIGRATIONS_DIR.glob("*.sql"))
     db2.close()
 
 
