@@ -238,7 +238,7 @@ class _FakeSerial:
 
 
 def test_cable_wins_and_usb_hiccups_do_not_flap_to_wifi(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    import service.transport.auto as auto
+    from service.transport import auto
     pip = FakePip()
     monkeypatch.setattr("service.transport.wifi.PIP_TCP_PORT", pip.port)
     monkeypatch.setattr(auto, "find_board_port", lambda: "COM3")
