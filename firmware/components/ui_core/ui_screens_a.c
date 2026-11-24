@@ -48,14 +48,14 @@ void ui_screen_idle(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     char buf[128];
     if (m->has_active_step) {
         snprintf(buf, sizeof buf, "Next: %s (%um)", m->step_title, (unsigned)((m->remaining_ms + 59999u) / 60000u));
-        int n = text_draw_wrap(fb, &FONT_16, CONTENT_X, y, CONTENT_W, 2, 2, buf, INK_BLACK);
+        int n = text_draw_wrap(fb, &FONT_16B, CONTENT_X, y, CONTENT_W, 2, 2, buf, INK_BLACK);
         ui_meta_add(meta, "secondary_text", CONTENT_X, y, CONTENT_W, n * 21, -1);
         ui_hint_t h[] = {{ICON_ARROW, "Start"}, {ICON_CYCLE, "Agenda"}};
         ui_chrome_bar(fb, m, h, 2, meta);
     } else {
         const char *msg = m->link == LINK_TETHERED ? "Hold KEY and tell me what's on your mind."
                                                    : "Plan tasks in the PIP app, then focus here.";
-        int n = text_draw_wrap(fb, &FONT_16, CONTENT_X, y, CONTENT_W, 3, 2, msg, INK_BLACK);
+        int n = text_draw_wrap(fb, &FONT_16B, CONTENT_X, y, CONTENT_W, 3, 2, msg, INK_BLACK);
         ui_meta_add(meta, "secondary_text", CONTENT_X, y, CONTENT_W, n * 21, -1);
         ui_hint_t h[] = {{ICON_MIC, "Hold: Talk"}, {ICON_CYCLE, "Agenda"}};
         ui_chrome_bar(fb, m, h, 2, meta);
@@ -94,16 +94,30 @@ void ui_screen_thinking(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
 {
     ui_chrome_top(fb, m, meta);
     ui_chrome_mascot(fb, m, PIP_EXPR_THINKING, "Thinking", meta);
-    text_draw_bold(fb, &FONT_24B, CONTENT_X, 58, "Planning...", INK_BLACK);
-    ui_meta_add(meta, "primary_text", CONTENT_X, 58, text_width(&FONT_24B, "Planning...") + 1, FONT_24B.line_h, -1);
-    const char *stage = m->state == UI_STATE_TRANSCRIBING ? "Transcribing..."
-                        : (m->thinking_stage[0] ? m->thinking_stage : "Breaking into steps...");
-    text_draw_fit(fb, &FONT_16, CONTENT_X, 104, CONTENT_W, stage, INK_BLACK);
-    ui_meta_add(meta, "secondary_text", CONTENT_X, 104, CONTENT_W, FONT_16.line_h, -1);
+    text_draw_bold(fb, &FONT_32B, CONTENT_X, 44, "Planning...", INK_BLACK);
+    ui_meta_add(meta, "primary_text", CONTENT_X, 44, text_width(&FONT_32B, "Planning...") + 1, FONT_32B.line_h, -1);
+    /* 3-stage pipeline: done = filled dot, current = ring + dot, pending = ring */
+    int cur = m->state == UI_STATE_TRANSCRIBING ? 0 : 1;
+    const char *labels[3] = {cur == 0 ? "Transcribing..." : "Heard you",
+                             m->thinking_stage[0] && cur == 1 ? m->thinking_stage : "Breaking into steps",
+                             "Ready to focus"};
     for (int i = 0; i < 3; i++) {
-        fb_fill_circle(fb, CONTENT_X + 8 + i * 22, 156, 6, INK_BLACK);
+        int y = 98 + i * 34, cx = CONTENT_X + 10, cy = y + 10;
+        if (i < cur) {
+            fb_fill_circle(fb, cx, cy, 9, INK_BLACK);
+        } else {
+            fb_fill_circle(fb, cx, cy, 9, INK_BLACK);
+            fb_fill_circle(fb, cx, cy, 6, INK_WHITE);
+            if (i == cur) {
+                fb_fill_circle(fb, cx, cy, 3, INK_BLACK);
+            }
+        }
+        if (i < 2) {
+            fb_vline(fb, cx - 1, cy + 11, 13, 2, INK_BLACK);
+        }
+        text_draw_fit(fb, i <= cur ? &FONT_16B : &FONT_16, CONTENT_X + 30, y, CONTENT_W - 30, labels[i], INK_BLACK);
     }
-    ui_meta_add(meta, "progress_dots", CONTENT_X + 2, 150, 56, 13, -1);
+    ui_meta_add(meta, "stage_list", CONTENT_X, 98, CONTENT_W, 3 * 34 - 14, -1);
     ui_hint_t h[] = {{-1, "Please wait"}};
     ui_chrome_bar(fb, m, h, 1, meta);
 }

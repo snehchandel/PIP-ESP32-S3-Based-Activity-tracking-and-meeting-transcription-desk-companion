@@ -1,7 +1,7 @@
 """Alarm occurrence math (one-time + weekly recurring, DST-safe), snooze/dismiss, reboot idempotency."""
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -15,11 +15,11 @@ MISSED_GRACE = timedelta(minutes=10)
 def _utc(s: str | None) -> datetime | None:
     if not s:
         return None
-    return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
 
 
 def fmt_utc(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def next_occurrence(alarm: dict[str, Any], after: datetime) -> datetime | None:
@@ -40,7 +40,7 @@ def next_occurrence(alarm: dict[str, Any], after: datetime) -> datetime | None:
         if DAYS[d.weekday()] not in days:
             continue
         local, _ = resolve_local(d, time(hh, mm), tz)
-        inst = local.astimezone(timezone.utc)
+        inst = local.astimezone(UTC)
         if inst > after:
             return inst
     return None
@@ -69,7 +69,7 @@ def apply_ack(repo: AlarmRepo, alarm_id: str, snooze: bool) -> None:
     a = repo.get(alarm_id)
     if a is None:
         return
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if snooze:
         when = now + timedelta(minutes=int(a.get("snooze_min") or 5))
         if a["schedule_kind"] == "ONCE":
@@ -84,7 +84,7 @@ def apply_ack(repo: AlarmRepo, alarm_id: str, snooze: bool) -> None:
 
 
 def upcoming(alarms: list[dict[str, Any]], tz: ZoneInfo, limit: int = 8) -> list[dict[str, Any]]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     items = []
     for a in alarms:
         occ = next_occurrence(a, now)

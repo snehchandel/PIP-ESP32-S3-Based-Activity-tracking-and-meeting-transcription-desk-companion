@@ -24,6 +24,7 @@ set(CORE_SRC
     ${FW}/main/app_controller.c
     ${FW}/main/app_gestures.c
     ${FW}/main/app_frames.c
+    ${FW}/main/app_report.c
 )
 set(CORE_INC
     ${FW}/components/board_pins/include

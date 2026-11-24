@@ -13,7 +13,7 @@ from .base import DeviceTransport
 class DeviceClient:
     def __init__(self, transport: DeviceTransport) -> None:
         self.t = transport
-        self.frames: "queue.Queue[Frame]" = queue.Queue()
+        self.frames: queue.Queue[Frame] = queue.Queue()
         self.t.on_frame = self._on_frame
         self._fb = FramebufferAssembler()
         self.state_rev = 0
@@ -66,7 +66,14 @@ class DeviceClient:
         f = self.wait_for(FrameType.DIAG_REPORT, timeout)
         return json.loads(f.payload) if f else None
 
-    def framebuffer(self, timeout: float = 3.0) -> bytes | None:
+    def framebuffer(self, timeout: float = 3.0, retries: int = 1) -> bytes | None:
+        for _ in range(retries + 1):  # a chunk can be lost while the board is still settling after reset
+            fb = self._framebuffer_once(timeout)
+            if fb is not None:
+                return fb
+        return None
+
+    def _framebuffer_once(self, timeout: float) -> bytes | None:
         self.drain()
         self._fb = FramebufferAssembler()
         self.t.send(FrameType.DUMP_FB)

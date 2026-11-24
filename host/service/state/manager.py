@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..storage.db import Database
@@ -142,5 +143,5 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
                 "parked": self.tasks.parked(), "reminders": self.tasks.reminders(),
                 "alarms": self.alarms.list(), "ringing": self.ringing, "pending_confirmation": self.pending,
                 "done_title": self.done_title, "timezone": self.tz.key,
-                "server_time_utc": datetime.now(timezone.utc).isoformat(),
+                "server_time_utc": datetime.now(UTC).isoformat(),
             }

@@ -80,6 +80,7 @@ def _draw(name: str) -> Image.Image:
     elif name == "ALARM":
         A.eyes_angled(c, intense=True)
         A.exclaim(c)
+        A.shake(c)
     img = finish(c)
     if name == "LISTENING":  # slight attentive tilt
         img = img.convert("L").rotate(-6, resample=Image.BICUBIC, fillcolor=255, center=(60, 100))

@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+/* PIP calm editorial palette: matte ivory paper, deep charcoal ink, restrained warm amber. */
+@theme {
+  --color-paper: #faf8f4;
+  --color-paper-2: #f3efe7;
+  --color-ink: #18181b;
+  --color-ink-2: #3f3f46;
+  --color-muted: #6b6760;
+  --color-line: #e4ded3;
+  --color-amber: #e87a1e;
+  --color-amber-soft: #fbe9d8;
+  --color-amber-ink: #9a4a08;
+  --color-sage: #4d7c5a;
+  --color-sage-soft: #e3efe5;
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  --radius-card: 18px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.rlcd-canvas {
+  image-rendering: pixelated;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

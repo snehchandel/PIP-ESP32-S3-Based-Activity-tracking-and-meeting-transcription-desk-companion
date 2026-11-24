@@ -35,7 +35,7 @@ class ActiveTask(BaseModel):
     if_then_cue: str | None = None
 
     @model_validator(mode="after")
-    def adhd_invariants(self) -> "ActiveTask":
+    def adhd_invariants(self) -> ActiveTask:
         if not 3 <= len(self.steps) <= 6:
             raise ValueError(f"active task needs 3-6 micro-steps, got {len(self.steps)}")
         first = self.steps[0]
@@ -80,7 +80,7 @@ class PlannerOutputV1(BaseModel):
     summary: str = ""
 
     @model_validator(mode="after")
-    def consistent(self) -> "PlannerOutputV1":
+    def consistent(self) -> PlannerOutputV1:
         if self.intent == IntentType.NEEDS_CLARIFICATION and not self.clarification_question:
             raise ValueError("NEEDS_CLARIFICATION requires clarification_question")
         if self.intent == IntentType.CREATE_TASK and self.active_task is None:

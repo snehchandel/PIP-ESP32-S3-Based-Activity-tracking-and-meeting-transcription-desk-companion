@@ -152,6 +152,13 @@ def question(c: Canvas):
     c.dot(104, 34, 2.6)
 
 
+def shake(c: Canvas):
+    """Alarm vibration arcs on both sides of the body: reads as 'ringing' at a glance."""
+    for r in (13, 19):
+        c.arc(19, 72, r, 145, 215, 2.5)
+        c.arc(101, 72, r, -35, 35, 2.5)
+
+
 def exclaim(c: Canvas):
     c.poly([(101, 2), (109, 2), (107, 25), (103, 25)])
     c.dot(105, 32, 3)

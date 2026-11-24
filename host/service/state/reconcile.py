@@ -1,7 +1,7 @@
 """Plan commits, time-confirmation flow, alarm ring/ack and idempotent offline-event reconciliation (D11)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from ..planner.schema import IntentType, PlannerOutputV1
@@ -18,7 +18,7 @@ def pretty_when(due_local: str) -> str:
 
 class ReconcileMixin:
     # ---- plans -----------------------------------------------------------------------------
-    def commit_plan(self: "DeviceStateManager", plan: PlannerOutputV1, source_text: str = "",
+    def commit_plan(self: DeviceStateManager, plan: PlannerOutputV1, source_text: str = "",
                     activate: bool = True) -> dict[str, Any]:
         """Transactionally apply a validated plan. Ambiguous times are held for confirmation, never armed."""
         with self.lock:
@@ -58,9 +58,9 @@ class ReconcileMixin:
                 self.changed()
             return out
 
-    def _schedule_item(self: "DeviceStateManager", item: dict[str, Any]) -> str:
+    def _schedule_item(self: DeviceStateManager, item: dict[str, Any]) -> str:
         local = datetime.fromisoformat(item["due_local"]).replace(tzinfo=self.tz)
-        utc = local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        utc = local.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         if item["kind"] == "ALARM":
             return self.alarms.create(title=item["title"], schedule_kind="ONCE", fire_utc=utc,
                                       local_hhmm=local.strftime("%H:%M"), timezone=self.tz.key, audio_mode="CHIME")
@@ -70,7 +70,7 @@ class ReconcileMixin:
                                           self.tz.key)
         return self.tasks.add_reminder(item["title"], utc, self.tz.key)
 
-    def confirm_pending(self: "DeviceStateManager", items: list[dict[str, Any]] | None = None) -> list[str]:
+    def confirm_pending(self: DeviceStateManager, items: list[dict[str, Any]] | None = None) -> list[str]:
         with self.lock:
             ids: list[str] = []
             for it in items if items is not None else (self.pending or {}).get("items", []):
@@ -82,7 +82,7 @@ class ReconcileMixin:
             self.changed()
             return ids
 
-    def dismiss_pending(self: "DeviceStateManager") -> None:
+    def dismiss_pending(self: DeviceStateManager) -> None:
         with self.lock:
             for it in (self.pending or {}).get("items", []):
                 self.tasks.park(it["title"], it.get("when_text") or "")  # keep the thought, drop the time
@@ -92,14 +92,14 @@ class ReconcileMixin:
             self.changed()
 
     # ---- alarms ------------------------------------------------------------------------------
-    def ring(self: "DeviceStateManager", alarm: dict[str, Any]) -> None:
+    def ring(self: DeviceStateManager, alarm: dict[str, Any]) -> None:
         with self.lock:
             self.ringing = {"id": alarm["id"], "title": alarm["title"], "hhmm": alarm["local_hhmm"],
                             "audio_mode": alarm.get("audio_mode") or "CHIME", "snooze_min": alarm.get("snooze_min", 5)}
             self.alarms.update(alarm["id"], ack_state="RINGING")
             self.changed("alarm_triggered", alarm_id=alarm["id"])
 
-    def ack_alarm(self: "DeviceStateManager", snooze: bool) -> None:
+    def ack_alarm(self: DeviceStateManager, snooze: bool) -> None:
         from ..alarms.schedule import apply_ack  # local import avoids a cycle
         with self.lock:
             if not self.ringing:
@@ -109,7 +109,7 @@ class ReconcileMixin:
             self.changed()
 
     # ---- offline reconciliation -------------------------------------------------------------------
-    def apply_offline_events(self: "DeviceStateManager", events: list[dict[str, Any]]) -> int:
+    def apply_offline_events(self: DeviceStateManager, events: list[dict[str, Any]]) -> int:
         """Ingest device offline events idempotently by (boot_id, seq); returns how many were new."""
         applied = 0
         with self.lock:

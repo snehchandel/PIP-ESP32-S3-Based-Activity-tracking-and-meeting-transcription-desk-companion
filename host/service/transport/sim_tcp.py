@@ -30,7 +30,7 @@ class SimTcpTransport(DeviceTransport):
         assert self._sock is not None
         try:
             data = self._sock.recv(8192)
-        except socket.timeout:
+        except TimeoutError:
             return b""
         if not data:
             raise OSError("simulator closed the connection")

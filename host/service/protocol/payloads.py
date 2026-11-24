@@ -22,7 +22,7 @@ class Heartbeat:
                            self.utc_epoch_s, self.state_rev)
 
     @classmethod
-    def unpack(cls, b: bytes) -> "Heartbeat":
+    def unpack(cls, b: bytes) -> Heartbeat:
         return cls(*struct.unpack(cls.FMT, b))
 
 
@@ -39,7 +39,7 @@ class BtnEvent:
         return struct.pack(self.FMT, self.event_seq, self.btn_id, self.gesture, self.flags, self.ts_ms)
 
     @classmethod
-    def unpack(cls, b: bytes) -> "BtnEvent":
+    def unpack(cls, b: bytes) -> BtnEvent:
         return cls(*struct.unpack(cls.FMT, b))
 
 
@@ -53,7 +53,7 @@ class AudioStart:
     FMT = "<IHBBHH"
 
     @classmethod
-    def unpack(cls, b: bytes) -> "AudioStart":
+    def unpack(cls, b: bytes) -> AudioStart:
         s, r, c, bps, mx, _ = struct.unpack(cls.FMT, b)
         return cls(s, r, c, bps, mx)
 
@@ -67,7 +67,7 @@ class AudioEnd:
     FMT = "<IBBHI"
 
     @classmethod
-    def unpack(cls, b: bytes) -> "AudioEnd":
+    def unpack(cls, b: bytes) -> AudioEnd:
         s, r, t, _, n = struct.unpack(cls.FMT, b)
         return cls(s, r, t, n)
 
@@ -88,7 +88,7 @@ class Ack:
         return struct.pack(self.FMT, self.ref_seq, self.status, self.detail, 0)
 
     @classmethod
-    def unpack(cls, b: bytes) -> "Ack":
+    def unpack(cls, b: bytes) -> Ack:
         r, s, d, _ = struct.unpack(cls.FMT, b)
         return cls(r, s, d)
 

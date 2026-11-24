@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from ..planner import LocalRulePlanner, PlannerError, PlannerOutputV1, TaskPlanner
 from ..state.manager import DeviceStateManager

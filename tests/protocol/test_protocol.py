@@ -5,8 +5,16 @@ import json
 import random
 import struct
 
-from service.protocol import (Ack, BtnEvent, FramebufferAssembler, FrameParser, FrameType, Heartbeat,
-                              crc16_ccitt_false, encode)
+from service.protocol import (
+    Ack,
+    BtnEvent,
+    FramebufferAssembler,
+    FrameParser,
+    FrameType,
+    Heartbeat,
+    crc16_ccitt_false,
+    encode,
+)
 from service.protocol.frames import FB_CHUNK_BYTES, MAX_PAYLOAD
 
 

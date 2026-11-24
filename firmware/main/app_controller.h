@@ -106,6 +106,7 @@ void app_toast(app_t *a, const char *msg);
 void app_sync_timer_to_model(app_t *a);
 void app_send_offline_events(app_t *a);
 void app_send_diag(app_t *a);
+void app_send_heartbeat(app_t *a);
 void app_ring_alarm(app_t *a, const char *id, const char *title, const char *hhmm, uint8_t audio);
 void app_apply_ui_update(app_t *a, const char *json, size_t n);
 void app_apply_calendar(app_t *a, const char *json, size_t n);

@@ -55,7 +55,7 @@ void ui_chrome_top(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
         ui_meta_add(meta, "top_left", left_x0, 4, x - left_x0, f->line_h, -1);
     } else {
         ui_meta_add(meta, "top_left", left_x0, 4, x - left_x0, f->line_h, -1);
-        ui_inverted_pill(fb, f, x, 3, "OFFLINE", meta, "offline_pill");
+        ui_inverted_pill(fb, f, x, 4, "OFFLINE", meta, "offline_pill");
     }
     if (m->next_alarm_hhmm[0] || m->parked_count) {
         if (m->next_alarm_hhmm[0] && m->parked_count) {
@@ -68,7 +68,7 @@ void ui_chrome_top(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
         int w = text_width(f, buf);
         int rx = RLCD_W - UI_MARGIN - w;
         if (m->next_alarm_hhmm[0]) {
-            fb_icon(fb, rx - 22, 3, ICON_BELL, INK_BLACK);
+            fb_icon(fb, rx - 22, 4, ICON_BELL, INK_BLACK);
             rx -= 0;
         }
         text_draw(fb, f, rx, 4, buf, INK_BLACK);

@@ -1,7 +1,7 @@
 """Builds the device CALENDAR_SYNC payload and the desktop Today/Tomorrow/calendar views."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -9,7 +9,7 @@ from ..alarms.schedule import upcoming
 
 
 def _local_day(utc_iso: str, tz: ZoneInfo) -> tuple[date, str]:
-    dt = datetime.strptime(utc_iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).astimezone(tz)
+    dt = datetime.strptime(utc_iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).astimezone(tz)
     return dt.date(), dt.strftime("%H:%M")
 
 

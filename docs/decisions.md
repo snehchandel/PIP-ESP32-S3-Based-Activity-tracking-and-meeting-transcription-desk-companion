@@ -54,6 +54,10 @@ Open DejaVu fonts (Bitstream Vera licence, redistributable) are rasterised with 
 When a running step reaches 0:00 the device shows `STEP_DONE` immediately (offline: logs `STEP_COMPLETE`).
 While tethered the host runs the same countdown and remains authoritative via `UI_UPDATE`.
 
+## ADR-012 — No per-file line limit
+The spec's ≤300-line-per-file rule (§0.1, §10.1 gate 1) is withdrawn at the user's request
+(2026-11-23). `check_guardrails.py` no longer enforces or warns on file length. Existing splits stay.
+
 ## ADR-011 — Factory firmware backup before first flash
 Before the first flash, the full 16 MB flash was read to `backups/factory_flash_backup_16MB.bin`
 (gitignored). Restore: `python -m esptool --port COM3 write-flash 0 backups/factory_flash_backup_16MB.bin`.

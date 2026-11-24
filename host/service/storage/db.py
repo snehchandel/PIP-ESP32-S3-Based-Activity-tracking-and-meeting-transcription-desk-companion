@@ -6,10 +6,11 @@ import re
 import sqlite3
 import threading
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 MIGRATIONS = Path(__file__).parent / "migrations"
 EVENT_LOG_MAX = 2000
@@ -18,7 +19,7 @@ _REDACT_KEYS = {"transcript", "api_key", "authorization", "source_text", "raw_js
 
 
 def utcnow() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def new_id(prefix: str) -> str:
@@ -69,7 +70,7 @@ class Database:
         return applied
 
     @contextmanager
-    def tx(self) -> Iterator["Cursor"]:
+    def tx(self) -> Iterator[Cursor]:
         with self.lock:
             self.conn.execute("BEGIN IMMEDIATE")
             try:

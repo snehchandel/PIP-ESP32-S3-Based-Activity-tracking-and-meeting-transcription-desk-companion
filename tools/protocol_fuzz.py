@@ -78,7 +78,7 @@ def _diag(sock: socket.socket) -> bool:
     while time.time() < end:
         try:
             data = sock.recv(8192)
-        except socket.timeout:
+        except TimeoutError:
             continue
         if not data:
             return False
@@ -112,7 +112,7 @@ def phase_b(iterations: int, seed: int, port: int = 18452) -> None:
                 sock.settimeout(0.05)
             try:
                 sock.recv(65536)  # drain ACK/NACK traffic
-            except socket.timeout:
+            except TimeoutError:
                 pass
         sock.settimeout(0.3)
         assert _diag(sock), "sim not responsive at end of fuzzing"

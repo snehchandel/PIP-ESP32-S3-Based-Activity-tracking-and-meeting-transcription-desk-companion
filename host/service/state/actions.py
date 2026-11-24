@@ -19,7 +19,7 @@ def split_calc(remaining_sec: int) -> tuple[int, int]:
 
 class ActionsMixin:
     # ---- activation ----------------------------------------------------------------------
-    def activate_task(self: "DeviceStateManager", tid: str) -> None:
+    def activate_task(self: DeviceStateManager, tid: str) -> None:
         with self.lock:
             task = self.tasks.get_task(tid)
             if task is None:
@@ -30,7 +30,7 @@ class ActionsMixin:
             self.overlay = None
             self.changed()
 
-    def _load_step(self: "DeviceStateManager", step: dict[str, Any] | None, tid: str | None) -> None:
+    def _load_step(self: DeviceStateManager, step: dict[str, Any] | None, tid: str | None) -> None:
         if step is None:
             self.timer.load(0, 0, "STOPPED")
             self.device.update(active_task_id=tid, active_step_id=None)
@@ -40,7 +40,7 @@ class ActionsMixin:
         self.device.update(active_task_id=tid, active_step_id=step["id"])
 
     # ---- timer ------------------------------------------------------------------------------
-    def timer_start(self: "DeviceStateManager") -> bool:
+    def timer_start(self: DeviceStateManager) -> bool:
         with self.lock:
             if self.active_step() is None:
                 return False
@@ -51,26 +51,26 @@ class ActionsMixin:
             self.changed()
             return ok
 
-    def timer_pause(self: "DeviceStateManager") -> bool:
+    def timer_pause(self: DeviceStateManager) -> bool:
         with self.lock:
             ok = self.timer.pause()
             self.changed()
             return ok
 
-    def timer_toggle(self: "DeviceStateManager") -> None:
+    def timer_toggle(self: DeviceStateManager) -> None:
         if self.timer.state == "RUNNING":
             self.timer_pause()
         else:
             self.timer_start()
 
-    def timer_reset(self: "DeviceStateManager") -> None:
+    def timer_reset(self: DeviceStateManager) -> None:
         with self.lock:
             st = self.active_step()
             if st:
                 self.timer.load(st["duration_min"] * 60_000, st["duration_min"] * 60_000, "PAUSED")
             self.changed()
 
-    def start_break(self: "DeviceStateManager", minutes: int = 5) -> None:
+    def start_break(self: DeviceStateManager, minutes: int = 5) -> None:
         with self.lock:
             self.timer.pause()
             self.brk.load(minutes * 60_000, minutes * 60_000, "RUNNING")
@@ -78,14 +78,14 @@ class ActionsMixin:
             self.overlay = "BREAK"
             self.changed()
 
-    def end_break(self: "DeviceStateManager") -> None:
+    def end_break(self: DeviceStateManager) -> None:
         with self.lock:
             self.brk.stop()
             self.overlay = None
             self.changed()
 
     # ---- steps --------------------------------------------------------------------------------
-    def complete_step(self: "DeviceStateManager", step_id: str | None = None) -> dict[str, Any] | None:
+    def complete_step(self: DeviceStateManager, step_id: str | None = None) -> dict[str, Any] | None:
         with self.lock:
             step = self.tasks.get_step(step_id) if step_id else self.active_step()
             if step is None or step["status"] == "COMPLETED":
@@ -107,7 +107,7 @@ class ActionsMixin:
             self.changed(completed_step=step["id"])
             return step
 
-    def start_next_step(self: "DeviceStateManager") -> None:
+    def start_next_step(self: DeviceStateManager) -> None:
         with self.lock:
             st = self.active_step()
             self.overlay = None
@@ -116,7 +116,7 @@ class ActionsMixin:
                 self.timer.start()
             self.changed()
 
-    def rescue_split(self: "DeviceStateManager", step_id: str | None = None,
+    def rescue_split(self: DeviceStateManager, step_id: str | None = None,
                      remaining_sec: int | None = None) -> tuple[int, int] | None:
         with self.lock:
             step = self.tasks.get_step(step_id) if step_id else self.active_step()
@@ -136,7 +136,7 @@ class ActionsMixin:
             return cur, nxt
 
     # ---- device buttons ---------------------------------------------------------------------------
-    def apply_button(self: "DeviceStateManager", btn: int, gesture: int, flags: int = 0) -> str:
+    def apply_button(self: DeviceStateManager, btn: int, gesture: int, flags: int = 0) -> str:
         """Apply a device BTN_EVENT with exactly the firmware's semantics. Returns an action label."""
         with self.lock:
             if self.ringing:
@@ -192,7 +192,7 @@ class ActionsMixin:
             return "ignored"
 
     # ---- periodic --------------------------------------------------------------------------------
-    def tick(self: "DeviceStateManager") -> bool:
+    def tick(self: DeviceStateManager) -> bool:
         """Called ~1 Hz. Returns True if canonical state changed."""
         with self.lock:
             if self.timer.expired():

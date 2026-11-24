@@ -55,7 +55,7 @@ void ui_screen_daily(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     fb_hline(fb, CONTENT_X, 64, CONTENT_W, 2, INK_BLACK);
     int y = 76;
     if (m->today_count == 0) {
-        text_draw_wrap(fb, &FONT_16, CONTENT_X, y, CONTENT_W, 2, 2, "Nothing scheduled today. Breathe.", INK_BLACK);
+        text_draw_wrap(fb, &FONT_16B, CONTENT_X, y, CONTENT_W, 2, 2, "Nothing scheduled today. Breathe.", INK_BLACK);
         ui_meta_add(meta, "checklist_rows", CONTENT_X, y, CONTENT_W, 42, -1);
     } else {
         int rows = m->today_count > UI_AGENDA_MAX ? UI_AGENDA_MAX : m->today_count;
@@ -69,7 +69,7 @@ void ui_screen_daily(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
             } else {
                 snprintf(buf, sizeof buf, "%s", it->title);
             }
-            text_draw_fit(fb, &FONT_16, CONTENT_X + 28, ry - 1, CONTENT_W - 28, buf, INK_BLACK);
+            text_draw_fit(fb, &FONT_16B, CONTENT_X + 28, ry - 1, CONTENT_W - 28, buf, INK_BLACK);
         }
         ui_meta_add(meta, "checklist_rows", CONTENT_X, y, CONTENT_W, rows * 34 - 14, -1);
     }
@@ -106,8 +106,12 @@ void ui_screen_confirm(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     ui_chrome_mascot(fb, m, PIP_EXPR_THINKING, "Check", meta);
     headline(fb, &FONT_24B, 44, "Confirm Time", meta);
     const char *q = m->clarification[0] ? m->clarification : "Is this time right?";
-    int n = text_draw_wrap(fb, &FONT_16B, CONTENT_X, 88, CONTENT_W, 3, 3, q, INK_BLACK);
-    ui_meta_add(meta, "secondary_text", CONTENT_X, 88, CONTENT_W, n * 22, -1);
+    /* question framed as a card so it reads as "the thing to answer" */
+    int n = text_draw_wrap(NULL, &FONT_16B, 0, 0, CONTENT_W - 24, 3, 3, q, INK_BLACK);
+    int card_h = n * 22 + 20;
+    fb_rrect(fb, CONTENT_X, 84, CONTENT_W, card_h, 12, 2, INK_BLACK);
+    text_draw_wrap(fb, &FONT_16B, CONTENT_X + 12, 94, CONTENT_W - 24, 3, 3, q, INK_BLACK);
+    ui_meta_add(meta, "question_card", CONTENT_X, 84, CONTENT_W, card_h, -1);
     text_draw(fb, &FONT_14, CONTENT_X, 206, "Edit in Companion App", INK_BLACK);
     ui_meta_add(meta, "calm_text", CONTENT_X, 206, text_width(&FONT_14, "Edit in Companion App"), 17, -1);
     ui_hint_t h[] = {{ICON_CHECK, "Confirm"}, {ICON_ARROW, "Dismiss"}};

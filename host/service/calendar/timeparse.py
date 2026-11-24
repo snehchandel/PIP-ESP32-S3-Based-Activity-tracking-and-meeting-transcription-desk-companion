@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -29,13 +29,13 @@ def resolve_local(d: date, t: time, tz: ZoneInfo) -> tuple[datetime, str]:
     repeated (fall-back) -> fold=0 (first occurrence) and flag it."""
     naive = datetime.combine(d, t)
     aware = naive.replace(tzinfo=tz, fold=0)
-    roundtrip = aware.astimezone(timezone.utc).astimezone(tz)
+    roundtrip = aware.astimezone(UTC).astimezone(tz)
     if roundtrip.replace(tzinfo=None) != naive:
         probe = naive
         for _ in range(180):  # walk forward minute by minute to the first instant that exists
             probe += timedelta(minutes=1)
             cand = probe.replace(tzinfo=tz)
-            if cand.astimezone(timezone.utc).astimezone(tz).replace(tzinfo=None) == probe:
+            if cand.astimezone(UTC).astimezone(tz).replace(tzinfo=None) == probe:
                 return cand, "nonexistent local time (DST gap) shifted forward"
         return roundtrip, "nonexistent local time (DST gap) shifted forward"
     other = naive.replace(tzinfo=tz, fold=1)

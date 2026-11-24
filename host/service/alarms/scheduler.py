@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..state.manager import DeviceStateManager
 from .schedule import due_alarms, fmt_utc
@@ -16,7 +16,7 @@ class AlarmScheduler:
         self.missed: list[str] = []
 
     def check(self, now: datetime | None = None) -> list[str]:
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(UTC)
         fired: list[str] = []
         for a in due_alarms(self.m.alarms.list(), now):
             self.m.alarms.update(a["id"], last_fired_utc=fmt_utc(a["_occurrence"]))

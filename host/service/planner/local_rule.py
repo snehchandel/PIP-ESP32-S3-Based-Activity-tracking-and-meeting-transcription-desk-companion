@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from ..calendar.timeparse import parse_when, strip_time_words
-from .schema import (ActiveTask, ControlCommand, IntentType, ParkedItem, PlannerOutputV1, ScheduledItem, Step)
+from .schema import ActiveTask, ControlCommand, IntentType, ParkedItem, PlannerOutputV1, ScheduledItem, Step
 from .step_templates import steps_for
 
 TANGENT = r"(?:also|and also|oh and|plus|btw|by the way|later|remind me|don't forget|dont forget|" \
@@ -21,7 +22,9 @@ FILLER = re.compile(r"^(?:ok(?:ay)?|so|um+|uh+|well|hey pip|pip|i need to|i have
                     r"please|can you|could you)\b[\s,]*", re.I)
 VAGUE_TASK = re.compile(r"^(?:stuff|things|something|everything|work|it|that|this|the thing|all the things|"
                         r"do stuff|get stuff done|be productive|do things)$", re.I)
-CONTROL = [(re.compile(r"\b(pause|hold on|stop the timer)\b", re.I), "PAUSE"),
+ControlAction = Literal["START", "PAUSE", "RESUME", "BREAK", "RESET", "COMPLETE_STEP", "SPLIT_STEP"]
+CONTROL: list[tuple[re.Pattern[str], ControlAction]] = [
+           (re.compile(r"\b(pause|hold on|stop the timer)\b", re.I), "PAUSE"),
            (re.compile(r"\b(resume|continue|unpause)\b", re.I), "RESUME"),
            (re.compile(r"\b(start (?:the )?(?:timer|focus|step)|let'?s go|begin)\b", re.I), "START"),
            (re.compile(r"\b(take a break|break time|i need a break)\b", re.I), "BREAK"),
@@ -114,8 +117,13 @@ class LocalRulePlanner:
                                    summary="That's a bit vague - let's pick one thing.")
         if active_text:
             title = _title(active_text, 64)
-            task = ActiveTask(title=title, steps=[Step(**s) for s in steps_for(title)],  # type: ignore[arg-type]
-                              if_then_cue=f"If I sit down at my desk, then I {steps_for(title)[0]['title'].lower()}.")
+            steps = steps_for(title)
+            starter = str(steps[0]["title"])
+            for item in scheduled:  # an untitled alarm/reminder belongs to the focus task
+                if item.title in ("Alarm", "Reminder"):
+                    item.title = title
+            task = ActiveTask(title=title, steps=[Step(**s) for s in steps],  # type: ignore[arg-type]
+                              if_then_cue=f"If I sit down at my desk, then I {starter[:1].lower() + starter[1:]}.")
             return PlannerOutputV1(intent=IntentType.CREATE_TASK, active_task=task, scheduled=scheduled, parked=parked,
                                    summary=f"Focus on '{title}' - {len(task.steps)} small steps.")
         if scheduled:

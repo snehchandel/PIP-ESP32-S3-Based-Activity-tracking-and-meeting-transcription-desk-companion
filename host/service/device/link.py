@@ -5,11 +5,23 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from ..calendar.agenda import calendar_sync
-from ..protocol import (Ack, AudioEnd, AudioStart, BtnEvent, Frame, FramebufferAssembler, FrameType, Heartbeat,
-                        pack_chime, pack_sim_input, unpack_audio_data)
+from ..protocol import (
+    Ack,
+    AudioEnd,
+    AudioStart,
+    BtnEvent,
+    Frame,
+    FramebufferAssembler,
+    FrameType,
+    Heartbeat,
+    pack_chime,
+    pack_sim_input,
+    unpack_audio_data,
+)
 from ..protocol.fbimage import fb_to_png
 from ..speech.pipeline import VoicePipeline
 from ..state.manager import DeviceStateManager
@@ -136,7 +148,7 @@ class DeviceLink:
             return None
         try:
             return fb_to_png(await asyncio.wait_for(fut, timeout))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
         finally:
             if fut in self._fb_waiters:
@@ -149,7 +161,7 @@ class DeviceLink:
         self.send(FrameType.DIAG_REPORT)
         try:
             return await asyncio.wait_for(fut, timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return self.telemetry or None
         finally:
             if fut in self._diag_waiters:

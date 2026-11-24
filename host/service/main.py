@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import routes_core, routes_more
+from .api import routes_alarms, routes_core, routes_more
 from .config import ROOT, Settings, get_settings
 from .services import Services
 
@@ -33,6 +33,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     app = FastAPI(title="PIP Host Service", version="1.0.0", lifespan=lifespan)
     app.include_router(routes_core.router)
     app.include_router(routes_more.router)
+    app.include_router(routes_alarms.router)
 
     @app.websocket("/ws/events")
     async def ws_events(ws: WebSocket) -> None:
@@ -41,7 +42,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     if (UI_DIST / "index.html").exists():
         app.mount("/assets", StaticFiles(directory=UI_DIST / "assets"), name="assets")
 
-        @app.get("/{path:path}", include_in_schema=False)
+        @app.get("/{path:path}", include_in_schema=False, response_model=None)
         def spa(path: str) -> FileResponse | JSONResponse:
             if path.startswith("api/"):
                 return JSONResponse({"detail": "Not Found"}, status_code=404)

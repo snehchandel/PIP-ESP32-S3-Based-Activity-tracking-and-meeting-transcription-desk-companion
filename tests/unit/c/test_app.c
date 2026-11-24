@@ -141,6 +141,27 @@ int main(void)
     CHECK_EQ(A.m.page, PAGE_FOCUS);
     CHECK_EQ(A.m.state, UI_STATE_RUNNING);
 
+    /* PLAY_CHIME plays through the io callback; DIAG_REPORT request is answered */
+    int chimes = C.chimes;
+    uint8_t chime[4] = {2, 70, 0, 0};
+    pip_frame_t cf = {PIP_PLAY_CHIME, PIP_FLAG_ACK_REQUIRED, 60, 4, chime};
+    app_on_frame(&A, &cf);
+    CHECK_EQ(C.chimes, chimes + 1);
+    int diags = C.count[PIP_DIAG_REPORT];
+    frame(&A, PIP_DIAG_REPORT, 0, 61, NULL);
+    CHECK_EQ(C.count[PIP_DIAG_REPORT], diags + 1);
+    CHECK(strstr((const char *)C.last_payload, "\"fw_ver\":\"1.0.0\"") != NULL);
+    /* AUDIO_*_OUT (host TTS stream) is accepted without NACK in v1 (audio adapter consumes it) */
+    int acks = C.count[PIP_ACK];
+    uint8_t aout[12] = {0};
+    pip_frame_t of = {PIP_AUDIO_START_OUT, PIP_FLAG_ACK_REQUIRED, 62, 12, aout};
+    app_on_frame(&A, &of);
+    CHECK_EQ(C.count[PIP_ACK], acks);
+    /* unknown type is NACKed with UNKNOWN_TYPE */
+    pip_frame_t uf = {0x99, PIP_FLAG_ACK_REQUIRED, 63, 0, NULL};
+    app_on_frame(&A, &uf);
+    CHECK_EQ(C.last_payload[2], PIP_ACK_UNKNOWN_TYPE);
+
     /* calendar sync fills agenda */
     frame(&A, PIP_CALENDAR_SYNC, 0, 53,
           "{\"rev\":2,\"date_label\":\"Mon, Nov 23\",\"today\":[{\"id\":\"t1\",\"title\":\"Team Sync\","

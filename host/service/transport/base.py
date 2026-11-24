@@ -8,7 +8,7 @@ import logging
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import Callable
+from collections.abc import Callable
 
 from ..protocol import FLAG_ACK_REQUIRED, Frame, FrameParser, encode
 
