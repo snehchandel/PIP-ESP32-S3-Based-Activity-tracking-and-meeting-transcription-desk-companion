@@ -14,9 +14,11 @@ from .alarms.audio import AlarmAudio
 from .alarms.scheduler import AlarmScheduler
 from .api.ws import WsHub
 from .config import Settings
+from .device.firmware import FirmwareUpdater
 from .device.link import DeviceLink, make_transport
 from .device.voice_out import speak_on_device
 from .planner import PlannerError, TaskPlanner, make_planner, resolve_model
+from .protocol import FrameType
 from .speech.pipeline import VoicePipeline
 from .speech.stt import SpeechToText
 from .speech.tts import TextToSpeech
@@ -43,7 +45,8 @@ class Services:
         self.manager.subscribe(self._on_state_event)
         self.voice = VoicePipeline(self.manager, self.stt, self.planner, self.hub.publish)
         if transport == "config":
-            transport = make_transport(settings.pip_transport, settings.pip_sim_addr, settings.pip_serial_port)
+            transport = make_transport(settings.pip_transport, settings.pip_sim_addr, settings.pip_serial_port,
+                                       wifi_target=lambda: (settings.wifi_hosts(), settings.link_token()))
         self.link = DeviceLink(self.manager, transport if not isinstance(transport, str) else None, self.voice,
                                self.hub.publish)
         self.alarm_scheduler = AlarmScheduler(self.manager)
@@ -52,6 +55,10 @@ class Services:
         self.manager.voice_for_style = self.alarm_voice
         self.weather = WeatherService(settings, self.manager)
         self.cost = CostMeter(self.db, settings)
+        self.link.on_link_up = self._on_link_up
+        self.link.on_diag = self._on_diag
+        root = Path(__file__).resolve().parents[2]
+        self.firmware = FirmwareUpdater(self.link, data_dir, root / "firmware" / "build" / "pip_firmware.bin")
         self._ticker: asyncio.Task[None] | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self._model_cache: tuple[object, str] = (None, "")
@@ -79,6 +86,32 @@ class Services:
         s = self.settings
         self.cost.check_budget()
         return make_planner(s.api_key(), s.moonshot_base_url, self.kimi_model(), s.pip_timezone, on_usage=self.cost.record)
+
+    # ---- device settings pushed over the link ------------------------------------------------
+    WAKE_WORDS = {"hiesp": "Hi ESP", "jarvis": "Jarvis", "computer": "Computer", "hijoy": "Hi Joy"}
+
+    def wake_settings(self) -> dict[str, Any]:
+        p = self.settings.prefs()
+        word = str(p.get("wake_word") or "hiesp")
+        return {"enabled": bool(p.get("wake_enabled", True)), "word": word if word in self.WAKE_WORDS else "hiesp"}
+
+    def device_config(self, include_token: bool) -> dict[str, Any]:
+        cfg: dict[str, Any] = {"wake": self.wake_settings()}
+        if include_token:  # pairing only ever travels over the USB cable
+            token = self.settings.link_token(create=True)
+            if token:
+                cfg["token"] = token.hex()
+        return cfg
+
+    def _on_link_up(self, kind: str) -> None:
+        self.link.send_json(FrameType.DEVICE_CONFIG, self.device_config(include_token=kind == "USB_HARDWARE"))
+
+    def _on_diag(self, diag: dict[str, Any]) -> None:
+        wifi = diag.get("wifi") or {}
+        if wifi.get("ip"):
+            net = {"ip": wifi["ip"], "host": wifi.get("host", ""), "ssid": wifi.get("ssid", "")}
+            if self.settings.prefs().get("device_net") != net:
+                self.settings.save_prefs(device_net=net)
 
     def alarm_voice(self, style: str) -> str | None:
         """Piper voice for a spoken alarm: the user's choice in Settings, else the best installed one."""

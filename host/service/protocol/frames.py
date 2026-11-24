@@ -27,6 +27,8 @@ class FrameType(IntEnum):
     AUDIO_END = 0x03
     BTN_EVENT = 0x04
     OFFLINE_EVENTS = 0x05
+    AUTH_CHALLENGE = 0x06
+    WAKE_EVENT = 0x07
     UI_UPDATE = 0x10
     AUDIO_START_OUT = 0x11
     AUDIO_DATA_OUT = 0x12
@@ -34,6 +36,12 @@ class FrameType(IntEnum):
     PLAY_CHIME = 0x14
     ALARM_TRIGGER = 0x15
     CALENDAR_SYNC = 0x16
+    DEVICE_CONFIG = 0x17
+    AUTH_RESPONSE = 0x18
+    OTA_BEGIN = 0x20
+    OTA_DATA = 0x21
+    OTA_END = 0x22
+    WAKE_TEST = 0x23
     SIM_INPUT = 0xE0
     ACK = 0xF0
     DIAG_REPORT = 0xFD
@@ -47,6 +55,8 @@ class AckStatus(IntEnum):
     BAD_JSON = 3
     BUSY = 4
     UNKNOWN_TYPE = 5
+    FAILED = 6
+    DENIED = 7
 
 
 def crc16_ccitt_false(data: bytes) -> int:

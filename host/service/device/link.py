@@ -25,20 +25,24 @@ from ..protocol import (
 from ..protocol.fbimage import fb_to_png
 from ..speech.pipeline import VoicePipeline
 from ..state.manager import DeviceStateManager
-from ..transport import DeviceTransport, SimTcpTransport, UsbSerialTransport
+from ..transport import AutoTransport, DeviceTransport, SimTcpTransport, UsbSerialTransport, WifiTarget, WifiTransport
 
 log = logging.getLogger("pip.link")
 LINK_TIMEOUT_S = 3.0
 
 
-def make_transport(mode: str, sim_addr: str, serial_port: str) -> DeviceTransport | None:
+def make_transport(mode: str, sim_addr: str, serial_port: str,
+                   wifi_target: WifiTarget | None = None) -> DeviceTransport | None:
     if mode == "none":
         return None
     if mode == "sim":
         return SimTcpTransport(sim_addr)
-    # "auto" / "usb": the physical board. The transport re-probes VID/PID every second, so PIP links
-    # whenever it is plugged in, even if the app started first.
-    return UsbSerialTransport(serial_port or None)
+    if mode == "usb":
+        return UsbSerialTransport(serial_port or None)
+    if mode == "wifi" and wifi_target:
+        return WifiTransport(wifi_target)
+    # "auto": USB when plugged in (re-probed every second), otherwise PIP over the home Wi-Fi once paired.
+    return AutoTransport(serial_port or None, wifi_target)
 
 
 class DeviceLink:
@@ -57,6 +61,11 @@ class DeviceLink:
         self._fb = FramebufferAssembler()
         self._fb_waiters: list[asyncio.Future[bytes]] = []
         self._diag_waiters: list[asyncio.Future[dict[str, Any]]] = []
+        self._ack_waiters: dict[int, asyncio.Future[int]] = {}
+        self._wake_waiters: list[asyncio.Future[dict[str, Any]]] = []
+        # called on every link-up with the transport kind: Services sends pairing token + wake settings
+        self.on_link_up: Callable[[str], None] | None = None
+        self.on_diag: Callable[[dict[str, Any]], None] | None = None
         self._task: asyncio.Task[None] | None = None
 
     @property
@@ -89,6 +98,11 @@ class DeviceLink:
                     self.linked = linked
                     self.notify("device_link_changed", {"linked": linked, "transport": self.transport_kind})
                     if linked:
+                        if self.on_link_up:
+                            try:
+                                self.on_link_up(self.transport_kind)
+                            except Exception:
+                                log.exception("link-up hook failed")
                         self.push_all()
                         self.send(FrameType.DIAG_REPORT)
                 self.notify("timer_tick", {"remaining_ms": self.m.timer.remaining_ms, "state": self.m.timer.state,
@@ -106,6 +120,36 @@ class DeviceLink:
             return True
         except ConnectionError:
             return False
+
+    async def request(self, ftype: int, payload: bytes = b"", timeout: float = 5.0) -> int | None:
+        """Send a frame that requires an ACK and wait for it. Returns the ACK status, or None (timeout/offline)."""
+        assert self.loop
+        if not self.t or not self.t.connected:
+            return None
+        fut: asyncio.Future[int] = self.loop.create_future()
+        try:
+            seq = self.t.send(ftype, payload, ack=True)
+        except ConnectionError:
+            return None
+        self._ack_waiters[seq] = fut
+        try:
+            return await asyncio.wait_for(fut, timeout)
+        except TimeoutError:
+            return None
+        finally:
+            self._ack_waiters.pop(seq, None)
+
+    async def wait_wake(self, timeout: float) -> dict[str, Any] | None:
+        assert self.loop
+        fut: asyncio.Future[dict[str, Any]] = self.loop.create_future()
+        self._wake_waiters.append(fut)
+        try:
+            return await asyncio.wait_for(fut, timeout)
+        except TimeoutError:
+            return None
+        finally:
+            if fut in self._wake_waiters:
+                self._wake_waiters.remove(fut)
 
     def send_json(self, ftype: int, obj: dict[str, Any]) -> bool:
         data = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()
@@ -204,6 +248,8 @@ class DeviceLink:
             for w in self._diag_waiters:
                 if not w.done():
                     w.set_result(self.telemetry)
+            if self.on_diag:
+                self.on_diag(self.telemetry)
         elif t == FrameType.DUMP_FB:
             fb = self._fb.add(f.payload)
             if fb:
@@ -221,7 +267,18 @@ class DeviceLink:
             e = AudioEnd.unpack(f.payload)
             self.voice.end(e.stream_id, e.total_samples)
         elif t == FrameType.ACK:
-            pass
+            a = Ack.unpack(f.payload[:6])
+            w = self._ack_waiters.get(a.ref_seq)
+            if w and not w.done():
+                w.set_result(a.status)
+        elif t == FrameType.WAKE_EVENT:
+            ev = {"source": "test" if f.payload[:1] == bytes([1]) else "mic",
+                  "listening": len(f.payload) > 1 and f.payload[1] == 1}
+            log.info("wake word heard (%s)", ev["source"])
+            self.notify("wake_word", ev)
+            for w in self._wake_waiters:
+                if not w.done():
+                    w.set_result(ev)
         else:
             return 5
         return 0

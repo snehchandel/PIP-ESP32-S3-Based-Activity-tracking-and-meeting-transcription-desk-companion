@@ -1,4 +1,4 @@
-import type { Activity, AiUsage, Alarm, DayItems, FullState, Health, Place, Plan, PlanResult, Settings, VoiceSession, WeatherInfo } from "./types";
+import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, Place, Plan, PlanResult, Settings, VoiceSession, WeatherInfo } from "./types";
 
 const BASE = "/api/v1";
 
@@ -67,6 +67,23 @@ export const api = {
   voiceSessions: () => req<VoiceSession[]>("GET", "/voice/sessions"),
   settings: () => req<Settings>("GET", "/settings"),
   aiUsage: () => req<AiUsage>("GET", "/ai/usage"),
+  network: () => req<NetworkInfo>("GET", "/device/network"),
+  setWifi: (ssid: string, password: string) => req<NetworkInfo>("PUT", "/device/wifi", { ssid, password }),
+  forgetWifi: () => req<NetworkInfo>("DELETE", "/device/wifi"),
+  wake: () => req<WakeInfo>("GET", "/device/wake"),
+  setWake: (enabled: boolean, word: string) => req<WakeInfo>("PUT", "/device/wake", { enabled, word }),
+  testWake: () => req<{ word: string; phrase: string; detected: boolean }>("POST", "/device/wake/test"),
+  firmware: () => req<FirmwareInfo>("GET", "/firmware"),
+  updateFirmware: (source: "build" | "upload") => req<FirmwareInfo>("POST", "/firmware/update", { source }),
+  uploadFirmware: async (file: File): Promise<FirmwareInfo> => {
+    const res = await fetch(`${BASE}/firmware/upload`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail; } catch { /* non-JSON */ }
+      throw new ApiError(res.status, String(detail));
+    }
+    return (await res.json()) as FirmwareInfo;
+  },
   setAiBudget: (monthly_cap_usd: number | null) => req<AiUsage>("PUT", "/ai/budget", { monthly_cap_usd }),
   setAiPrice: (model: string, input: number, cached: number, output: number) =>
     req<AiUsage>("PUT", "/ai/prices", { model, input, cached, output }),

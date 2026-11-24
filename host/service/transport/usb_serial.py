@@ -23,6 +23,19 @@ def find_board_port() -> str | None:
     return None
 
 
+def open_serial(port: str) -> serial.Serial:
+    ser = serial.Serial()
+    ser.port = port
+    ser.baudrate = 115200  # ignored by USB-CDC, required by the API
+    ser.timeout = 0.05
+    ser.write_timeout = 1.0
+    # Keep DTR/RTS de-asserted: toggling them resets the ESP32-S3 via USB-JTAG.
+    ser.dtr = False
+    ser.rts = False
+    ser.open()
+    return ser
+
+
 class UsbSerialTransport(DeviceTransport):
     kind = "USB_HARDWARE"
 
@@ -35,16 +48,7 @@ class UsbSerialTransport(DeviceTransport):
         port = self.port or find_board_port()
         if not port:
             raise OSError("no ESP32-S3 USB Serial/JTAG device found")
-        ser = serial.Serial()
-        ser.port = port
-        ser.baudrate = 115200  # ignored by USB-CDC, required by the API
-        ser.timeout = 0.05
-        ser.write_timeout = 1.0
-        # Keep DTR/RTS de-asserted: toggling them resets the ESP32-S3 via USB-JTAG.
-        ser.dtr = False
-        ser.rts = False
-        ser.open()
-        self._ser = ser
+        self._ser = open_serial(port)
 
     def _close(self) -> None:
         if self._ser:

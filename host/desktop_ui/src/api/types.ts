@@ -89,6 +89,21 @@ export interface AiUsage {
   prices: Record<string, { input: number; cached: number; output: number }>;
 }
 
+export interface NetworkInfo {
+  linked: boolean; via: string; paired_on_pc: boolean; known_hosts: string[];
+  wifi: { configured?: boolean; paired?: boolean; state?: string; ssid?: string; ip?: string; host?: string; rssi?: number; client?: boolean };
+}
+export interface FirmwareImage { version?: string; project?: string; date?: string; time?: string; size?: number; error?: string }
+export interface FirmwareInfo {
+  device: { version: string | null; ota: { slot?: string; built?: string; last?: string; progress?: number } };
+  linked: boolean; via: string; available: { build?: FirmwareImage; upload?: FirmwareImage };
+  status: { state: "IDLE" | "SENDING" | "REBOOTING" | "DONE" | "FAILED"; progress: number; message: string };
+}
+export interface WakeInfo {
+  enabled: boolean; word: string; words: Record<string, string>;
+  device: { enabled?: boolean; ready?: boolean; word?: string; hits?: number; words?: string[] };
+}
+
 export type Activity = "BRAIN_DUMP" | "CALENDAR" | "FOCUS" | "ALARMS";
 export interface Place { name: string; admin1: string; country: string; latitude: number; longitude: number }
 export interface WeatherInfo {

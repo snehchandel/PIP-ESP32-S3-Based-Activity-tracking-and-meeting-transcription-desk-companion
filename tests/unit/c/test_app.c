@@ -166,7 +166,7 @@ int main(void)
     int diags = C.count[PIP_DIAG_REPORT];
     frame(&A, PIP_DIAG_REPORT, 0, 61, NULL);
     CHECK_EQ(C.count[PIP_DIAG_REPORT], diags + 1);
-    CHECK(strstr((const char *)C.last_payload, "\"fw_ver\":\"1.0.0\"") != NULL);
+    CHECK(strstr((const char *)C.last_payload, "\"fw_ver\":\"" APP_FW_VERSION "\"") != NULL);
     /* AUDIO_*_OUT (host Piper voice) reaches the playback adapter; reliable frames are ACKed OK */
     int acks = C.count[PIP_ACK];
     uint8_t aout[12] = {0};
@@ -235,6 +235,22 @@ int main(void)
     gesture(&A, BTN_KEY, GEST_HOLD_START);
     gesture(&A, BTN_BOOT, GEST_SHORT);
     CHECK_EQ(A.m.state, prior);
+    /* wake word: first time opens the activity picker (no recording yet); again records hands-free */
+    starts = C.count[PIP_AUDIO_START];
+    CHECK(app_voice_wake(&A));
+    CHECK_EQ(A.m.state, UI_STATE_VOICE_PICK);
+    CHECK_EQ(C.count[PIP_AUDIO_START], starts);
+    gesture(&A, BTN_KEY, GEST_SHORT); /* move the highlight */
+    CHECK(app_voice_wake(&A));
+    CHECK_EQ(A.m.state, UI_STATE_LISTENING);
+    CHECK(A.hands_free);
+    CHECK_EQ(C.count[PIP_AUDIO_START], starts + 1);
+    CHECK_EQ(C.last_payload[10], ui_voice_choice_activity(A.m.voice_choice)); /* the highlighted activity */
+    app_voice_end(&A); /* silence detected on the device */
+    CHECK_EQ(A.m.state, UI_STATE_TRANSCRIBING);
+    CHECK(!A.hands_free);
+    CHECK(!app_voice_wake(&A)); /* busy transcribing: the wake word is ignored */
+    A.m.state = prior;
     /* host raises "AI has left the device": shown with a flash, any click dismisses and reports */
     frame(&A, PIP_UI_UPDATE, 0, 70, "{\"rev\":20,\"ui_state\":\"ERROR_RECOVERABLE\",\"error_title\":\"AI has left the device\","
                                     "\"error_text\":\"Kimi couldn't be reached.\",\"step_id\":\"s2\",\"remaining_ms\":500000,"

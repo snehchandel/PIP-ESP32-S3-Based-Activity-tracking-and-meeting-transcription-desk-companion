@@ -68,6 +68,42 @@ class Settings(BaseSettings):
             except keyring.errors.PasswordDeleteError:
                 pass
 
+    # ---- Wi-Fi link token (HMAC key shared with PIP over USB) -------------------------------------
+    def link_token(self, create: bool = False) -> bytes | None:
+        """32-byte secret pairing this PC with PIP for the Wi-Fi link (OS keyring; prefs file when disabled)."""
+        hexed = ""
+        if self.pip_use_keyring:
+            try:
+                import keyring
+
+                hexed = keyring.get_password(KEYRING_SERVICE, "PIP_LINK_TOKEN") or ""
+            except Exception:
+                hexed = ""
+        else:
+            hexed = str(self.prefs().get("link_token") or "")
+        if not hexed and create:
+            import secrets
+
+            hexed = secrets.token_hex(32)
+            if self.pip_use_keyring:
+                try:
+                    import keyring
+
+                    keyring.set_password(KEYRING_SERVICE, "PIP_LINK_TOKEN", hexed)
+                except Exception:
+                    self.save_prefs(link_token=hexed)
+            else:
+                self.save_prefs(link_token=hexed)
+        try:
+            return bytes.fromhex(hexed) if len(hexed) == 64 else None
+        except ValueError:
+            return None
+
+    def wifi_hosts(self) -> list[str]:
+        """Where to find PIP on the LAN: last IP it reported, then its mDNS name."""
+        net = self.prefs().get("device_net") or {}
+        return [h for h in (net.get("ip"), net.get("host")) if h]
+
     # ---- dashboard preferences ---------------------------------------------------------------
     def prefs(self) -> dict[str, Any]:
         p = Path(self.pip_prefs_path)

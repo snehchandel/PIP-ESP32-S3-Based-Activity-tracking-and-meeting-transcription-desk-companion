@@ -21,8 +21,8 @@ desktop app that turns brain dumps into one focus lane of tiny steps.
 | | Focus | Agenda | Alarm ringing |
 |---|---|---|---|
 | **KEY click** | start / pause | start / pause | snooze 5 min |
-| **KEY double** | open agenda | back to focus | dismiss |
-| **KEY hold** | talk (voice brain dump) | talk | dismiss |
+| **KEY double** | open today's calendar | back to focus | dismiss |
+| **KEY hold** (or say "Hi ESP") | pick an activity, then talk | same | dismiss |
 | **BOOT click** | step done | back to focus | dismiss |
 | **BOOT hold 1.2 s** | cut step in half | cut step in half | dismiss |
 
@@ -38,7 +38,9 @@ firmware/  (C99 + ESP-IDF v5.5.5)          host/ (Python 3.11+, FastAPI)        
 
 - Wire protocol v1: framed binary + CRC16-CCITT-FALSE, resync + idle resync (`firmware/components/usb_protocol`).
 - Canonical state lives in the host (`host/service/state`); the device acts locally first and reconciles.
-- Planner: `KimiPlanner` when `MOONSHOT_API_KEY` is set, otherwise the offline `LocalRulePlanner`.
+- Planner: Kimi only (no silent offline fallback; see ADR-013), metered with an optional monthly cap.
+- Links: USB or home Wi-Fi (HMAC-paired over USB), in-app firmware updates (OTA with rollback), on-device wake word.
+- **For AI agents / new developers: start with [AGENTS.md](AGENTS.md).**
 
 ## Quick start (Windows, PowerShell)
 

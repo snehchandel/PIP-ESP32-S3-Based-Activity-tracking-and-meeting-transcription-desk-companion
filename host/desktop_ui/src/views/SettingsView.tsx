@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { useLive } from "../api/live";
 import type { Settings } from "../api/types";
 import { AiUsageCard } from "../components/AiUsageCard";
+import { WakeWordCard } from "../components/DeviceCards";
 import { ApiKeyCard, SpeechCard } from "../components/SettingsCards";
 import { WeatherCard } from "../components/WeatherCard";
 import { Button } from "../components/ui/button";
@@ -36,6 +37,7 @@ export default function SettingsView() {
           <ApiKeyCard s={s} onChange={update} />
           <AiUsageCard />
           <SpeechCard s={s} onChange={update} />
+          <WakeWordCard />
           <WeatherCard />
           <Card aria-label="System">
             <CardTitle>System</CardTitle>

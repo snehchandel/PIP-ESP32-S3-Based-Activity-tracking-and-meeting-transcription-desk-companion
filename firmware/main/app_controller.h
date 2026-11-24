@@ -21,7 +21,7 @@
 #define APP_RING_CHIME_MS 2500u     /* offline ringing: repeat the alarm chime... */
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
-#define APP_FW_VERSION "1.0.0"
+#define APP_FW_VERSION "1.1.1" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum { CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM } chime_id_t;
 
@@ -32,6 +32,7 @@ typedef struct {
     char i2c_addrs[48];
     char reset_reason[24];
     uint32_t dropped_audio_chunks;
+    char extra[640]; /* device-only JSON members (no braces): wifi / ota / wake status */
 } app_diag_t;
 
 typedef struct {
@@ -102,6 +103,7 @@ typedef struct {
     uint32_t pick_since_ms;
     uint32_t error_since_ms;
     bool error_local; /* raised by the device itself (vs. pushed by the host) */
+    bool hands_free;  /* recording started by the wake word: the device ends it on silence */
 } app_t;
 
 #define APP_PICK_TIMEOUT_MS 20000u
@@ -119,6 +121,10 @@ void app_set_battery(app_t *a, int pct);
 void app_set_audio_level(app_t *a, uint8_t level);
 void app_set_indoor(app_t *a, bool valid, int16_t temp_c10, uint8_t hum);
 void app_local_error(app_t *a, const char *title, const char *text);
+/* Wake word heard: start a hands-free voice message (returns false when PIP can't listen right now). */
+bool app_voice_wake(app_t *a);
+/* End a hands-free recording (silence detected / time limit). */
+void app_voice_end(app_t *a);
 /* Re-render into a->fb if anything changed; returns true when the panel needs a flush. */
 bool app_render_if_dirty(app_t *a);
 

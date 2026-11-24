@@ -1,3 +1,5 @@
 dependencies:
   idf: ">=5.5.0"
   espressif/esp_codec_dev: "~1.3"
+  espressif/esp-sr: "^2.1"   # WakeNet on-device wake word
+  espressif/mdns: "^1.4"     # pip-xxxx.local discovery on the home network

@@ -146,7 +146,53 @@ static void stop_listening(app_t *a, bool timeout)
         a->io.capture(a->io.ctx, false, a->stream_id); /* adapter sends AUDIO_END with sample count */
     }
     (void)timeout;
+    a->hands_free = false;
     a->m.state = UI_STATE_TRANSCRIBING;
+}
+
+bool app_voice_wake(app_t *a)
+{
+    ui_state_t st = a->m.state;
+    bool ok = st == UI_STATE_IDLE_READY || st == UI_STATE_RUNNING || st == UI_STATE_PAUSED || st == UI_STATE_BREAK ||
+              st == UI_STATE_STEP_DONE || st == UI_STATE_SLEEP || st == UI_STATE_VOICE_PICK;
+    if (!ok) {
+        return false;
+    }
+    if (a->m.link != LINK_TETHERED) {
+        app_toast(a, "Connect PC for Voice");
+        return false;
+    }
+    a->idle_since_ms = a->now_ms;
+    if (st != UI_STATE_VOICE_PICK) {
+        /* first wake word: open "What's it about?" exactly like holding KEY does */
+        a->state_before_pick = st == UI_STATE_SLEEP ? UI_STATE_IDLE_READY : st;
+        a->pick_since_ms = a->now_ms;
+        a->m.state = UI_STATE_VOICE_PICK;
+        mascot_react(&a->anim, PIP_REACT_PRESS, a->now_ms);
+        if (a->io.chime) {
+            a->io.chime(a->io.ctx, CHIME_CONFIRM);
+        }
+        a->dirty = true;
+        return true;
+    }
+    /* wake word again while picking: talk hands-free about the highlighted activity */
+    mascot_react(&a->anim, PIP_REACT_HOLD, a->now_ms);
+    if (a->io.chime) {
+        a->io.chime(a->io.ctx, CHIME_START);
+    }
+    start_listening(a);
+    a->hands_free = a->m.state == UI_STATE_LISTENING;
+    a->dirty = true;
+    return true;
+}
+
+void app_voice_end(app_t *a)
+{
+    if (a->hands_free) {
+        a->hands_free = false;
+        stop_listening(a, false);
+        a->dirty = true;
+    }
 }
 
 static void react(app_t *a, const gesture_event_t *e)

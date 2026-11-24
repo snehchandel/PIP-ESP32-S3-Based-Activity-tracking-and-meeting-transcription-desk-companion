@@ -26,6 +26,8 @@ typedef enum {
     PIP_AUDIO_END = 0x03,
     PIP_BTN_EVENT = 0x04,
     PIP_OFFLINE_EVENTS = 0x05,
+    PIP_AUTH_CHALLENGE = 0x06, /* Wi-Fi link: device -> host, 16-byte nonce + 6-byte MAC on connect */
+    PIP_WAKE_EVENT = 0x07,     /* device -> host: wake word heard (u8 source 0 mic / 1 test, u8 score) */
     PIP_UI_UPDATE = 0x10,
     PIP_AUDIO_START_OUT = 0x11,
     PIP_AUDIO_DATA_OUT = 0x12,
@@ -33,6 +35,12 @@ typedef enum {
     PIP_PLAY_CHIME = 0x14,
     PIP_ALARM_TRIGGER = 0x15,
     PIP_CALENDAR_SYNC = 0x16,
+    PIP_DEVICE_CONFIG = 0x17,  /* JSON: {"wifi":{"ssid","password"},"wifi_clear","token","wake":{"enabled","word"}} */
+    PIP_AUTH_RESPONSE = 0x18,  /* Wi-Fi link: host -> device, HMAC-SHA256(link token, nonce) */
+    PIP_OTA_BEGIN = 0x20,      /* u32 image size, 32 B sha256, 32 B version string */
+    PIP_OTA_DATA = 0x21,       /* u32 offset + image bytes */
+    PIP_OTA_END = 0x22,        /* verify, switch boot slot, reboot */
+    PIP_WAKE_TEST = 0x23,      /* host -> device: PCM16 mono 16 kHz fed straight into the wake-word detector */
     PIP_SIM_INPUT = 0xE0, /* simulator-only extension: inject a physical button gesture */
     PIP_ACK = 0xF0,
     PIP_DIAG_REPORT = 0xFD,
@@ -45,7 +53,9 @@ typedef enum {
     PIP_ACK_BAD_LEN = 2,
     PIP_ACK_BAD_JSON = 3,
     PIP_ACK_BUSY = 4,
-    PIP_ACK_UNKNOWN_TYPE = 5
+    PIP_ACK_UNKNOWN_TYPE = 5,
+    PIP_ACK_FAILED = 6,
+    PIP_ACK_DENIED = 7
 } pip_ack_status_t;
 
 typedef struct {

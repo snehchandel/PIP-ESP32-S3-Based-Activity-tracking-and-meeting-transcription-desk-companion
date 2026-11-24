@@ -83,6 +83,22 @@ Moonshot for planning.
 If Kimi can't be reached, PIP flashes **"AI has left the device"** and waits. Press any button to dismiss — your
 words are not lost: they're saved as a parked note you can promote later.
 
+## 6a. Wi-Fi, firmware updates, wake word, AI costs
+- **Wi-Fi (no cable needed):** with PIP plugged in by USB, open **Device → Connection**, type your Wi-Fi name and
+  password (2.4 GHz) and press **Connect PIP to Wi-Fi**. This also pairs PIP with this PC. Afterwards PIP can sit
+  anywhere and run from any USB charger; the app finds it on your network by itself and switches back to the cable
+  whenever you plug it in. The password goes to PIP only and is never stored on the PC. *Forget network* removes it.
+- **Firmware updates:** **Device → Firmware** shows the version on PIP and any newer build on this PC (or upload a
+  `.bin`). Press **Update PIP**: about 25 seconds over USB or Wi-Fi, PIP restarts by itself. If a new version ever
+  fails to start properly, PIP goes back to the previous one automatically.
+- **Wake word:** **Settings → Wake word**. Say **"Hi ESP"** (or Jarvis / Computer / Hi Joy) and PIP opens
+  *What's it about?* — the same screen as holding KEY. Click KEY to pick, then either hold KEY and talk, or simply
+  say the wake word **again** and talk hands-free; PIP stops listening when you've been quiet for about a second.
+  The microphone audio stays on PIP until it hears the word. *Test* checks the detector with a synthetic voice.
+- **AI costs:** **Settings → AI usage & budget** shows Kimi tokens and dollars per day and this month. Set a
+  monthly cap: at 80 % you get a warning, at 100 % PIP stops planning (screen: *AI budget reached*) and parks your
+  words until you raise the cap or the month ends. Prices per model are editable if Moonshot changes them.
+
 ## 6b. Error screens
 If anything goes wrong or gets stuck (for example "Planning…" never finishes), PIP shows a ⚠ error screen with a
 short explanation instead of freezing, flashing briefly to get your attention. **Press any button to dismiss.**

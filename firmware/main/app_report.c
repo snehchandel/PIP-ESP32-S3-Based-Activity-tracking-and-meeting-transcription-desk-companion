@@ -14,14 +14,16 @@ void app_send_heartbeat(app_t *a)
 
 void app_send_diag(app_t *a)
 {
-    app_diag_t d;
+    /* static, not on the caller's stack: the report is ~1.4 KB and runs on the small link rx tasks
+     * (always under the app lock, so one report at a time) */
+    static app_diag_t d;
     memset(&d, 0, sizeof d);
     d.batt_mv = -1;
     snprintf(d.reset_reason, sizeof d.reset_reason, "UNKNOWN");
     if (a->io.diag) {
         a->io.diag(a->io.ctx, &d);
     }
-    char buf[640];
+    static char buf[1400];
     int n = snprintf(buf, sizeof buf,
                      "{\"fw_ver\":\"%s\",\"is_sim\":%s,\"reset_reason\":\"%s\",\"link_mode\":\"%s\",\"proto_ver\":%d,"
                      "\"free_heap_b\":%lu,\"free_psram_b\":%lu,\"batt_mv\":%ld,\"batt_pct\":%d,\"rtc_ok\":%s,"
@@ -36,6 +38,9 @@ void app_send_diag(app_t *a)
                      (unsigned long)d.dropped_audio_chunks, (unsigned long)a->state_rev, (unsigned long)a->boot_id,
                      (unsigned)a->oev.count, app_state_name(a->m.state), a->m.in_valid ? (int)a->m.in_temp_c10 : -9999,
                      a->m.in_valid ? (int)a->m.in_hum : -1);
+    if (n > 1 && (size_t)n < sizeof buf && d.extra[0]) { /* splice device-only members before the closing brace */
+        n += snprintf(buf + n - 1, sizeof buf - (size_t)n + 1, ",%s}", d.extra) - 1;
+    }
     if (n > 0 && (size_t)n < sizeof buf) {
         app_send(a, PIP_DIAG_REPORT, false, (const uint8_t *)buf, (uint16_t)n);
     }

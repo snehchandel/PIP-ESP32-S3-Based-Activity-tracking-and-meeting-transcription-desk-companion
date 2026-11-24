@@ -5,6 +5,11 @@
 
 #include "app_controller.h"
 #include "audio_codec.h"
+#include "dev_config.h"
+#include "dev_ota.h"
+#include "dev_wake.h"
+#include "esp_vad.h"
+#include "net_link.h"
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "driver/gpio.h"
@@ -33,6 +38,8 @@ static bool s_display_ok;
 static volatile bool s_capture;
 static volatile uint32_t s_stream;
 static int32_t s_batt_mv = -1;
+static dev_config_t s_cfg;
+static volatile int s_src; /* 0 USB, 1 Wi-Fi: replies go back over the link the PC last spoke on */
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 static void lock(void) { xSemaphoreTake(s_lock, portMAX_DELAY); }
@@ -40,7 +47,11 @@ static void unlock(void) { xSemaphoreGive(s_lock); }
 
 static void io_send(void *ctx, uint8_t type, uint8_t flags, uint16_t seq, const uint8_t *p, uint16_t len)
 {
-    usb_transport_send(type, flags, seq, p, len);
+    if (s_src == 1 && net_link_client_ready()) {
+        net_link_send(type, flags, seq, p, len);
+    } else {
+        usb_transport_send(type, flags, seq, p, len);
+    }
 }
 
 static void io_chime(void *ctx, uint8_t id) { xQueueSend(s_chime_q, &id, 0); }
@@ -113,14 +124,108 @@ static void io_diag(void *ctx, app_diag_t *d)
     d->dropped_audio_chunks = s_voice_dropped;
     snprintf(d->i2c_addrs, sizeof d->i2c_addrs, "%s", s_i2c_found);
     snprintf(d->reset_reason, sizeof d->reset_reason, "%s", reset_reason());
+    int n = net_link_status_json(d->extra, sizeof d->extra);
+    if (n > 0 && (size_t)n + 2 < sizeof d->extra) {
+        d->extra[n++] = ',';
+        n += dev_ota_status_json(d->extra + n, sizeof d->extra - (size_t)n);
+    }
+    if (n > 0 && (size_t)n + 2 < sizeof d->extra) {
+        d->extra[n++] = ',';
+        dev_wake_status_json(d->extra + n, sizeof d->extra - (size_t)n);
+    }
 }
 
-static void on_frame(const pip_frame_t *f, void *ctx)
+static void set_wake_label(void);
+
+static void send_ack(uint16_t ref, uint8_t status)
+{
+    pip_ack_t k = {ref, status, 0, 0};
+    uint8_t b[6];
+    lock();
+    app_send(&s_app, PIP_ACK, false, b, (uint16_t)pip_pack_ack(&k, b));
+    unlock();
+}
+
+/* Device-only frames (settings, firmware update, wake-word test). Returns true when consumed. */
+static bool device_frame(const pip_frame_t *f)
+{
+    switch (f->type) {
+    case PIP_DEVICE_CONFIG: {
+        bool wifi = false, wake = false;
+        bool changed = dev_config_apply_json(&s_cfg, (const char *)f->payload, f->len, &wifi, &wake);
+        uint8_t st = PIP_ACK_OK;
+        if (changed && dev_config_save(&s_cfg) != ESP_OK) {
+            st = PIP_ACK_FAILED;
+        }
+        send_ack(f->seq, st);
+        if (wake) {
+            dev_wake_configure(s_cfg.wake_on, s_cfg.wake_word);
+            set_wake_label();
+        }
+        if (wifi) {
+            net_link_apply(&s_cfg);
+        }
+        lock();
+        app_send_diag(&s_app);
+        unlock();
+        return true;
+    }
+    case PIP_OTA_BEGIN:
+    case PIP_OTA_DATA:
+    case PIP_OTA_END:
+        send_ack(f->seq, dev_ota_frame(f)); /* flash writes happen outside the app lock */
+        return true;
+    case PIP_WAKE_TEST:
+        dev_wake_test_feed((const int16_t *)f->payload, f->len / 2);
+        if (f->flags & PIP_FLAG_ACK_REQUIRED) {
+            send_ack(f->seq, PIP_ACK_OK);
+        }
+        return true;
+    default: return false;
+    }
+}
+
+static void handle_frame(const pip_frame_t *f, int src)
+{
+    s_src = src;
+    lock();
+    s_app.now_ms = now_ms();
+    s_app.last_rx_ms = s_app.now_ms; /* device-only frames also prove the PC is there */
+    s_app.ever_linked = true;
+    unlock();
+    if (device_frame(f)) {
+        return;
+    }
+    lock();
+    s_app.crc_errors = usb_transport_crc_errors();
+    app_on_frame(&s_app, f);
+    unlock();
+}
+
+static void on_usb_frame(const pip_frame_t *f, void *ctx) { handle_frame(f, 0); }
+static void on_net_frame(const pip_frame_t *f, void *ctx) { handle_frame(f, 1); }
+
+static void set_wake_label(void)
+{
+    static const char *const ids[] = {"hiesp", "jarvis", "computer", "hijoy"};
+    static const char *const labels[] = {"Hi ESP", "Jarvis", "Computer", "Hi Joy"};
+    const char *label = "";
+    for (int i = 0; i < 4 && dev_wake_active(); i++) {
+        if (strcmp(s_cfg.wake_word, ids[i]) == 0) label = labels[i];
+    }
+    lock();
+    snprintf(s_app.m.wake_label, sizeof s_app.m.wake_label, "%s", label);
+    s_app.dirty = true;
+    unlock();
+}
+
+static void on_wake(int source, void *ctx)
 {
     lock();
     s_app.now_ms = now_ms();
-    s_app.crc_errors = usb_transport_crc_errors();
-    app_on_frame(&s_app, f);
+    bool started = source == 0 && app_voice_wake(&s_app); /* a test clip only reports the hit */
+    uint8_t ev[2] = {(uint8_t)source, (uint8_t)(started ? 1 : 0)};
+    app_send(&s_app, PIP_WAKE_EVENT, false, ev, sizeof ev);
     unlock();
 }
 
@@ -155,6 +260,15 @@ static void ui_task(void *arg)
                 pcf_rtc_write_epoch(host);
             }
         }
+        int prog = dev_ota_progress();
+        static int last_prog = -1;
+        if (prog >= 0 && prog / 5 != last_prog / 5) {
+            char msg[40];
+            snprintf(msg, sizeof msg, "Updating firmware %d%%", prog);
+            app_toast_for(&s_app, msg, 4000);
+        }
+        last_prog = prog;
+        dev_ota_confirm_if_healthy(t);
         bool flush = app_render_if_dirty(&s_app);
         unlock();
         if (flush && s_display_ok) {
@@ -170,7 +284,10 @@ static void audio_task(void *arg)
     static uint8_t pkt[6 + AUDIO_CHUNK_BYTES];
     bool was = false, speaking = false;
     uint16_t chunk = 0;
-    uint32_t samples = 0, stream = 0;
+    uint32_t samples = 0, stream = 0, quiet_since = 0;
+    /* hands-free recordings end on silence: WebRTC VAD on 20 ms frames */
+    vad_handle_t vad = vad_create(VAD_MODE_1);
+    uint32_t speech_ms = 0, silence_ms = 0, rec_ms = 0;
     for (;;) {
         if (s_capture && audio_ok()) {
             if (!was) {
@@ -178,6 +295,7 @@ static void audio_task(void *arg)
                 chunk = 0;
                 samples = 0;
                 stream = s_stream;
+                speech_ms = silence_ms = rec_ms = 0;
             }
             if (audio_read_chunk(mono) == ESP_OK) {
                 memcpy(pkt, &stream, 4); /* little-endian target */
@@ -188,7 +306,24 @@ static void audio_task(void *arg)
                 lock();
                 app_set_audio_level(&s_app, audio_level_bars(mono, AUDIO_CHUNK_SAMPLES));
                 app_send(&s_app, PIP_AUDIO_DATA, false, pkt, sizeof pkt);
+                bool hands_free = s_app.hands_free;
                 unlock();
+                if (hands_free && vad) {
+                    rec_ms += 20;
+                    if (vad_process(vad, mono, AUDIO_RATE_HZ, 20) == VAD_SPEECH) {
+                        speech_ms += 20;
+                        silence_ms = 0;
+                    } else {
+                        silence_ms += 20;
+                    }
+                    /* done: 1.2 s quiet after real speech, nothing said for 6 s, or 25 s total */
+                    if ((speech_ms >= 300 && silence_ms >= 1200) || (speech_ms < 300 && rec_ms >= 6000) ||
+                        rec_ms >= 25000) {
+                        lock();
+                        app_voice_end(&s_app);
+                        unlock();
+                    }
+                }
             }
             continue;
         }
@@ -210,11 +345,22 @@ static void audio_task(void *arg)
         if (speaking && s_voice_end) { /* stream finished and fully drained */
             audio_amp_off();
             speaking = false;
+            quiet_since = now_ms();
         }
         uint8_t id;
-        if (xQueueReceive(s_chime_q, &id, pdMS_TO_TICKS(20)) == pdTRUE && audio_ok()) {
+        if (xQueueReceive(s_chime_q, &id, 0) == pdTRUE && audio_ok()) {
             audio_play_chime(id, 70);
+            quiet_since = now_ms();
+            continue;
         }
+        /* listen for the wake word only while PIP itself is silent (it must never hear its own voice) */
+        if (!speaking && dev_wake_active() && audio_ok() && now_ms() - quiet_since > 400u) {
+            if (audio_read_chunk(mono) == ESP_OK) { /* blocks ~20 ms */
+                dev_wake_feed(mono, AUDIO_CHUNK_SAMPLES);
+                continue;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
@@ -244,6 +390,8 @@ static void i2c_init(void)
 void app_main(void)
 {
     s_lock = xSemaphoreCreateMutex();
+    dev_config_init();
+    dev_config_load(&s_cfg);
     s_chime_q = xQueueCreate(4, sizeof(uint8_t));
     uint8_t *voice_store = heap_caps_malloc(VOICE_BUF_BYTES + 1, MALLOC_CAP_SPIRAM);
     if (voice_store) {
@@ -274,7 +422,12 @@ void app_main(void)
     if (s_display_ok) {
         rlcd_display_flush(&s_app.fb);
     }
-    usb_transport_init(on_frame, NULL);
+    usb_transport_init(on_usb_frame, NULL);
+    net_link_init(&s_cfg, on_net_frame, NULL);
+    if (dev_wake_init(on_wake, NULL)) {
+        dev_wake_configure(s_cfg.wake_on, s_cfg.wake_word);
+        set_wake_label();
+    }
     xTaskCreatePinnedToCore(ui_task, "ui", 8192, NULL, 5, NULL, 1);
     xTaskCreatePinnedToCore(audio_task, "audio", 6144, NULL, 7, NULL, 0);
     ESP_LOGI(TAG, "PIP fw %s up (display=%d audio=%d rtc=%d)", APP_FW_VERSION, s_display_ok, audio_ok(),

@@ -18,7 +18,9 @@ GENERATED = {"pip_sprites.h", "fonts_gen.c", "icons_gen.c"}
 MOCK_MARKERS = re.compile(r"MOCK_|FAKE_DATA|DUMMY_RESPONSE|TODO_STUB|lorem ipsum|Welcome to your app", re.I)
 SECRET = re.compile(r"(sk-[A-Za-z0-9]{24,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)")
 FRAME_TYPES = ["HEARTBEAT", "AUDIO_START", "AUDIO_DATA", "AUDIO_END", "BTN_EVENT", "OFFLINE_EVENTS", "UI_UPDATE",
-               "AUDIO_START_OUT", "PLAY_CHIME", "ALARM_TRIGGER", "CALENDAR_SYNC", "ACK", "DIAG_REPORT", "DUMP_FB"]
+               "AUDIO_START_OUT", "PLAY_CHIME", "ALARM_TRIGGER", "CALENDAR_SYNC", "ACK", "DIAG_REPORT", "DUMP_FB",
+               "AUTH_CHALLENGE", "WAKE_EVENT", "DEVICE_CONFIG", "AUTH_RESPONSE", "OTA_BEGIN", "OTA_DATA", "OTA_END",
+               "WAKE_TEST"]
 EXPRESSIONS = ["ready", "listening", "thinking", "working", "paused", "done", "alarm", "sleep"]
 VIEWS = ["today", "calendar", "voice", "focus", "alarms", "device", "settings"]
 

@@ -103,3 +103,24 @@ Weather codes gained day/night and partly-cloudy/drizzle variants (WMO + Open-Me
 ## ADR-018 — Standard Kimi models only
 Auto model selection skips "highspeed"/"turbo" variants (several times the price); kimi-k3.1-pro is now chosen.
 A user can still pin any model explicitly in Settings.
+
+## ADR-019 — Wi-Fi link, in-app firmware updates and an on-device wake word
+- **Wi-Fi:** PIP joins the home network and serves the unchanged protocol v1 over one TCP connection (port 18422,
+  mDNS `pip-xxxx.local`). Each connection must answer an HMAC-SHA256 challenge with a 32-byte link token that the
+  PC delivers **only over USB** (DEVICE_CONFIG on every USB link-up) — physical pairing, no passwords on the LAN.
+  The host's `AutoTransport` prefers USB, falls back to Wi-Fi, and returns to USB within 5 s of plugging in.
+  The Wi-Fi password is relayed to PIP once and never stored on the PC.
+- **Firmware updates:** partition table moved from one factory slot to ota_0/ota_1 (+ otadata, `model`).
+  Updates are protocol frames (OTA_BEGIN/DATA/END, SHA-256 checked) over whichever link is up, so USB and Wi-Fi
+  share one path and esptool is no longer needed. Rollback is enabled: a new image is confirmed only after 20 s of
+  healthy running. Images are validated on the PC (`esp_app_desc_t.project_name == pip_firmware`).
+- **Wake word:** ESP-SR WakeNet9 stock models on the device (user choice: privacy, works without the PC busy);
+  "Hey PIP" would need a paid custom model. The mic feeds the detector only while PIP is silent. Saying the word
+  opens the activity picker (user request, same as holding KEY); saying it again records hands-free and WebRTC
+  VAD ends the recording on silence.
+
+## ADR-020 — Kimi cost meter and monthly cap
+Every API response's `usage` is priced and stored (`ai_usage`, migration 005) with per-model prices editable in
+Settings. An optional monthly cap warns at 80 % and stops planning at 100 % with an "AI budget reached" screen —
+words are parked, never lost. Reasoning tokens count as output, so k3.1-pro calls cost more than the visible text
+suggests (~$0.006 for an 83-word wake-up script).

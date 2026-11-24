@@ -26,6 +26,13 @@ void ui_screen_voice_pick(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
         text_draw(fb, &FONT_16B, CONTENT_X + 40, y + (row_h - FONT_16B.line_h) / 2, ui_voice_choice_label((uint8_t)i), ink);
     }
     ui_meta_add(meta, "choice_list", CONTENT_X, y0, CONTENT_W, UI_VOICE_CHOICES * (row_h + 9) - 9, -1);
+    if (m->wake_label[0]) { /* hands-free: the wake word again starts talking about the highlighted option */
+        char tip[48];
+        snprintf(tip, sizeof tip, "Say \"%s\" again to talk", m->wake_label);
+        int yt = y0 + UI_VOICE_CHOICES * (row_h + 9) - 5;
+        text_draw_fit(fb, &FONT_12B, CONTENT_X, yt, CONTENT_W, tip, INK_BLACK);
+        ui_meta_add(meta, "wake_tip", CONTENT_X, yt, CONTENT_W, FONT_12B.line_h, -1);
+    }
     ui_hint_t h[] = {{ICON_ARROW, "Next"}, {ICON_MIC, "Hold: talk"}, {-1, "BOOT: back"}};
     ui_chrome_bar(fb, m, h, 3, meta);
 }

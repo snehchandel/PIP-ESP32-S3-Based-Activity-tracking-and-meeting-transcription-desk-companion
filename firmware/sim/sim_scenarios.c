@@ -102,6 +102,7 @@ void sim_scenario(ui_screen_t s, ui_model_t *m)
     case SCREEN_VOICE_PICK:
         m->state = UI_STATE_VOICE_PICK;
         m->voice_choice = 1;
+        snprintf(m->wake_label, sizeof m->wake_label, "Hi ESP");
         break;
     case SCREEN_ERROR:
         m->state = UI_STATE_ERROR_RECOVERABLE;

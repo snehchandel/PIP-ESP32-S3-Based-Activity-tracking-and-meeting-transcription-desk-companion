@@ -51,7 +51,7 @@ esp_err_t usb_transport_init(usb_frame_cb_t cb, void *ctx)
         return err;
     }
     /* Core 0: USB + protocol (spec 3.2 core pinning) */
-    xTaskCreatePinnedToCore(rx_task, "usb_rx", 4096, NULL, 6, NULL, 0);
+    xTaskCreatePinnedToCore(rx_task, "usb_rx", 6144, NULL, 6, NULL, 0);
     return ESP_OK;
 }
 

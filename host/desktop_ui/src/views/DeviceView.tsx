@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
+import { ConnectionCard, FirmwareCard } from "../components/DeviceCards";
 import { RlcdMirror } from "../components/RlcdMirror";
 import { Button } from "../components/ui/button";
 import { Badge, Card, CardTitle, PageHeader } from "../components/ui/primitives";
@@ -54,9 +55,12 @@ export default function DeviceView() {
             ) : (
               <p className="text-sm text-muted">{linked ? "Use the real KEY and BOOT buttons on PIP." : "Connect PIP or start sim_rlcd to use the buttons."}</p>
             )}
-            <p className="mt-3 text-xs text-muted">KEY click: start/pause · double: agenda · hold: talk. BOOT click: done · hold 1.2 s: cut in half.</p>
+            <p className="mt-3 text-xs text-muted">KEY click: start/pause · double: today's calendar · hold (or say the wake word): pick an activity and talk. BOOT click: done · hold 1.2 s: cut in half.</p>
           </Card>
         </div>
+        <div className="space-y-5">
+        <ConnectionCard />
+        <FirmwareCard />
         <Card aria-label="Telemetry">
           <CardTitle>Telemetry</CardTitle>
           <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
@@ -70,6 +74,7 @@ export default function DeviceView() {
                 <dd className="tabular font-semibold">{fmt(shown?.[k], k, Boolean(shown?.is_sim))}</dd></div>))}
           </dl>
         </Card>
+        </div>
       </div>
     </>
   );

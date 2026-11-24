@@ -69,6 +69,7 @@ typedef struct {
     uint8_t audio_level; /* 0..8 bars */
     char thinking_stage[32];
     uint8_t voice_choice; /* picker index 0..3 */
+    char wake_label[16];  /* e.g. "Hi ESP" when the on-device wake word is on, "" otherwise */
 
     char alarm_title[64];
     char alarm_hhmm[6];
