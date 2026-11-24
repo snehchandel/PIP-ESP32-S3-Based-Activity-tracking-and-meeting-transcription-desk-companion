@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -40,13 +40,19 @@ def state(req: Request) -> dict[str, Any]:
 class PlanIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     auto_commit: bool = False
+    activity: Literal["BRAIN_DUMP", "CALENDAR", "FOCUS", "ALARMS"] = "BRAIN_DUMP"
 
 
 @router.post("/tasks/plan")
 def plan(body: PlanIn, req: Request) -> dict[str, Any]:
+    from ..speech.pipeline import AI_GONE, AiUnavailable
+
     s = svc(req)
-    result = s.voice.process_text(body.text, key=f"text-{hash(body.text)}-{s.manager.revision}",
-                                  source="text", auto_commit=False)
+    try:
+        result = s.voice.process_text(body.text, key=f"text-{hash(body.text)}-{s.manager.revision}",
+                                      source="text", auto_commit=False, activity=body.activity)
+    except AiUnavailable as e:
+        raise HTTPException(503, f"{AI_GONE[0]}: {e}") from None
     if body.auto_commit and not result["plan"].get("needs_confirmation"):
         result["committed"] = s.manager.commit_plan(PlannerOutputV1.model_validate(result["plan"]), body.text)
         s.manager.device.set_voice_status(result["voice_session_id"], "COMMITTED")

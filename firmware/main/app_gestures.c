@@ -127,7 +127,8 @@ static void start_listening(app_t *a)
     a->m.listen_elapsed_s = 0;
     a->m.audio_level = 0;
     a->m.state = UI_STATE_LISTENING;
-    pip_audio_start_t s = {a->stream_id, 16000, 1, 16, 60, 0};
+    /* the former reserved u16 carries the picked activity (0 brain dump, 1 calendar, 2 focus, 3 alarms) */
+    pip_audio_start_t s = {a->stream_id, 16000, 1, 16, 60, ui_voice_choice_activity(a->m.voice_choice)};
     uint8_t b[12];
     app_send(a, PIP_AUDIO_START, true, b, (uint16_t)pip_pack_audio_start(&s, b));
     if (a->io.capture) {
@@ -156,6 +157,40 @@ void app_on_gesture(app_t *a, const gesture_event_t *e)
         a->m.state = UI_STATE_IDLE_READY;
         return;
     }
+    if (st == UI_STATE_ERROR_RECOVERABLE) { /* any click dismisses the error screen */
+        if (e->gesture == GEST_SHORT || e->gesture == GEST_DOUBLE) {
+            report(a, e); /* host clears its error too */
+            a->m.state = a->timer.state == LT_RUNNING ? UI_STATE_RUNNING : UI_STATE_IDLE_READY;
+            a->m.error_title[0] = a->m.error_text[0] = 0;
+            a->error_local = false;
+        }
+        return;
+    }
+    if (st == UI_STATE_VOICE_PICK) { /* device-local picker: nothing is reported to the host */
+        if (e->btn == BTN_KEY && e->gesture == GEST_SHORT) {
+            a->m.voice_choice = (uint8_t)((a->m.voice_choice + 1u) % UI_VOICE_CHOICES);
+            a->pick_since_ms = a->now_ms;
+        } else if (e->btn == BTN_KEY && e->gesture == GEST_HOLD_START) {
+            start_listening(a);
+        } else if (e->btn == BTN_BOOT && e->gesture == GEST_SHORT) {
+            a->m.state = a->state_before_pick; /* back */
+        }
+        return;
+    }
+    if (e->btn == BTN_KEY && e->gesture == GEST_HOLD_START && st != UI_STATE_ALARM_RINGING) {
+        if (a->m.link != LINK_TETHERED) {
+            app_toast(a, "Connect PC for Voice");
+            return;
+        }
+        a->state_before_pick = st; /* hold KEY: first choose what the message is about */
+        a->pick_since_ms = a->now_ms;
+        a->m.state = UI_STATE_VOICE_PICK;
+        return;
+    }
+    if (e->btn == BTN_KEY && e->gesture == GEST_HOLD_END) {
+        stop_listening(a, (e->flags & GEST_FLAG_TIMEOUT) != 0); /* no-op unless recording */
+        return;
+    }
     report(a, e);
     if (st == UI_STATE_ALARM_RINGING) {
         if (e->btn == BTN_KEY && e->gesture == GEST_SHORT) {
@@ -177,8 +212,6 @@ void app_on_gesture(app_t *a, const gesture_event_t *e)
             }
             break;
         case GEST_DOUBLE: a->m.page = a->m.page == PAGE_FOCUS ? PAGE_AGENDA : PAGE_FOCUS; break;
-        case GEST_HOLD_START: start_listening(a); break;
-        case GEST_HOLD_END: stop_listening(a, (e->flags & GEST_FLAG_TIMEOUT) != 0); break;
         default: break;
         }
         return;

@@ -188,6 +188,63 @@ int main(void)
     app_on_frame(&A, &uf);
     CHECK_EQ(C.last_payload[2], PIP_ACK_UNKNOWN_TYPE);
 
+    /* voice: KEY hold opens the activity picker (no recording, nothing reported), KEY click cycles,
+     * KEY hold records with the chosen activity, BOOT backs out */
+    int btn_reports = C.count[PIP_BTN_EVENT];
+    int starts = C.count[PIP_AUDIO_START];
+    ui_state_t prior = A.m.state;
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    CHECK_EQ(A.m.state, UI_STATE_VOICE_PICK);
+    gesture(&A, BTN_KEY, GEST_HOLD_END); /* releasing the opening hold does nothing */
+    CHECK_EQ(A.m.state, UI_STATE_VOICE_PICK);
+    CHECK_EQ(A.m.voice_choice, 1); /* Brain dump by default */
+    gesture(&A, BTN_KEY, GEST_SHORT);
+    gesture(&A, BTN_KEY, GEST_SHORT);
+    gesture(&A, BTN_KEY, GEST_SHORT);
+    CHECK_EQ(A.m.voice_choice, 0); /* -> Focus -> Alarms -> Calendar */
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    CHECK_EQ(A.m.state, UI_STATE_LISTENING);
+    CHECK_EQ(C.count[PIP_AUDIO_START], starts + 1);
+    CHECK_EQ(C.last_payload[10], 1); /* activity id 1 = calendar in the former reserved field */
+    gesture(&A, BTN_KEY, GEST_HOLD_END);
+    CHECK_EQ(A.m.state, UI_STATE_TRANSCRIBING);
+    CHECK_EQ(C.count[PIP_BTN_EVENT], btn_reports); /* picker + recording never toggled the host timer */
+    A.m.state = prior;
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    gesture(&A, BTN_BOOT, GEST_SHORT);
+    CHECK_EQ(A.m.state, prior);
+    /* host raises "AI has left the device": shown with a flash, any click dismisses and reports */
+    frame(&A, PIP_UI_UPDATE, 0, 70, "{\"rev\":20,\"ui_state\":\"ERROR_RECOVERABLE\",\"error_title\":\"AI has left the device\","
+                                    "\"error_text\":\"Kimi couldn't be reached.\",\"step_id\":\"s2\",\"remaining_ms\":500000,"
+                                    "\"timer_state\":\"RUNNING\",\"out_temp_c10\":-35,\"out_hum\":78,\"out_code\":2}");
+    CHECK_EQ(A.m.state, UI_STATE_ERROR_RECOVERABLE);
+    CHECK(strcmp(A.m.error_title, "AI has left the device") == 0);
+    CHECK(A.m.out_valid && A.m.out_temp_c10 == -35 && A.m.out_hum == 78 && A.m.out_code == 2);
+    app_tick(&A, A.now_ms + 350);
+    CHECK(A.m.error_flash); /* attention flash (inverted frame) */
+    app_tick(&A, A.now_ms + 3000);
+    CHECK(!A.m.error_flash); /* flash stops, message stays */
+    CHECK_EQ(A.m.state, UI_STATE_ERROR_RECOVERABLE);
+    frame(&A, PIP_HEARTBEAT, 0, 71, NULL); /* host still linked */
+    app_tick(&A, A.now_ms + 1);
+    btn_reports = C.count[PIP_BTN_EVENT];
+    gesture(&A, BTN_BOOT, GEST_SHORT);
+    CHECK(A.m.state != UI_STATE_ERROR_RECOVERABLE);
+    CHECK_EQ(C.count[PIP_BTN_EVENT], btn_reports + 1);
+    /* device-side watchdog: stuck in THINKING without the host answering -> local error */
+    A.m.state = UI_STATE_THINKING;
+    for (uint32_t s = 0; s <= APP_STUCK_MS / 1000u + 1u; s++) { /* host keeps the link alive but never answers */
+        A.now_ms += 1000;
+        frame(&A, PIP_HEARTBEAT, 0, (uint16_t)(80 + s), NULL);
+        app_tick(&A, A.now_ms);
+    }
+    CHECK_EQ(A.m.state, UI_STATE_ERROR_RECOVERABLE);
+    CHECK(strcmp(A.m.error_title, "PIP got stuck") == 0);
+    gesture(&A, BTN_KEY, GEST_SHORT);
+    CHECK(A.m.state != UI_STATE_ERROR_RECOVERABLE);
+    app_set_indoor(&A, true, 218, 41);
+    CHECK(A.m.in_valid && A.m.in_temp_c10 == 218 && A.m.in_hum == 41);
+
     /* calendar sync fills agenda */
     frame(&A, PIP_CALENDAR_SYNC, 0, 53,
           "{\"rev\":2,\"date_label\":\"Mon, Nov 23\",\"today\":[{\"id\":\"t1\",\"title\":\"Team Sync\","

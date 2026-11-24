@@ -6,6 +6,23 @@ import type { Settings } from "../api/types";
 import { Button } from "./ui/button";
 import { Badge, Card, CardTitle, Input, Label, Select } from "./ui/primitives";
 
+function ModelPicker() {
+  const { run } = useLive();
+  const [m, setM] = useState<{ models: string[]; active: string | null; pinned: string | null } | null>(null);
+  useEffect(() => { void api.kimiModels().then(setM).catch(() => undefined); }, []);
+  if (!m) return null;
+  return (
+    <div className="mb-3">
+      <Label htmlFor="kimi-model">Kimi model</Label>
+      <Select id="kimi-model" value={m.pinned ?? ""} onChange={async (e) => {
+        const r = await run(() => api.setKimiModel(e.target.value)); if (r) setM(r); }}>
+        <option value="">Automatic (newest available{m.active && !m.pinned ? `: ${m.active}` : ""})</option>
+        {m.models.map((x) => <option key={x} value={x}>{x}</option>)}
+      </Select>
+    </div>
+  );
+}
+
 /** Kimi key: write-only. The page never receives the stored key, only whether it exists + last 4 chars. */
 export function ApiKeyCard({ s, onChange }: { s: Settings; onChange: (s: Settings) => void }) {
   const { run } = useLive();
@@ -26,11 +43,13 @@ export function ApiKeyCard({ s, onChange }: { s: Settings; onChange: (s: Setting
   };
   return (
     <Card aria-label="Kimi API key">
-      <CardTitle aside={k.configured ? <Badge tone="sage">Kimi active · {k.hint}</Badge> : <Badge>Local Rule Engine</Badge>}>
+      <CardTitle aside={k.configured ? <Badge tone="sage">Kimi active · {k.hint}</Badge> : <Badge tone="amber">AI not set up</Badge>}>
         <span className="inline-flex items-center gap-2"><KeyRound size={16} aria-hidden /> Kimi (Moonshot) API key</span></CardTitle>
       <p className="mb-3 text-sm text-muted">
-        With a key, brain dumps are planned by Kimi ({s.kimi_model ?? "kimi-k2"}); without one, PIP plans fully offline.
-        The key is stored in Windows Credential Manager — never in files or logs, and this page can't read it back.</p>
+        PIP uses Kimi to break your brain dumps into steps. Without a working key PIP shows
+        “AI has left the device” and keeps your words as a parked note. The key is stored in Windows Credential
+        Manager — never in files or logs, and this page can't read it back.</p>
+      {k.configured && <ModelPicker />}
       {k.source === "env" ? (
         <p className="rounded-xl bg-paper-2 p-3 text-sm">The key is set in the <code>.env</code> file, which takes priority.
           Remove <code>MOONSHOT_API_KEY</code> there to manage it here.</p>

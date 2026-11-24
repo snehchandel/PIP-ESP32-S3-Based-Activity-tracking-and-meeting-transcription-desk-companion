@@ -61,9 +61,37 @@ def test_case_count_meets_gate() -> None:
     assert len(CASES) >= 25
 
 
-def test_factory_selects_by_key() -> None:
-    assert make_planner("", "u", "m", "America/Toronto").mode == "LOCAL_RULE"
+def test_factory_is_kimi_only() -> None:
+    with pytest.raises(PlannerError):
+        make_planner("", "u", "m", "America/Toronto")  # no silent offline fallback (ADR-013)
     assert make_planner("sk-test", "u", "m", "America/Toronto").mode == "KIMI"
+
+
+def test_kimi_never_sends_temperature_and_unwraps_lists(now) -> None:  # type: ignore[no-untyped-def]
+    seen: list[dict] = []  # type: ignore[type-arg]
+    out = _kimi([_resp("```json\n" + json.dumps([VALID]) + "\n```")], seen).plan("x", now)
+    assert out.intent == IntentType.CREATE_TASK
+    assert "temperature" not in seen[0]  # kimi-k3 family only accepts the default
+
+
+def test_header_like_steps_are_rejected() -> None:
+    from pydantic import ValidationError
+
+    from service.planner.schema import Step
+    for bad in ("Preparation:", "Step 1: open the doc", "PACKING", "## Setup"):
+        with pytest.raises(ValidationError):
+            Step(title=bad, duration_min=5)
+
+
+def test_resolve_model_prefers_newest_available() -> None:
+    from service.planner.kimi import resolve_model
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"id": "kimi-k2.6"}, {"id": "kimi-k3"}, {"id": "moonshot-v1"}]})
+    c = httpx.Client(transport=httpx.MockTransport(handler))
+    assert resolve_model(c, "https://x/v1", "k") == "kimi-k3"
+    assert resolve_model(c, "https://x/v1", "k", preferred="kimi-k2.6") == "kimi-k2.6"
+    assert resolve_model(c, "https://x/v1", "k", preferred="gone-model") == "kimi-k3"
 
 
 VALID = {"intent": "CREATE_TASK", "active_task": {"title": "Q3 report", "steps": [
@@ -113,10 +141,15 @@ def test_kimi_http_error_is_planner_error(now) -> None:  # type: ignore[no-untyp
         _kimi([httpx.Response(401, json={"error": "bad key"})], []).plan("x", now)
 
 
-def test_kimi_failure_mutates_nothing(manager, now) -> None:  # type: ignore[no-untyped-def]
-    from service.speech.pipeline import run_planner
+def test_kimi_failure_shows_ai_left_and_keeps_the_thought(manager, now) -> None:  # type: ignore[no-untyped-def]
+    from service.speech.pipeline import AiUnavailable, VoicePipeline
 
     kimi = _kimi([_resp("{}"), _resp("{}")], [])
-    plan, mode = run_planner(kimi, P, "Finish Q3 report")
-    assert mode.startswith("LOCAL_RULE") and plan.active_task is not None
-    assert manager.tasks.list_tasks() == []  # nothing was committed by the failed attempt
+    vp = VoicePipeline(manager, None, lambda: kimi, lambda k, p: None)  # type: ignore[arg-type]
+    with pytest.raises(AiUnavailable):
+        vp.process_text("Finish Q3 report", "k1", source="voice", auto_commit=True)
+    assert manager.tasks.list_tasks() == []  # nothing half-committed
+    assert manager.ui_state() == "ERROR_RECOVERABLE"
+    assert manager.snapshot()["error_title"] == "AI has left the device"
+    assert [p["title"] for p in manager.tasks.parked()] == ["Finish Q3 report"]  # words not lost
+    assert manager.apply_button(1, 1) == "error_dismiss" and manager.ui_state() == "IDLE_READY"

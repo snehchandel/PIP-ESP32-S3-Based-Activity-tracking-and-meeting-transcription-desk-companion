@@ -36,7 +36,8 @@ class ReconcileMixin:
             today = datetime.now(self.tz).date().isoformat()
             if plan.active_task:
                 tid = self.tasks.create_task(plan.active_task.title, [s.model_dump() for s in plan.active_task.steps],
-                                             today, self.tz.key, if_then_cue=plan.active_task.if_then_cue)
+                                             today, self.tz.key, if_then_cue=plan.active_task.if_then_cue,
+                                             short_title=plan.active_task.short_title)
                 out["task_id"] = tid
             for p in plan.parked:
                 out["parked_ids"].append(self.tasks.park(p.title, p.source_text))
@@ -65,6 +66,9 @@ class ReconcileMixin:
         local = datetime.fromisoformat(item["due_local"]).replace(tzinfo=self.tz)
         utc = local.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         if item["kind"] == "ALARM":
+            if item.get("repeat_days"):  # "every weekday at 7" -> weekly alarm
+                return self.alarms.create(title=item["title"], schedule_kind="RECURRING", rrule_days=item["repeat_days"],
+                                          local_hhmm=local.strftime("%H:%M"), timezone=self.tz.key, audio_mode="CHIME")
             return self.alarms.create(title=item["title"], schedule_kind="ONCE", fire_utc=utc,
                                       local_hhmm=local.strftime("%H:%M"), timezone=self.tz.key, audio_mode="CHIME")
         if item["kind"] == "TASK":

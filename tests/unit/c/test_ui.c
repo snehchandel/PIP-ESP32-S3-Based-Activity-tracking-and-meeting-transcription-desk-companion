@@ -1,4 +1,5 @@
 /* 1-bit UI engine: framebuffer layout, primitives, text, all 11 screens + render budget. */
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -62,7 +63,7 @@ int main(void)
     const ui_state_t states[] = {UI_STATE_IDLE_READY, UI_STATE_LISTENING, UI_STATE_THINKING,
                                  UI_STATE_RUNNING, UI_STATE_PAUSED, UI_STATE_BREAK, UI_STATE_STEP_DONE,
                                  UI_STATE_IDLE_READY, UI_STATE_ALARM_RINGING, UI_STATE_NEEDS_CONFIRMATION,
-                                 UI_STATE_SLEEP};
+                                 UI_STATE_SLEEP, UI_STATE_VOICE_PICK, UI_STATE_ERROR_RECOVERABLE};
     for (int i = 0; i < SCREEN_COUNT; i++) {
         m.state = states[i];
         m.page = i == SCREEN_DAILY_TASKS ? PAGE_AGENDA : PAGE_FOCUS;
@@ -81,12 +82,56 @@ int main(void)
     m.state = UI_STATE_LISTENING;
     CHECK_EQ(ui_screen_for(&m), SCREEN_LISTENING);
 
-    /* mascot blink: only READY / WORKING, 2 FPS, 1 of 8 frames */
-    CHECK_EQ(mascot_blink_phase(PIP_EXPR_ALARM, 3500), 0);
-    CHECK_EQ(mascot_blink_phase(PIP_EXPR_READY, 3500), 1);
-    CHECK_EQ(mascot_blink_phase(PIP_EXPR_READY, 3499), 0);
-    CHECK(mascot_bits(PIP_EXPR_READY, 1) != mascot_bits(PIP_EXPR_READY, 0));
-    CHECK(mascot_bits(PIP_EXPR_ALARM, 1) == mascot_bits(PIP_EXPR_ALARM, 0));
+    /* error screen and picker win over everything except a ringing alarm */
+    m.state = UI_STATE_ERROR_RECOVERABLE;
+    CHECK_EQ(ui_screen_for(&m), SCREEN_ERROR);
+    m.state = UI_STATE_VOICE_PICK;
+    CHECK_EQ(ui_screen_for(&m), SCREEN_VOICE_PICK);
+    CHECK_EQ(ui_voice_choice_activity(0), 1); /* Calendar */
+    CHECK_EQ(ui_voice_choice_activity(1), 0); /* Brain dump */
+
+    /* animation: blink closes then reopens the lids; hop goes up and lands; glance looks toward the text */
+    CHECK_EQ(mascot_event_pose(ANIM_BLINK, 0).lid, 0);
+    CHECK_EQ(mascot_event_pose(ANIM_BLINK, 500).lid, 8);
+    CHECK_EQ(mascot_event_pose(ANIM_BLINK, 1000).lid, 0);
+    CHECK(mascot_event_pose(ANIM_HOP, 500).dy <= -5);
+    CHECK_EQ(mascot_event_pose(ANIM_HOP, 1000).dy, 0);
+    CHECK_EQ(mascot_event_pose(ANIM_GLANCE_TEXT, 500).look_x, 4);
+    /* motion is smooth: consecutive 50 ms frames never jump more than 2 px */
+    for (int k = ANIM_BLINK; k < ANIM_COUNT; k++) {
+        uint32_t dur = k == ANIM_LOOK_AROUND ? 2400u : 600u;
+        mascot_pose_t prev = mascot_event_pose((anim_kind_t)k, 0);
+        for (uint32_t t = 50; t <= dur; t += 50) {
+            mascot_pose_t p = mascot_event_pose((anim_kind_t)k, (int)(t * 1000u / dur));
+            if (k != ANIM_BLINK && k != ANIM_DOUBLE_BLINK && k != ANIM_TYPE) {
+                CHECK(abs(p.dy - prev.dy) <= 2 && abs(p.look_x - prev.look_x) <= 2);
+            }
+            prev = p;
+        }
+    }
+    /* idle engine produces random events at intervals, at most 20 FPS of redraws */
+    mascot_anim_t an;
+    mascot_anim_init(&an, 1234, 0);
+    int redraws = 0, events = 0;
+    anim_kind_t last = ANIM_NONE;
+    for (uint32_t t = 0; t < 60000; t += 10) {
+        redraws += mascot_anim_step(&an, PIP_EXPR_READY, t);
+        if (an.kind != ANIM_NONE && an.kind != last) {
+            events++;
+        }
+        last = an.kind;
+    }
+    CHECK(events >= 6 && events <= 30);    /* ~one event every 2.5-8.5 s */
+    CHECK(redraws > 20 && redraws <= 1200); /* never above 20 FPS */
+    /* eyes are live: different poses render different pixels */
+    m.state = UI_STATE_IDLE_READY;
+    m.page = PAGE_FOCUS;
+    memset(&m.pose, 0, sizeof m.pose);
+    ui_render(&fb, &m, NULL);
+    int open_ink = ink_in(MASCOT_X, MASCOT_Y, MASCOT_X + 119, MASCOT_Y + 119);
+    m.pose.lid = 8;
+    ui_render(&fb, &m, NULL);
+    CHECK(ink_in(MASCOT_X, MASCOT_Y, MASCOT_X + 119, MASCOT_Y + 119) > open_ink); /* closed lids = less white */
 
     /* host render budget: <= 2 ms per full frame */
     m.page = PAGE_FOCUS;

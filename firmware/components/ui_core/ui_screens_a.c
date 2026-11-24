@@ -48,7 +48,7 @@ void ui_screen_idle(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     char buf[128];
     if (m->has_active_step) {
         snprintf(buf, sizeof buf, "Next: %s (%um)", m->step_title, (unsigned)((m->remaining_ms + 59999u) / 60000u));
-        int n = text_draw_wrap(fb, &FONT_16B, CONTENT_X, y, CONTENT_W, 2, 2, buf, INK_BLACK);
+        int n = text_draw_wrap(fb, &FONT_14B, CONTENT_X, y, CONTENT_W, 3, 2, buf, INK_BLACK);
         ui_meta_add(meta, "secondary_text", CONTENT_X, y, CONTENT_W, n * 21, -1);
         ui_hint_t h[] = {{ICON_ARROW, "Start"}, {ICON_CYCLE, "Agenda"}};
         ui_chrome_bar(fb, m, h, 2, meta);
@@ -68,10 +68,10 @@ void ui_screen_listening(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     ui_chrome_mascot(fb, m, PIP_EXPR_LISTENING, "Listening", meta);
     text_draw_bold(fb, &FONT_24B, CONTENT_X, 44, "Listening...", INK_BLACK);
     ui_meta_add(meta, "primary_text", CONTENT_X, 44, text_width(&FONT_24B, "Listening...") + 1, FONT_24B.line_h, -1);
-    char t1[8], t2[8], buf[24];
+    char t1[8], t2[8], buf[48];
     ui_fmt_mmss(t1, (uint32_t)m->listen_elapsed_s * 1000u);
     ui_fmt_mmss(t2, (uint32_t)(m->listen_max_s ? m->listen_max_s : 60) * 1000u);
-    snprintf(buf, sizeof buf, "%s / %s", t1, t2);
+    snprintf(buf, sizeof buf, "%s \xC2\xB7 %s / %s", ui_voice_choice_label(m->voice_choice), t1, t2);
     text_draw(fb, &FONT_16B, CONTENT_X, 84, buf, INK_BLACK);
     ui_meta_add(meta, "secondary_text", CONTENT_X, 84, text_width(&FONT_16B, buf), FONT_16B.line_h, -1);
     /* 8 discrete level bars, graded heights, filled up to the live level */
@@ -127,14 +127,15 @@ void ui_screen_focus(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     ui_chrome_top(fb, m, meta);
     ui_chrome_mascot(fb, m, PIP_EXPR_WORKING, "Focus", meta);
     big_timer(fb, m->remaining_ms, 26, meta);
-    char badge[40];
+    char badge[96];
     if (m->is_starter) {
         snprintf(badge, sizeof badge, "Step %u/%u \xC2\xB7 Starter", (unsigned)m->step_index, (unsigned)m->step_total);
     } else {
-        snprintf(badge, sizeof badge, "Step %u/%u \xC2\xB7 Focus Time", (unsigned)m->step_index, (unsigned)m->step_total);
+        snprintf(badge, sizeof badge, "Step %u/%u · %s", (unsigned)m->step_index, (unsigned)m->step_total,
+                 m->task_title[0] ? m->task_title : "Focus Time");
     }
     ui_inverted_pill(fb, &FONT_14, CONTENT_X, 106, badge, meta, "step_badge");
-    step_title_block(fb, m, &FONT_16B, 136, 2, meta);
+    step_title_block(fb, m, &FONT_14B, 134, 3, meta);
     uint32_t total = m->step_total_ms ? m->step_total_ms : m->remaining_ms;
     ui_progress(fb, CONTENT_X, 222, CONTENT_W, 14, total - (m->remaining_ms > total ? total : m->remaining_ms), total,
                 meta);
@@ -148,7 +149,7 @@ void ui_screen_paused(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     ui_chrome_mascot(fb, m, PIP_EXPR_PAUSED, "Paused", meta);
     big_timer(fb, m->remaining_ms, 26, meta);
     ui_inverted_pill(fb, &FONT_14, CONTENT_X, 106, "Paused", meta, "step_badge");
-    step_title_block(fb, m, &FONT_16, 136, 2, meta);
+    step_title_block(fb, m, &FONT_14, 134, 3, meta);
     const char *calm = "No rush \xE2\x80\x94 resume anytime";
     text_draw(fb, &FONT_14, CONTENT_X, 216, calm, INK_BLACK);
     ui_meta_add(meta, "calm_text", CONTENT_X, 216, text_width(&FONT_14, calm), FONT_14.line_h, -1);

@@ -142,8 +142,10 @@ def rays(c: Canvas, cx=100, cy=26, n=3, length=9, spread=(-60, 30)):
 
 
 def sound_waves(c: Canvas):
+    """Listening with both 'ears': waves on both sides of the head."""
     for r in (8, 15, 22):
         c.arc(92, 30, r, 285, 355, 3)
+        c.arc(18, 44, r, 185, 255, 3)
 
 
 def question(c: Canvas):

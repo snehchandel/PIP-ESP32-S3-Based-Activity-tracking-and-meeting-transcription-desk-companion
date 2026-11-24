@@ -27,14 +27,15 @@ void app_send_diag(app_t *a)
                      "\"free_heap_b\":%lu,\"free_psram_b\":%lu,\"batt_mv\":%ld,\"batt_pct\":%d,\"rtc_ok\":%s,"
                      "\"i2c_addrs\":\"%s\",\"display_ok\":%s,\"audio_ok\":%s,\"crc_errors\":%lu,"
                      "\"dropped_audio_chunks\":%lu,\"state_rev\":%lu,\"boot_id\":%lu,\"offline_queue\":%u,"
-                     "\"ui_state\":\"%s\"}",
+                     "\"ui_state\":\"%s\",\"indoor_c10\":%d,\"indoor_hum\":%d}",
                      APP_FW_VERSION, a->is_sim ? "true" : "false", d.reset_reason,
                      a->m.link == LINK_TETHERED ? "TETHERED" : "STANDALONE", PIP_PROTO_VER,
                      (unsigned long)d.free_heap_b, (unsigned long)d.free_psram_b, (long)d.batt_mv,
                      a->m.batt_valid ? (int)a->m.batt_pct : -1, d.rtc_ok ? "true" : "false", d.i2c_addrs,
                      d.display_ok ? "true" : "false", d.audio_ok ? "true" : "false", (unsigned long)a->crc_errors,
                      (unsigned long)d.dropped_audio_chunks, (unsigned long)a->state_rev, (unsigned long)a->boot_id,
-                     (unsigned)a->oev.count, app_state_name(a->m.state));
+                     (unsigned)a->oev.count, app_state_name(a->m.state), a->m.in_valid ? (int)a->m.in_temp_c10 : -9999,
+                     a->m.in_valid ? (int)a->m.in_hum : -1);
     if (n > 0 && (size_t)n < sizeof buf) {
         app_send(a, PIP_DIAG_REPORT, false, (const uint8_t *)buf, (uint16_t)n);
     }

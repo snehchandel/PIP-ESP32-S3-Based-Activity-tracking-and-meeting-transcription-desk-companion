@@ -24,6 +24,10 @@ void fb_fill_rrect(rlcd_fb_t *fb, int x, int y, int w, int h, int r, ink_t ink);
 void fb_rrect(rlcd_fb_t *fb, int x, int y, int w, int h, int r, int thick, ink_t ink);
 void fb_fill_circle(rlcd_fb_t *fb, int cx, int cy, int r, ink_t ink);
 void fb_line(rlcd_fb_t *fb, int x0, int y0, int x1, int y1, int thick, ink_t ink);
+/* Thick circular arc. Angles in degrees, 0 = 3 o'clock, increasing clockwise (screen y down). */
+void fb_arc(rlcd_fb_t *fb, int cx, int cy, int r, int a0, int a1, int thick, ink_t ink);
+void fb_fill_triangle(rlcd_fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2, ink_t ink);
+void fb_invert(rlcd_fb_t *fb);
 
 /* Mask blit: every set bit draws `ink`; clear bits leave the canvas untouched. */
 void fb_blit_mask(rlcd_fb_t *fb, int x, int y, const uint8_t *bits, int w, int h, int stride, ink_t ink);

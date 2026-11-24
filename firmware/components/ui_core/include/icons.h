@@ -16,6 +16,14 @@ typedef enum {
     ICON_LINK_OFF,
     ICON_BELL,
     ICON_MIC,
+    ICON_HOME,
+    ICON_SUN, /* weather icons in out_code order: 0 sun .. 5 fog */
+    ICON_CLOUD,
+    ICON_RAIN,
+    ICON_SNOW,
+    ICON_STORM,
+    ICON_FOG,
+    ICON_WARN,
     UI_ICON_COUNT
 } ui_icon_t;
 

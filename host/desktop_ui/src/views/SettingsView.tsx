@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { useLive } from "../api/live";
 import type { Settings } from "../api/types";
 import { ApiKeyCard, SpeechCard } from "../components/SettingsCards";
+import { WeatherCard } from "../components/WeatherCard";
 import { Button } from "../components/ui/button";
 import { Card, CardTitle, PageHeader } from "../components/ui/primitives";
 
@@ -33,6 +34,7 @@ export default function SettingsView() {
         <div className="grid gap-5 lg:grid-cols-2">
           <ApiKeyCard s={s} onChange={update} />
           <SpeechCard s={s} onChange={update} />
+          <WeatherCard />
           <Card aria-label="System">
             <CardTitle>System</CardTitle>
             <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">

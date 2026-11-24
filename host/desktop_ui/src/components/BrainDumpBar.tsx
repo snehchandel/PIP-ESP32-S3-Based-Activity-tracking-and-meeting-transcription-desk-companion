@@ -37,7 +37,7 @@ export function BrainDumpBar() {
         </div>
       </div>
       <p className="mt-2 px-1 text-xs text-muted" aria-live="polite">
-        {note ?? `Planner: ${health?.planner_mode === "KIMI" ? "Kimi (cloud)" : "Local Rule Engine (offline)"}`}</p>
+        {note ?? (health?.planner_mode === "KIMI" ? "Planner: Kimi AI" : "AI not set up — add your Kimi key in Settings")}</p>
     </form>
   );
 }

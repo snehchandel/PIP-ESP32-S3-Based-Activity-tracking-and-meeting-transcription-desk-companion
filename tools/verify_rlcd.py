@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW, META, PREVIEW = ROOT / "artifacts/rlcd/raw", ROOT / "artifacts/rlcd/meta", ROOT / "artifacts/rlcd/preview"
 GOLDEN = ROOT / "tests/golden/rlcd"
 SPRITES = ROOT / "artifacts/pip/png"
-EXPECTED_SCREENS = 11
+EXPECTED_SCREENS = 13
 EXPRESSIONS = ["ready", "listening", "thinking", "working", "paused", "done", "alarm", "sleep"]
 
 
@@ -61,12 +61,12 @@ def check_screen(path: Path, strict_meta: bool = True) -> list[str]:
     if margin:
         errs.append(f"{len(margin)} ink pixels inside the 4 px safe margin, e.g. {margin[0]}")
     ink = ratio(b, 0, 0, 399, 263)
-    if not 0.08 <= ink <= 0.42:
-        errs.append(f"canvas ink {ink:.1%} outside 8-42%")
+    if not 0.06 <= ink <= 0.42:  # floor lowered 8%->6% for the smaller task text (ADR-014)
+        errs.append(f"canvas ink {ink:.1%} outside 6-42%")
     bar_black = ratio(b, 0, 264, 399, 299)
     if bar_black < 0.70 or (1 - bar_black) < 0.03:
         errs.append(f"status bar black {bar_black:.1%} (need >=70% black, >=3% white)")
-    stage = ratio(b, 16, 52, 135, 171)
+    stage = ratio(b, 16, 70, 135, 189)  # mascot region (MASCOT_Y = 70)
     if not 0.12 <= stage <= 0.60:
         errs.append(f"mascot stage ink {stage:.1%} outside 12-60%")
     meta_path = META / f"{path.stem}.json"

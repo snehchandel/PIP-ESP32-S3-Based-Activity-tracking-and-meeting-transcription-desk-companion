@@ -59,7 +59,7 @@ class LocalRulePlanner:
     def __init__(self, tz: str = "America/Toronto") -> None:
         self.tz = ZoneInfo(tz)
 
-    def plan(self, text: str, now: datetime | None = None) -> PlannerOutputV1:
+    def plan(self, text: str, now: datetime | None = None, activity: str = "BRAIN_DUMP") -> PlannerOutputV1:
         now = now or datetime.now(self.tz)
         raw = text.strip()
         if not raw:
@@ -109,7 +109,9 @@ class LocalRulePlanner:
                                                due_local=when.local.strftime("%Y-%m-%dT%H:%M"),
                                                needs_confirmation=when.needs_confirmation))
             else:
-                parked.append(ParkedItem(title=_title(strip_time_words(body) or body), source_text=clause.strip()))
+                ptitle = _title(strip_time_words(body) or body)
+                if len(ptitle) >= 2:  # fragments like "M" are speech noise, never a crash (BUG-011)
+                    parked.append(ParkedItem(title=ptitle, source_text=clause.strip()))
 
         if active_text is not None and (VAGUE_TASK.match(active_text) or len(active_text) < 3):
             return PlannerOutputV1(intent=IntentType.NEEDS_CLARIFICATION, scheduled=scheduled, parked=parked,

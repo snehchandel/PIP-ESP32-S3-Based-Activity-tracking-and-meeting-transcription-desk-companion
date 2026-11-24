@@ -1,5 +1,6 @@
 #include "ui_draw.h"
 
+#include <math.h>
 #include <string.h>
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -120,6 +121,48 @@ void fb_line(rlcd_fb_t *fb, int x0, int y0, int x1, int y1, int thick, ink_t ink
             err += dx;
             y0 += sy;
         }
+    }
+}
+
+void fb_arc(rlcd_fb_t *fb, int cx, int cy, int r, int a0, int a1, int thick, ink_t ink)
+{
+    /* stamp discs along the arc every ~0.7 px of arc length: smooth at 1-bit without gaps */
+    int steps = (a1 - a0) * r / 40 + 2;
+    int rad = thick / 2 > 0 ? thick / 2 : 1;
+    for (int i = 0; i <= steps; i++) {
+        float a = ((float)a0 + (float)(a1 - a0) * (float)i / (float)steps) * 0.0174533f;
+        int x = cx + (int)lroundf((float)r * cosf(a));
+        int y = cy + (int)lroundf((float)r * sinf(a));
+        fb_fill_circle(fb, x, y, rad, ink);
+    }
+}
+
+static int edge(int ax, int ay, int bx, int by, int px, int py) { return (bx - ax) * (py - ay) - (by - ay) * (px - ax); }
+
+void fb_fill_triangle(rlcd_fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2, ink_t ink)
+{
+    int minx = x0 < x1 ? (x0 < x2 ? x0 : x2) : (x1 < x2 ? x1 : x2);
+    int maxx = x0 > x1 ? (x0 > x2 ? x0 : x2) : (x1 > x2 ? x1 : x2);
+    int miny = y0 < y1 ? (y0 < y2 ? y0 : y2) : (y1 < y2 ? y1 : y2);
+    int maxy = y0 > y1 ? (y0 > y2 ? y0 : y2) : (y1 > y2 ? y1 : y2);
+    int area = edge(x0, y0, x1, y1, x2, y2);
+    if (area == 0) {
+        return;
+    }
+    for (int y = miny; y <= maxy; y++) {
+        for (int x = minx; x <= maxx; x++) {
+            int w0 = edge(x1, y1, x2, y2, x, y), w1 = edge(x2, y2, x0, y0, x, y), w2 = edge(x0, y0, x1, y1, x, y);
+            if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) || (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+                fb_set(fb, x, y, ink);
+            }
+        }
+    }
+}
+
+void fb_invert(rlcd_fb_t *fb)
+{
+    for (int i = 0; i < RLCD_FB_BYTES; i++) {
+        fb->px[i] = (uint8_t)~fb->px[i];
     }
 }
 

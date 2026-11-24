@@ -139,6 +139,9 @@ class ActionsMixin:
     def apply_button(self: DeviceStateManager, btn: int, gesture: int, flags: int = 0) -> str:
         """Apply a device BTN_EVENT with exactly the firmware's semantics. Returns an action label."""
         with self.lock:
+            if self.error and not self.ringing and gesture in (SHORT, DOUBLE):
+                self.clear_error()
+                return "error_dismiss"
             if self.ringing:
                 if gesture == HOLD_END:
                     return "ignored"
@@ -159,15 +162,8 @@ class ActionsMixin:
                     self.page = "AGENDA" if self.page == "FOCUS" else "FOCUS"
                     self.changed()
                     return "page_toggle"
-                if gesture == HOLD_START:
-                    self.overlay = "LISTENING"
-                    self.changed()
-                    return "listening"
-                if gesture == HOLD_END:
-                    if self.overlay == "LISTENING":
-                        self.overlay = "TRANSCRIBING"
-                        self.changed()
-                    return "transcribing"
+                # KEY hold opens the device-local activity picker; recording state is driven by
+                # AUDIO_START / AUDIO_END frames (VoicePipeline), not by the hold gesture itself.
                 return "ignored"
             if gesture == RESCUE:
                 return "split" if self.rescue_split() else "ignored"
@@ -195,7 +191,7 @@ class ActionsMixin:
     def tick(self: DeviceStateManager) -> bool:
         """Called ~1 Hz. Returns True if canonical state changed."""
         with self.lock:
-            if self.expire_test_ring():
+            if self.expire_test_ring() or self.check_stuck():
                 return True
             if self.timer.expired():
                 self.timer.stop()

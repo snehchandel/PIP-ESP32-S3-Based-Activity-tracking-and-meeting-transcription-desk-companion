@@ -42,6 +42,9 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
         self.thinking_stage = ""
         self.ringing: dict[str, Any] | None = None
         self.pending: dict[str, Any] | None = None  # plan awaiting time confirmation
+        self.error: dict[str, Any] | None = None    # user-visible error screen (dismissed by any button)
+        self.weather: dict[str, Any] = {}            # outdoor conditions pushed to the device
+        self._ov_seen: tuple[str | None, float] = (None, 0.0)
         self.listeners: list[Listener] = []
         self.revision = int(self.device.state().get("revision", 1))
         self._restore_timer()
@@ -85,9 +88,45 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
         sid = self.device.state().get("active_step_id")
         return self.tasks.get_step(sid) if sid else None
 
+    # ---- errors & stuck-state watchdog -------------------------------------------------------
+    STUCK_LIMITS_S = {"LISTENING": 90.0, "TRANSCRIBING": 90.0, "THINKING": 150.0}
+
+    def set_error(self, title: str, text: str) -> None:
+        with self.lock:
+            self.error = {"title": title[:28], "text": text[:120], "since": self.clock(),
+                          "at": datetime.now(UTC).isoformat()}
+            if self.overlay in self.STUCK_LIMITS_S:
+                self.overlay = None
+            self.changed("error_shown", title=title)
+
+    def clear_error(self) -> None:
+        with self.lock:
+            if self.error:
+                self.error = None
+                self.changed("error_cleared")
+
+    def check_stuck(self) -> bool:
+        """Called ~1 Hz: a busy overlay that never finishes becomes a logged error screen."""
+        from .. import errors  # local import avoids a cycle
+        with self.lock:
+            ov = self.overlay
+            if ov != self._ov_seen[0]:
+                self._ov_seen = (ov, self.clock())
+                return False
+            limit = self.STUCK_LIMITS_S.get(ov or "")
+            age = self.clock() - self._ov_seen[1]
+            if limit is None or age < limit:
+                return False
+            errors.report(self.db, "watchdog", "Stuck state", f"{ov} for {age:.0f}s", None,
+                          stage=self.thinking_stage, revision=self.revision)
+            self.set_error("PIP got stuck", f"{ov.title()} took too long. Press any button.")
+            return True
+
     def ui_state(self) -> str:
         if self.ringing:
             return "ALARM_RINGING"
+        if self.error:
+            return "ERROR_RECOVERABLE"
         if self.overlay in OVERLAYS:
             return self.overlay
         if self.timer.state == "RUNNING":
@@ -114,7 +153,7 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
             from ..alarms.schedule import next_alarm_hhmm  # local import avoids a cycle
             return {
                 "rev": self.revision, "ui_state": self.ui_state(), "page": self.page,
-                "task_title": _cut(task["title"] if task else "", 60),
+                "task_title": _cut((task.get("short_title") or task["title"]) if task else "", 22),
                 "step_id": step["id"] if step else "", "step_title": _cut(step["title"] if step else "", 90),
                 "step_index": idx + 1 if idx >= 0 else 0, "step_total": len(steps),
                 "is_starter": bool(step and step["is_starter"]),
@@ -128,6 +167,8 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
                 "thinking_stage": self.thinking_stage, "done_title": _cut(self.done_title, 90),
                 "break_remaining_ms": self.brk.remaining_ms if self.overlay == "BREAK" else 0,
                 "tz_offset_min": self.tz_offset_min(), "alarm_ringing": bool(self.ringing),
+                "error_title": (self.error or {}).get("title", ""), "error_text": (self.error or {}).get("text", ""),
+                **{k: v for k, v in self.weather.items() if k in ("out_temp_c10", "out_hum", "out_code")},
             }
 
     def full_state(self) -> dict[str, Any]:
@@ -142,6 +183,7 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
                 "tasks": self.tasks.list_tasks(date_from=today),
                 "parked": self.tasks.parked(), "reminders": self.tasks.reminders(),
                 "alarms": self.alarms.list(), "ringing": self.ringing, "pending_confirmation": self.pending,
-                "done_title": self.done_title, "timezone": self.tz.key,
+                "done_title": self.done_title, "timezone": self.tz.key, "error": self.error,
+                "weather": self.weather,
                 "server_time_utc": datetime.now(UTC).isoformat(),
             }

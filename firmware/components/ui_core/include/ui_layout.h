@@ -9,7 +9,7 @@
 #define ZONE_TOP 26
 
 #define MASCOT_X 16
-#define MASCOT_Y 52
+#define MASCOT_Y 70 /* vertically centred against the text column (no separate stage) */
 #define MASCOT_W 120
 #define MASCOT_H 120
 #define GROUND_Y 164

@@ -17,13 +17,14 @@ TTF = Path(matplotlib.get_data_path()) / "fonts/ttf"
 OUT = ROOT / "firmware/components/ui_core"
 
 # extra code points remapped into 127.. so C can index a dense table
-EXTRA = {0x00B7: 127, 0x2014: 128, 0x2026: 129}
+EXTRA = {0x00B7: 127, 0x2014: 128, 0x2026: 129, 0x00B0: 130}
 FONTS = [  # (C name, ttf, px size, first, last)
-    ("FONT_14", "DejaVuSans.ttf", 14, 32, 129),
-    ("FONT_16", "DejaVuSans.ttf", 16, 32, 129),
-    ("FONT_16B", "DejaVuSans-Bold.ttf", 16, 32, 129),
-    ("FONT_24B", "DejaVuSans-Bold.ttf", 24, 32, 129),
-    ("FONT_32B", "DejaVuSans-Bold.ttf", 32, 32, 129),
+    ("FONT_14", "DejaVuSans.ttf", 14, 32, 130),
+    ("FONT_14B", "DejaVuSans-Bold.ttf", 14, 32, 130),
+    ("FONT_16", "DejaVuSans.ttf", 16, 32, 130),
+    ("FONT_16B", "DejaVuSans-Bold.ttf", 16, 32, 130),
+    ("FONT_24B", "DejaVuSans-Bold.ttf", 24, 32, 130),
+    ("FONT_32B", "DejaVuSans-Bold.ttf", 32, 32, 130),
     ("FONT_64", "DejaVuSansMono-Bold.ttf", 64, 32, 58),
 ]
 
@@ -152,9 +153,65 @@ def i_mic(d, s):
     d.line([9 * s, 14 * s, 9 * s, 17 * s], fill=255, width=2 * s)
 
 
+def i_home(d, s):
+    d.polygon([(9 * s, 1.5 * s), (17 * s, 8.5 * s), (1 * s, 8.5 * s)], fill=255)
+    d.rectangle([3.5 * s, 8 * s, 14.5 * s, 16.5 * s], fill=255)
+    d.rectangle([7.5 * s, 11 * s, 10.5 * s, 16.5 * s], fill=0)
+
+
+def i_sun(d, s):
+    d.ellipse([5 * s, 5 * s, 13 * s, 13 * s], fill=255)
+    import math
+    for k in range(8):
+        a = k * math.pi / 4
+        d.line([(9 * s + 6 * s * math.cos(a), 9 * s + 6 * s * math.sin(a)),
+                (9 * s + 8.5 * s * math.cos(a), 9 * s + 8.5 * s * math.sin(a))], fill=255, width=int(1.8 * s))
+
+
+def _cloud(d, s, y=0.0):
+    d.ellipse([2 * s, (6 + y) * s, 9 * s, (13 + y) * s], fill=255)
+    d.ellipse([6 * s, (3 + y) * s, 14 * s, (11 + y) * s], fill=255)
+    d.ellipse([10 * s, (6 + y) * s, 17 * s, (13 + y) * s], fill=255)
+    d.rectangle([5 * s, (9 + y) * s, 14 * s, (13 + y) * s], fill=255)
+
+
+def i_cloud(d, s):
+    _cloud(d, s, 2)
+
+
+def i_rain(d, s):
+    _cloud(d, s, -1)
+    for x in (5, 9, 13):
+        d.line([(x * s, 14 * s), ((x - 1.5) * s, 17.5 * s)], fill=255, width=int(1.8 * s))
+
+
+def i_snow(d, s):
+    _cloud(d, s, -1)
+    for x in (5, 9, 13):
+        d.ellipse([(x - 1.2) * s, 14.5 * s, (x + 1.2) * s, 16.9 * s], fill=255)
+
+
+def i_storm(d, s):
+    _cloud(d, s, -1)
+    d.polygon([(10 * s, 12 * s), (6 * s, 15.5 * s), (9 * s, 15.5 * s), (7 * s, 18 * s), (12.5 * s, 14 * s),
+               (9.5 * s, 14 * s)], fill=255)
+
+
+def i_fog(d, s):
+    for y, x0, x1 in ((5, 2, 16), (9, 4, 17), (13, 1, 14)):
+        d.line([(x0 * s, y * s), (x1 * s, y * s)], fill=255, width=int(2 * s))
+
+
+def i_warn(d, s):
+    d.polygon([(9 * s, 1 * s), (17.5 * s, 16.5 * s), (0.5 * s, 16.5 * s)], fill=255)
+    d.rectangle([8 * s, 6 * s, 10 * s, 11.5 * s], fill=0)
+    d.rectangle([8 * s, 13 * s, 10 * s, 15 * s], fill=0)
+
+
 ICONS = [("ARROW", i_arrow), ("CHECK", i_check), ("PAUSE", i_pause), ("PLAY", i_play),
          ("CYCLE", i_cycle), ("LINK", i_link), ("LINK_OFF", i_link_off), ("BELL", i_bell),
-         ("MIC", i_mic)]
+         ("MIC", i_mic), ("HOME", i_home), ("SUN", i_sun), ("CLOUD", i_cloud), ("RAIN", i_rain),
+         ("SNOW", i_snow), ("STORM", i_storm), ("FOG", i_fog), ("WARN", i_warn)]
 
 
 def gen_icons() -> str:

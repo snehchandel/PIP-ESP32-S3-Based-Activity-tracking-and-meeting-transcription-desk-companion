@@ -88,7 +88,19 @@ typedef struct {
     uint8_t alarm_count;
     bool dirty;
     uint32_t crc_errors;
+
+    mascot_anim_t anim;
+    ui_state_t prev_state;
+    uint32_t state_since_ms; /* for the stuck-state watchdog */
+    ui_state_t state_before_pick;
+    uint32_t pick_since_ms;
+    uint32_t error_since_ms;
+    bool error_local; /* raised by the device itself (vs. pushed by the host) */
 } app_t;
+
+#define APP_PICK_TIMEOUT_MS 20000u
+#define APP_STUCK_MS 180000u /* device-side watchdog for LISTENING / TRANSCRIBING / THINKING */
+#define APP_ERROR_FLASH_MS 2400u
 
 void app_init(app_t *a, const app_io_t *io, uint32_t now_ms, uint32_t boot_id, bool is_sim);
 void app_tick(app_t *a, uint32_t now_ms);
@@ -99,6 +111,8 @@ void app_set_epoch(app_t *a, uint32_t epoch_s);
 uint32_t app_epoch_now(const app_t *a);
 void app_set_battery(app_t *a, int pct);
 void app_set_audio_level(app_t *a, uint8_t level);
+void app_set_indoor(app_t *a, bool valid, int16_t temp_c10, uint8_t hum);
+void app_local_error(app_t *a, const char *title, const char *text);
 /* Re-render into a->fb if anything changed; returns true when the panel needs a flush. */
 bool app_render_if_dirty(app_t *a);
 

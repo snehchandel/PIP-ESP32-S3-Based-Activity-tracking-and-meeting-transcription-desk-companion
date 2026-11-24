@@ -212,7 +212,8 @@ class DeviceLink:
                         w.set_result(fb)
                 self.notify("framebuffer_updated", {})
         elif t == FrameType.AUDIO_START:
-            self.voice.start(AudioStart.unpack(f.payload).stream_id)
+            a = AudioStart.unpack(f.payload)
+            self.voice.start(a.stream_id, a.activity)
         elif t == FrameType.AUDIO_DATA:
             sid, _, pcm = unpack_audio_data(f.payload)
             self.voice.data(sid, pcm)

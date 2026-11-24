@@ -85,8 +85,8 @@ def gate_traceability(fails: list[str]) -> None:
         if not (ROOT / f"artifacts/pip/png/{e}.png").exists():
             fails.append(f"expression {e}: no rendered sprite")
     golden = sorted(p.stem for p in (ROOT / "tests/golden/rlcd").glob("*.png"))
-    if len(golden) != 11:
-        fails.append(f"golden RLCD baselines: {len(golden)}/11")
+    if len(golden) != 13:
+        fails.append(f"golden RLCD baselines: {len(golden)}/13")
     res = ROOT / "artifacts/desktop/results.json"
     if res.exists():
         r = json.loads(res.read_text())

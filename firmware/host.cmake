@@ -18,6 +18,8 @@ set(CORE_SRC
     ${FW}/components/ui_core/ui_chrome.c
     ${FW}/components/ui_core/ui_screens_a.c
     ${FW}/components/ui_core/ui_screens_b.c
+    ${FW}/components/ui_core/ui_screens_c.c
+    ${FW}/components/ui_core/ui_mascot.c
     ${FW}/components/ui_core/ui_render.c
     ${FW}/components/ui_core/fonts_gen.c
     ${FW}/components/ui_core/icons_gen.c

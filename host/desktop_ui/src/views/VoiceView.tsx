@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
-import type { Plan, PlanResult, VoiceSession } from "../api/types";
+import type { Activity, Plan, PlanResult, VoiceSession } from "../api/types";
+
+const ACTIVITIES: [Activity, string][] = [["CALENDAR", "Calendar"], ["BRAIN_DUMP", "Brain dump"], ["FOCUS", "Focus"], ["ALARMS", "Alarms"]];
 import { Button } from "../components/ui/button";
 import { Badge, Card, CardTitle, Empty, Input, PageHeader, Textarea } from "../components/ui/primitives";
 
@@ -84,12 +86,13 @@ export default function VoiceView() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [sessions, setSessions] = useState<VoiceSession[]>([]);
   const [committed, setCommitted] = useState(false);
+  const [activity, setActivity] = useState<Activity>("BRAIN_DUMP");
   const voice = state?.voice;
 
   useEffect(() => { void api.voiceSessions().then(setSessions).catch(() => undefined); }, [voice?.status, committed]);
 
   const parse = async () => {
-    const r = await run(() => api.plan(text, false));
+    const r = await run(() => api.plan(text, false, activity));
     if (r) { setResult(r); setPlan(r.plan); setCommitted(false); }
   };
   const accept = async () => {
@@ -109,6 +112,11 @@ export default function VoiceView() {
           <Textarea id="dump-text" rows={6} value={text} onChange={(e) => setText(e.target.value)}
             placeholder="Everything in your head, in any order. PIP picks one lane and parks the rest." />
           <div className="mt-3 flex flex-wrap gap-2">
+            <div role="radiogroup" aria-label="What is it about?" className="flex flex-wrap gap-1">
+              {ACTIVITIES.map(([id, label]) => (
+                <Button key={id} size="sm" role="radio" aria-checked={activity === id}
+                  variant={activity === id ? "primary" : "outline"} onClick={() => setActivity(id)}>{label}</Button>))}
+            </div>
             <Button variant="amber" disabled={!text.trim()} onClick={() => void parse()}><Sparkles size={16} aria-hidden /> Break it down</Button>
           </div>
           <div className="mt-6"><CardTitle id="recent-title">Recent sessions</CardTitle></div>

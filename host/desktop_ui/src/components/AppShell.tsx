@@ -44,6 +44,19 @@ function AlarmBanner() {
   );
 }
 
+function ErrorBanner() {
+  const { state, run } = useLive();
+  const e = state?.error;
+  if (!e) return null;
+  return (
+    <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e7c2b8]
+      bg-[#fbeee9] px-4 py-3">
+      <p className="text-sm"><span className="font-semibold text-[#8a3b2e]">{e.title}.</span> {e.text}</p>
+      <Button size="sm" variant="primary" onClick={() => run(() => api.dismissError())}>Dismiss</Button>
+    </div>
+  );
+}
+
 function ConfirmBanner() {
   const { state, run } = useLive();
   const p = state?.pending_confirmation;
@@ -88,6 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
       <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-6 sm:px-6">
         <AlarmBanner />
+        <ErrorBanner />
         <ConfirmBanner />
         {error && <p role="alert" className="mb-4 rounded-xl border border-line bg-white px-4 py-2 text-sm text-ink-2">
           {error}</p>}

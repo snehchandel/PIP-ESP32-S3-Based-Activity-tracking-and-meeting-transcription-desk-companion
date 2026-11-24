@@ -17,13 +17,14 @@ class TaskRepo:
     # ---- tasks -------------------------------------------------------------------------
     def create_task(self, title: str, steps: list[dict[str, Any]], target_date: str, tz: str,
                     status: str = "SCHEDULED", if_then_cue: str | None = None, priority: int = 0,
-                    start_hhmm: str | None = None) -> str:
+                    start_hhmm: str | None = None, short_title: str | None = None) -> str:
         tid = new_id("task")
         now = utcnow()
         with self.db.tx() as c:
-            c.execute("INSERT INTO tasks(id,title,status,target_date,timezone,if_then_cue,priority,created_at,updated_at,"
-                      "start_hhmm) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                      (tid, title, status, target_date, tz, if_then_cue, priority, now, now, start_hhmm or None))
+            c.execute("INSERT INTO tasks(id,title,status,target_date,timezone,if_then_cue,priority,created_at,updated_at,short_title,"
+                      "start_hhmm) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (tid, title, status, target_date, tz, if_then_cue, priority, now, now, short_title or None,
+                       start_hhmm or None))
             for i, s in enumerate(steps):
                 dur = int(s["duration_min"])
                 c.execute("INSERT INTO steps(id,task_id,position,title,duration_min,is_starter,remaining_sec,status)"

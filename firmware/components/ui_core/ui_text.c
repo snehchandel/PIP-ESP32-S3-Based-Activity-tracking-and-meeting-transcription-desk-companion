@@ -31,6 +31,7 @@ int font_next_code(const char **s)
     case 0x00B7: return 127;
     case 0x2014: return 128;
     case 0x2026: return 129;
+    case 0x00B0: return 130; /* degree sign */
     case 0x2013: return '-';
     case 0x2019: return '\'';
     default: return cp < 127 ? (int)cp : '?';

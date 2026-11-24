@@ -1,4 +1,4 @@
-import type { Alarm, DayItems, FullState, Health, Plan, PlanResult, Settings, VoiceSession } from "./types";
+import type { Activity, Alarm, DayItems, FullState, Health, Place, Plan, PlanResult, Settings, VoiceSession, WeatherInfo } from "./types";
 
 const BASE = "/api/v1";
 
@@ -30,7 +30,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 export const api = {
   health: () => req<Health>("GET", "/health"),
   state: () => req<FullState>("GET", "/state"),
-  plan: (text: string, auto_commit = false) => req<PlanResult>("POST", "/tasks/plan", { text, auto_commit }),
+  plan: (text: string, auto_commit = false, activity: Activity = "BRAIN_DUMP") =>
+    req<PlanResult>("POST", "/tasks/plan", { text, auto_commit, activity }),
   commit: (plan: Plan, source_text: string, voice_session_id?: string) =>
     req<unknown>("POST", "/tasks/commit", { plan, source_text, activate: true, voice_session_id }),
   createTask: (title: string, target_date: string, start_hhmm?: string | null) =>
@@ -72,5 +73,11 @@ export const api = {
   preloadStt: () => req<Settings>("POST", "/speech/preload"),
   sayOnDevice: (text: string) => req<{ played_on_device: boolean }>("POST", "/speech/say", { text }),
   sayWavUrl: (text: string) => `${BASE}/speech/say.wav?text=${encodeURIComponent(text)}`,
+  kimiModels: () => req<{ models: string[]; active: string | null; pinned: string | null }>("GET", "/settings/kimi-models"),
+  setKimiModel: (model: string) => req<{ models: string[]; active: string | null; pinned: string | null }>("PUT", "/settings/kimi-model", { model }),
+  weather: () => req<WeatherInfo>("GET", "/weather"),
+  weatherSearch: (q: string) => req<Place[]>("GET", `/weather/search?q=${encodeURIComponent(q)}`),
+  setWeatherLocation: (p: Place) => req<WeatherInfo>("PUT", "/weather/location", p),
+  dismissError: () => req<unknown>("POST", "/error/dismiss"),
   exportDiagnostics: () => req<Record<string, unknown>>("GET", "/diagnostics/export"),
 };

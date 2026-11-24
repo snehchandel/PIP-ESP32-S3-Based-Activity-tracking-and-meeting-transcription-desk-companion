@@ -25,6 +25,14 @@ static void base(ui_model_t *m)
     m->is_starter = true;
     m->remaining_ms = 2u * 60u * 1000u;
     m->step_total_ms = 2u * 60u * 1000u;
+    snprintf(m->task_title, sizeof m->task_title, "Q3 report");
+    m->in_valid = true;
+    m->in_temp_c10 = 218;
+    m->in_hum = 41;
+    m->out_valid = true;
+    m->out_temp_c10 = -35;
+    m->out_hum = 78;
+    m->out_code = 1;
 }
 
 void sim_scenario(ui_screen_t s, ui_model_t *m)
@@ -90,6 +98,15 @@ void sim_scenario(ui_screen_t s, ui_model_t *m)
     case SCREEN_NEEDS_CONFIRMATION:
         m->state = UI_STATE_NEEDS_CONFIRMATION;
         snprintf(m->clarification, sizeof m->clarification, "Gym on Friday at 2:00 PM?");
+        break;
+    case SCREEN_VOICE_PICK:
+        m->state = UI_STATE_VOICE_PICK;
+        m->voice_choice = 1;
+        break;
+    case SCREEN_ERROR:
+        m->state = UI_STATE_ERROR_RECOVERABLE;
+        snprintf(m->error_title, sizeof m->error_title, "AI has left the device");
+        snprintf(m->error_text, sizeof m->error_text, "Kimi couldn't be reached. Your words are saved as a parked note.");
         break;
     case SCREEN_STANDALONE_SLEEP:
     default:

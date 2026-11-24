@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     pip_voices_dir: str = str(ROOT / "data" / "voices")
     pip_prefs_path: str = str(ROOT / "data" / "settings.json")
     pip_use_keyring: bool = True  # tests set this False so they never touch the real credential store
+    pip_weather: bool = True  # outdoor weather via open-meteo.com (tests disable)
 
     # ---- API key ---------------------------------------------------------------------------
     def api_key(self) -> str:

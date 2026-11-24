@@ -12,8 +12,12 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 4. To close PIP completely: right-click the tray icon → **Quit PIP**.
 
 ## 2. Reading the screen
-- **Top bar:** clock · LINKED (talking to your PC) or **OFFLINE** (working on its own) · next alarm · P# = parked items.
-- **Left:** PIP's face shows what's going on — ready, listening, thinking, working, paused, done, alarm, sleeping.
+- **Top bar:** clock · LINKED (talking to your PC) or **OFFLINE** (working on its own) · 🔔 next alarm ·
+  🏠 inside temperature and humidity (PIP's own sensor) · ☀/☁/🌧 outside weather in °C with humidity (from the PC).
+  The inside reading can run a few degrees warm because the sensor sits next to PIP's electronics.
+- **Left:** PIP itself. Its mood shows what's going on (ready, listening, thinking, working, paused, done, alarm,
+  sleeping) and it's alive: it blinks, glances at the text when something changes, looks around, hops when a step
+  is done, sips its drink while paused, and breathes slowly when asleep — at random moments, smoothly.
 - **Right:** the important thing right now (timer, step, agenda, alarm or question).
 - **Black bar at the bottom:** what the buttons do on this screen, plus link and battery.
 
@@ -22,15 +26,21 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 |---|---|
 | **KEY click** | Start / pause the timer. On "Step Done!": start the next step. On an alarm: snooze 5 min. |
 | **KEY double-click** | Show today's agenda / go back. On an alarm: dismiss. |
-| **KEY hold** | Talk to PIP (keep holding while you speak, release to send; up to 60 s). Needs the PC. |
+| **KEY hold** | Leave a voice message: first pick what it's about, then hold again to talk (see 4). Needs the PC. |
 | **BOOT click** | Mark the current step done. On "Step Done!": take a 5-min break. On a question: confirm. |
 | **BOOT hold 1.2 s** | **Cut the step in half** when it feels too big. Nothing is lost — the rest becomes the next step. |
 
 ## 4. A typical session
-1. **Brain dump.** Hold KEY and say everything on your mind, e.g. *"Finish the Q3 report, also call the dentist,
-   alarm at 3 pm."* (Or type it in the app's **Brain Dump** or the box on **Today**.)
-2. PIP picks **one** task, breaks it into 3–6 small steps (the first is a 2-minute starter), parks side thoughts
-   ("Call dentist") for later, and sets the alarm.
+1. **Voice message.** Hold **KEY** — PIP asks **"What's it about?"**:
+   **Calendar** · **Brain dump** · **Focus** · **Alarms**. Click KEY to move the highlight, then **hold KEY** and
+   speak; release to send (up to 60 s). BOOT goes back. (You can also type it in the app's **Brain Dump** page and
+   pick the same four topics there.)
+   - *Brain dump:* everything on your mind — PIP picks one task to do now and parks the rest.
+   - *Calendar:* "Dentist Thursday at 2", "move gym to Friday morning".
+   - *Focus:* "pause", "I need a break", "this step is too big".
+   - *Alarms:* "wake me at 6:30 every weekday".
+2. Kimi breaks the task into 3–6 concrete steps in your own situation (the first is a 2-minute starter), gives it a
+   short name that fits PIP's screen, parks side thoughts for later, and sets alarms. Planning takes ~20–40 s.
 3. Click **KEY** to start the 2-minute starter. Click **BOOT** when done. Repeat.
 4. Vague times like "Friday afternoon" are never set silently — PIP asks **Confirm Time**: BOOT to confirm,
    KEY to keep it as a parked note instead.
@@ -47,10 +57,19 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 - **Settings:** Kimi API key (see below), speech status, voice picker and "Play on PIP" voice test.
 - Keyboard: **Space** start/pause · **N** brain dump · **S** cut in half · **1–7** switch views.
 
-## 6. Kimi (smarter planning) — optional
-Without a key, PIP plans fully on your PC. To use Kimi: **Settings → Kimi API key → paste → Test this key →
-Save key**. The key is kept in Windows Credential Manager; the app shows only its last 4 characters.
-With Kimi on, brain-dump text is sent to Moonshot for planning (shown in Settings → Privacy).
+## 6. Kimi AI (required for planning)
+PIP uses Kimi to break tasks into steps. Set it up once: **Settings → Kimi API key → paste → Test this key →
+Save key**. The key is kept in Windows Credential Manager; the app shows only its last 4 characters. The model is
+picked automatically (newest available); you can pin one under **Kimi model**. Your brain-dump text is sent to
+Moonshot for planning.
+
+If Kimi can't be reached, PIP flashes **"AI has left the device"** and waits. Press any button to dismiss — your
+words are not lost: they're saved as a parked note you can promote later.
+
+## 6b. Error screens
+If anything goes wrong or gets stuck (for example "Planning…" never finishes), PIP shows a ⚠ error screen with a
+short explanation instead of freezing, flashing briefly to get your attention. **Press any button to dismiss.**
+The same message appears in the app with a Dismiss button. Details are written to `data/logs/errors.log`.
 
 ## 7. Unplugged (offline) use
 PIP keeps counting, lets you finish/cut steps, and rings alarms it already knows about. The top bar says
@@ -61,4 +80,7 @@ After 15 idle minutes offline PIP rests (sleep screen); press any button to wake
 - **Screen says OFFLINE while plugged in:** open PIP Companion (tray icon must be running).
 - **"Connect PC for Voice":** voice needs the app running and the cable connected.
 - **Voice not understood:** speak after the Listening screen appears; check Settings → Speech-to-text = Ready.
-- **Logs:** `data/logs/pip.log`. **Restore Waveshare demo firmware:** see README.
+- **"AI has left the device":** check Settings → Kimi API key → *Test saved key*, and your internet connection.
+- **Weather missing:** Settings → Temperature & weather → pick your city.
+- **Logs:** `data/logs/pip.log` (everything) and `data/logs/errors.log` (only problems).
+  **Restore Waveshare demo firmware:** see README.

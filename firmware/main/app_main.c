@@ -117,10 +117,20 @@ static void on_frame(const pip_frame_t *f, void *ctx)
 
 static void ui_task(void *arg)
 {
-    uint32_t last_batt = 0, last_rtc_sync = 0;
+    uint32_t last_batt = 0, last_rtc_sync = 0, last_env = 0;
     for (;;) {
         uint32_t t = now_ms();
+        int16_t temp_c10 = 0;
+        uint8_t hum = 0;
+        bool env_due = t - last_env >= 30000u || last_env == 0, env_ok = false;
+        if (env_due) { /* ~15 ms I2C conversion: done outside the app lock */
+            last_env = t;
+            env_ok = shtc3_read(&temp_c10, &hum);
+        }
         lock();
+        if (env_due) {
+            app_set_indoor(&s_app, env_ok, temp_c10, hum);
+        }
         app_button_sample(&s_app, BTN_KEY, gpio_get_level(PIN_KEY) == 0, t);
         app_button_sample(&s_app, BTN_BOOT, gpio_get_level(PIN_BOOT) == 0, t);
         app_tick(&s_app, t);
@@ -236,6 +246,7 @@ void app_main(void)
     int found = i2c_probe_known(s_i2c, s_i2c_found, sizeof s_i2c_found, &es7210);
     ESP_LOGI(TAG, "i2c devices (%d): %s", found, s_i2c_found);
     pcf_rtc_init(s_i2c);
+    shtc3_init(s_i2c);
     battery_init();
     if (audio_init(s_i2c, es7210) != ESP_OK) {
         ESP_LOGW(TAG, "audio unavailable - continuing without sound");

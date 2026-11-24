@@ -34,11 +34,13 @@ export interface FullState {
   pending_confirmation: { question: string; items: ScheduledItem[] } | null; done_title: string; timezone: string;
   device: { transport: string; linked: boolean; telemetry: Record<string, unknown>; heartbeat: Record<string, unknown> };
   voice: { status: string; transcript?: string; error?: string; planner_mode?: string };
+  error: { title: string; text: string; at: string } | null;
+  weather: { out_temp_c10?: number; out_hum?: number; out_code?: number; place?: string; updated?: string };
 }
 
 export interface Health {
   status: string; device_transport: "SIMULATOR" | "USB_HARDWARE" | "DISCONNECTED";
-  link_state: "TETHERED" | "STANDALONE"; planner_mode: "KIMI" | "LOCAL_RULE"; stt_mode: string; tts_mode: string;
+  link_state: "TETHERED" | "STANDALONE"; planner_mode: "KIMI" | "AI_NOT_CONFIGURED"; stt_mode: string; tts_mode: string;
   revision: number;
 }
 
@@ -73,4 +75,11 @@ export interface Settings {
   transport_setting: string; host_port: number; privacy: string; missed_alarms: string[];
   api_key: { configured: boolean; source: "env" | "keyring" | "none"; hint: string; editable: boolean };
   stt_ready: boolean; stt_loading: boolean; tts_enabled: boolean; piper_voice: string | null; voices: string[];
+}
+
+export type Activity = "BRAIN_DUMP" | "CALENDAR" | "FOCUS" | "ALARMS";
+export interface Place { name: string; admin1: string; country: string; latitude: number; longitude: number }
+export interface WeatherInfo {
+  out_temp_c10?: number; out_hum?: number; out_code?: number; place?: string; updated?: string;
+  location: Partial<Place>; error: string;
 }

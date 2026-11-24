@@ -22,6 +22,7 @@ typedef struct {
 } font_t;
 
 extern const font_t FONT_14;
+extern const font_t FONT_14B;
 extern const font_t FONT_16;
 extern const font_t FONT_16B;
 extern const font_t FONT_24B;

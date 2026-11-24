@@ -14,6 +14,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "host"))
+from tests.support.fake_kimi import FakeKimi  # noqa: E402
+
 SIM = ROOT / "build" / "host" / ("sim_rlcd.exe" if sys.platform == "win32" else "sim_rlcd")
 
 
@@ -59,7 +61,7 @@ def sim() -> Iterator[SimProcess]:
 
 
 class LiveService:
-    def __init__(self, sim_port: int, db: str) -> None:
+    def __init__(self, sim_port: int, db: str, kimi_url: str) -> None:
         import uvicorn
 
         from service.config import Settings
@@ -67,7 +69,8 @@ class LiveService:
 
         self.port = free_port()
         settings = Settings(pip_db_path=db, pip_transport="sim", pip_sim_addr=f"127.0.0.1:{sim_port}",
-                            moonshot_api_key="", pip_host_port=self.port, pip_use_keyring=False,
+                            moonshot_api_key="test-key", moonshot_base_url=kimi_url, pip_host_port=self.port,
+                            pip_use_keyring=False, pip_weather=False,
                             pip_stt_preload=False, pip_prefs_path=str(Path(db).parent / "prefs.json"))
         cfg = uvicorn.Config(create_app(settings), host="127.0.0.1", port=self.port, log_level="warning")
         self.server = uvicorn.Server(cfg)
@@ -104,9 +107,16 @@ class LiveService:
 
 
 @pytest.fixture()
-def service(sim: SimProcess, tmp_path: Path) -> Iterator[LiveService]:
+def service(sim: SimProcess, tmp_path: Path, fake_kimi: FakeKimi) -> Iterator[LiveService]:
     sim.start()
-    svc = LiveService(sim.port, str(tmp_path / "pip_test.db"))
+    svc = LiveService(sim.port, str(tmp_path / "pip_test.db"), fake_kimi.base_url)
     svc.start()
     yield svc
     svc.stop()
+
+
+@pytest.fixture()
+def fake_kimi() -> Iterator[FakeKimi]:
+    k = FakeKimi()
+    yield k
+    k.close()

@@ -61,11 +61,39 @@ void app_apply_ui_update(app_t *a, const char *j, size_t n)
     if (m->state == UI_STATE_ALARM_RINGING && jm_get_bool(j, n, "alarm_ringing", &host_ringing) && !host_ringing) {
         m->state = UI_STATE_IDLE_READY; /* host ended the alarm (dismissed in the app or auto-timeout) */
     }
+    /* outdoor weather synced from the PC */
+    long t10 = 0, hum = 0, code = 0;
+    if (jm_get_long(j, n, "out_temp_c10", &t10) && jm_get_long(j, n, "out_hum", &hum)) {
+        (void)jm_get_long(j, n, "out_code", &code);
+        m->out_valid = true;
+        m->out_temp_c10 = (int16_t)t10;
+        m->out_hum = (uint8_t)(hum < 0 ? 0 : (hum > 100 ? 100 : hum));
+        m->out_code = (uint8_t)(code < 0 || code > 5 ? 1 : code);
+    }
+    char et[sizeof m->error_title];
+    bool host_error = jm_get_str(j, n, "error_title", et, sizeof et) && et[0];
     if (jm_get_str(j, n, "ui_state", s, sizeof s) && m->state != UI_STATE_ALARM_RINGING) {
         ui_state_t ns = app_state_from_name(s);
-        /* never let a stale host state interrupt an active local voice capture */
-        if (!(m->state == UI_STATE_LISTENING && ns != UI_STATE_LISTENING)) {
-            m->state = ns;
+        if (ns == UI_STATE_ERROR_RECOVERABLE && host_error) {
+            if (m->state != UI_STATE_ERROR_RECOVERABLE || strcmp(et, m->error_title) != 0) {
+                a->error_since_ms = a->now_ms; /* new error: flash for attention */
+            }
+            snprintf(m->error_title, sizeof m->error_title, "%s", et);
+            GETS("error_text", m->error_text);
+            if (m->state == UI_STATE_LISTENING && a->io.capture) {
+                a->io.capture(a->io.ctx, false, a->stream_id);
+            }
+            m->state = UI_STATE_ERROR_RECOVERABLE;
+            a->error_local = false;
+        } else if (m->state == UI_STATE_ERROR_RECOVERABLE) {
+            if (!a->error_local) { /* host-raised error dismissed elsewhere (e.g. in the app) */
+                m->state = ns;
+                m->error_title[0] = m->error_text[0] = 0;
+            }
+        } else if (m->state == UI_STATE_VOICE_PICK) {
+            /* device-local picker: keep it until the user decides */
+        } else if (!(m->state == UI_STATE_LISTENING && ns != UI_STATE_LISTENING)) {
+            m->state = ns; /* never let a stale host state interrupt an active local voice capture */
         }
     }
     a->dirty = true;

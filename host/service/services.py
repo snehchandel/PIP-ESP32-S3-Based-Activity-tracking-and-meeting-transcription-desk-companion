@@ -6,18 +6,22 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import httpx
+
+from . import errors
 from .alarms.scheduler import AlarmScheduler
 from .api.ws import WsHub
 from .config import Settings
 from .device.link import DeviceLink, make_transport
 from .device.voice_out import speak_on_device
-from .planner import TaskPlanner, make_planner
+from .planner import PlannerError, TaskPlanner, make_planner, resolve_model
 from .speech.pipeline import VoicePipeline
 from .speech.stt import SpeechToText
 from .speech.tts import TextToSpeech
 from .state.manager import DeviceStateManager
 from .storage.db import Database
 from .transport import DeviceTransport
+from .weather import WeatherService
 
 log = logging.getLogger("pip.services")
 
@@ -38,22 +42,43 @@ class Services:
         self.link = DeviceLink(self.manager, transport if not isinstance(transport, str) else None, self.voice,
                                self.hub.publish)
         self.alarm_scheduler = AlarmScheduler(self.manager)
+        self.weather = WeatherService(settings, self.manager)
         self._ticker: asyncio.Task[None] | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
+        self._model_cache: tuple[object, str] = (None, "")
+        errors.setup_error_log(Path(settings.pip_db_path).parent / "logs" if settings.pip_db_path != ":memory:" else None)
+
+    def kimi_model(self) -> str:
+        """The configured model if the key offers it, else the newest preferred one (cached per key)."""
+        s = self.settings
+        key = s.api_key()
+        if not key:
+            raise PlannerError("no Kimi API key configured")
+        wanted = str(s.prefs().get("kimi_model") or "")
+        cache_key = (hash(key), wanted)
+        if self._model_cache[0] != cache_key:
+            with httpx.Client(timeout=15) as c:
+                try:
+                    model = resolve_model(c, s.moonshot_base_url, key, wanted)
+                except httpx.HTTPError as e:
+                    raise PlannerError(f"Kimi unreachable: {type(e).__name__}") from e
+            self._model_cache = (cache_key, model)
+        return self._model_cache[1]
 
     def planner(self) -> TaskPlanner:
         s = self.settings
-        return make_planner(s.api_key(), s.moonshot_base_url, s.moonshot_model, s.pip_timezone)
+        return make_planner(s.api_key(), s.moonshot_base_url, self.kimi_model(), s.pip_timezone)
 
     @property
     def planner_mode(self) -> str:
-        return "KIMI" if self.settings.api_key() else "LOCAL_RULE"
+        return "KIMI" if self.settings.api_key() else "AI_NOT_CONFIGURED"
 
     async def start(self) -> None:
         self.loop = asyncio.get_running_loop()
         self.hub.bind(self.loop)
         await self.link.start()
         self._ticker = asyncio.create_task(self._tick_alarms())
+        self.weather.start()
         if self.settings.pip_stt_preload:
             self.stt.preload()
 
@@ -81,6 +106,7 @@ class Services:
             log.exception("alarm speech failed")
 
     async def stop(self) -> None:
+        self.weather.stop()
         if self._ticker:
             self._ticker.cancel()
         await self.link.stop()

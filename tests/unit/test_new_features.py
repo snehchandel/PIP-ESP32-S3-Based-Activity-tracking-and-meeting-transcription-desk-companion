@@ -77,7 +77,7 @@ def test_planner_timed_task_gets_start_time(manager, now) -> None:  # type: igno
 
 def _client(tmp_path, **kw):  # type: ignore[no-untyped-def]
     s = Settings(pip_db_path=str(tmp_path / "t.db"), pip_transport="none", pip_use_keyring=False,
-                 pip_stt_preload=False, pip_prefs_path=str(tmp_path / "prefs.json"), **kw)
+                 pip_stt_preload=False, pip_weather=False, pip_prefs_path=str(tmp_path / "prefs.json"), **kw)
     return TestClient(create_app(s))
 
 
@@ -90,11 +90,33 @@ def test_api_key_is_never_returned_in_full(tmp_path) -> None:  # type: ignore[no
         assert c.get("/api/v1/health").json()["planner_mode"] == "KIMI"
 
 
-def test_no_key_means_local_planner(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_no_key_means_ai_has_left(tmp_path) -> None:  # type: ignore[no-untyped-def]
     with _client(tmp_path) as c:
         s = c.get("/api/v1/settings").json()
-        assert s["api_key"]["configured"] is False and s["planner_mode"] == "LOCAL_RULE"
+        assert s["api_key"]["configured"] is False and s["planner_mode"] == "AI_NOT_CONFIGURED"
         assert c.post("/api/v1/settings/api-key/test", json={}).json()["ok"] is False
+        r = c.post("/api/v1/tasks/plan", json={"text": "Finish the report", "auto_commit": True})
+        assert r.status_code == 503 and "AI has left the device" in r.json()["detail"]
+        st = c.get("/api/v1/state").json()
+        assert st["ui_state"] == "ERROR_RECOVERABLE" and st["error"]["title"] == "AI has left the device"
+        assert c.post("/api/v1/error/dismiss").json()["dismissed"] is True
+        assert c.get("/api/v1/state").json()["ui_state"] == "IDLE_READY"
+
+
+def test_stuck_thinking_becomes_logged_error(manager) -> None:  # type: ignore[no-untyped-def]
+    manager.overlay = "THINKING"
+    assert manager.check_stuck() is False  # first sighting starts the clock
+    manager._clock["t"] += 151
+    assert manager.check_stuck() is True
+    assert manager.ui_state() == "ERROR_RECOVERABLE" and manager.overlay is None
+    rows = manager.db.query("SELECT level, category, message FROM event_log WHERE level='ERROR'")
+    assert any(r["category"] == "watchdog" and "THINKING" in r["message"] for r in rows)
+
+
+def test_weather_icon_mapping() -> None:
+    from service.weather import default_city, icon_for
+    assert [icon_for(c) for c in (0, 2, 45, 61, 73, 95)] == [0, 1, 5, 2, 3, 4]
+    assert default_city("America/New_York") == "New York"
 
 
 def test_task_api_accepts_and_clears_time(tmp_path) -> None:  # type: ignore[no-untyped-def]

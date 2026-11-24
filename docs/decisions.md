@@ -61,3 +61,20 @@ The spec's ≤300-line-per-file rule (§0.1, §10.1 gate 1) is withdrawn at the 
 ## ADR-011 — Factory firmware backup before first flash
 Before the first flash, the full 16 MB flash was read to `backups/factory_flash_backup_16MB.bin`
 (gitignored). Restore: `python -m esptool --port COM3 write-flash 0 backups/factory_flash_backup_16MB.bin`.
+
+## ADR-013 — Kimi is the only planner (no silent offline fallback)
+User decision (2026-11-24): task breakdown is always done by Kimi. If Kimi can't be reached (no key, HTTP error,
+timeout, invalid output twice) the device flashes **"AI has left the device"** until dismissed, the failure is
+written to `data/logs/errors.log` + event_log, and the spoken/typed words are kept as a parked note.
+The model is auto-selected from the account's `/models` list (newest preferred, pinnable in Settings) because the
+configured `kimi-k2-0905-preview` returned 404; the k3 family rejects `temperature != 1`, so none is sent.
+`LocalRulePlanner` remains only as a library (time parsing, templates, test double backing `tests/support/fake_kimi.py`).
+
+## ADR-014 — Smaller task text, live eyes, no mascot stage
+Task/step text moved to 14 px (user request). PIP's eyes are drawn procedurally over eyeless sprites so it can
+blink, glance at the text, hop and breathe at up to 20 FPS; the ground line and state pill were removed and PIP is
+centred against the text column. verify_rlcd's ink floor lowered 8% -> 6% to accommodate the smaller text.
+
+## ADR-015 — Voice activity picker
+Holding KEY opens a device-local picker (Calendar / Brain dump / Focus / Alarms); holding KEY again records.
+The activity travels in AUDIO_START's former reserved u16 and selects Kimi's instructions on the host.

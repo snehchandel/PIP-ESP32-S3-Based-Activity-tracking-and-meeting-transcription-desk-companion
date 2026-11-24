@@ -8,7 +8,7 @@
 
 static const char *const STATE_NAMES[UI_STATE_COUNT] = {
     "IDLE_READY", "LISTENING", "TRANSCRIBING", "THINKING", "RUNNING", "PAUSED",
-    "BREAK", "STEP_DONE", "ALARM_RINGING", "NEEDS_CONFIRMATION", "SLEEP", "ERROR_RECOVERABLE"};
+    "BREAK", "STEP_DONE", "ALARM_RINGING", "NEEDS_CONFIRMATION", "SLEEP", "ERROR_RECOVERABLE", "VOICE_PICK"};
 
 const char *app_state_name(ui_state_t s) { return (unsigned)s < UI_STATE_COUNT ? STATE_NAMES[s] : "IDLE_READY"; }
 
@@ -33,6 +33,7 @@ void app_init(app_t *a, const app_io_t *io, uint32_t now_ms, uint32_t boot_id, b
     ui_model_init(&a->m);
     oev_init(&a->oev);
     gestures_init(&a->gest, now_ms);
+    mascot_anim_init(&a->anim, boot_id ^ 0xA5A5u, now_ms);
     lt_load(&a->timer, 0, 0, LT_STOPPED, now_ms);
     lt_load(&a->brk, 0, 0, LT_STOPPED, now_ms);
     a->dirty = true;
@@ -115,6 +116,8 @@ void app_send_offline_events(app_t *a)
     a->pending_oev_ms = a->now_ms;
     app_send(a, PIP_OFFLINE_EVENTS, true, (const uint8_t *)buf, (uint16_t)n);
 }
+
+static void supervise_states(app_t *a, uint32_t now_ms);
 
 static void update_clock(app_t *a)
 {
@@ -246,11 +249,63 @@ void app_tick(app_t *a, uint32_t now_ms)
         a->m.state = UI_STATE_SLEEP;
         a->dirty = true;
     }
-    pip_expr_t e = a->m.state == UI_STATE_RUNNING ? PIP_EXPR_WORKING : PIP_EXPR_READY;
-    uint8_t blink = mascot_blink_phase(e, now_ms);
-    if (blink != a->m.blink_phase) {
-        a->m.blink_phase = blink;
+    supervise_states(a, now_ms);
+    /* live mascot: random idle repertoire + a glance at the text whenever the screen changes */
+    pip_expr_t e = ui_expr_for(&a->m);
+    if (a->m.state != a->prev_state) {
+        if (e != PIP_EXPR_SLEEP && e != PIP_EXPR_ALARM) {
+            mascot_anim_trigger(&a->anim, ANIM_GLANCE_TEXT, now_ms);
+        }
+        a->prev_state = a->m.state;
+    }
+    if (mascot_anim_step(&a->anim, e, now_ms)) {
+        a->m.pose = a->anim.pose;
         a->dirty = true;
+    }
+}
+
+void app_local_error(app_t *a, const char *title, const char *text)
+{
+    snprintf(a->m.error_title, sizeof a->m.error_title, "%s", title);
+    snprintf(a->m.error_text, sizeof a->m.error_text, "%s", text);
+    if (a->io.capture && a->m.state == UI_STATE_LISTENING) {
+        a->io.capture(a->io.ctx, false, a->stream_id);
+    }
+    a->m.state = UI_STATE_ERROR_RECOVERABLE;
+    a->error_since_ms = a->now_ms;
+    a->error_local = true;
+    a->dirty = true;
+}
+
+void app_set_indoor(app_t *a, bool valid, int16_t temp_c10, uint8_t hum)
+{
+    if (valid != a->m.in_valid || temp_c10 / 5 != a->m.in_temp_c10 / 5 || hum != a->m.in_hum) {
+        a->m.in_valid = valid;
+        a->m.in_temp_c10 = temp_c10;
+        a->m.in_hum = hum;
+        a->dirty = true;
+    }
+}
+
+/* Picker timeout, error attention flash and the device-side stuck-state watchdog. */
+static void supervise_states(app_t *a, uint32_t now_ms)
+{
+    ui_state_t st = a->m.state;
+    if (st == UI_STATE_VOICE_PICK && now_ms - a->pick_since_ms >= APP_PICK_TIMEOUT_MS) {
+        a->m.state = a->state_before_pick;
+        a->dirty = true;
+    }
+    bool flash = st == UI_STATE_ERROR_RECOVERABLE && now_ms - a->error_since_ms < APP_ERROR_FLASH_MS &&
+                 ((now_ms - a->error_since_ms) / 300u) % 2u == 1u;
+    if (flash != a->m.error_flash) {
+        a->m.error_flash = flash;
+        a->dirty = true;
+    }
+    bool busy = st == UI_STATE_LISTENING || st == UI_STATE_TRANSCRIBING || st == UI_STATE_THINKING;
+    if (st != a->prev_state) {
+        a->state_since_ms = now_ms;
+    } else if (busy && now_ms - a->state_since_ms >= APP_STUCK_MS) {
+        app_local_error(a, "PIP got stuck", "No answer from the PC. Press any button.");
     }
 }
 

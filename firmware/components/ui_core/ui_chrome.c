@@ -56,43 +56,50 @@ void ui_chrome_top(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     } else {
         ui_meta_add(meta, "top_left", left_x0, 4, x - left_x0, f->line_h, -1);
         ui_inverted_pill(fb, f, x, 4, "OFFLINE", meta, "offline_pill");
+        x += text_width(f, "OFFLINE") + 14;
     }
-    if (m->next_alarm_hhmm[0] || m->parked_count) {
-        if (m->next_alarm_hhmm[0] && m->parked_count) {
-            snprintf(buf, sizeof buf, "Alarm %s \xC2\xB7 P%u", m->next_alarm_hhmm, (unsigned)m->parked_count);
-        } else if (m->next_alarm_hhmm[0]) {
-            snprintf(buf, sizeof buf, "Next Alarm %s", m->next_alarm_hhmm);
-        } else {
-            snprintf(buf, sizeof buf, "Parked: %u", (unsigned)m->parked_count);
-        }
-        int w = text_width(f, buf);
-        int rx = RLCD_W - UI_MARGIN - w;
-        if (m->next_alarm_hhmm[0]) {
-            fb_icon(fb, rx - 22, 4, ICON_BELL, INK_BLACK);
-            rx -= 0;
-        }
+    /* right cluster, laid out right-to-left: outdoor weather, indoor sensor, next alarm (if room) */
+    int rx = RLCD_W - UI_MARGIN, left_limit = x + 10;
+    int x_right = rx;
+    if (m->out_valid) {
+        snprintf(buf, sizeof buf, "%d\xC2\xB0" "C %u%%", (m->out_temp_c10 + (m->out_temp_c10 >= 0 ? 5 : -5)) / 10,
+                 (unsigned)m->out_hum);
+        rx -= text_width(f, buf);
         text_draw(fb, f, rx, 4, buf, INK_BLACK);
-        ui_meta_add(meta, "top_right", rx - (m->next_alarm_hhmm[0] ? 22 : 0), 3,
-                    w + (m->next_alarm_hhmm[0] ? 22 : 0), f->line_h, -1);
+        rx -= UI_ICON_SIZE + 3;
+        fb_icon(fb, rx, 3, (ui_icon_t)(ICON_SUN + (m->out_code > 5 ? 1 : m->out_code)), INK_BLACK);
+        rx -= 10;
+    }
+    if (m->in_valid) {
+        snprintf(buf, sizeof buf, "%d\xC2\xB0" "C %u%%", (m->in_temp_c10 + (m->in_temp_c10 >= 0 ? 5 : -5)) / 10,
+                 (unsigned)m->in_hum);
+        rx -= text_width(f, buf);
+        text_draw(fb, f, rx, 4, buf, INK_BLACK);
+        rx -= UI_ICON_SIZE + 3;
+        fb_icon(fb, rx, 3, ICON_HOME, INK_BLACK);
+        rx -= 10;
+    }
+    if (m->next_alarm_hhmm[0]) {
+        int w = text_width(f, m->next_alarm_hhmm) + UI_ICON_SIZE + 3;
+        if (rx - w >= left_limit) {
+            rx -= text_width(f, m->next_alarm_hhmm);
+            text_draw(fb, f, rx, 4, m->next_alarm_hhmm, INK_BLACK);
+            rx -= UI_ICON_SIZE + 3;
+            fb_icon(fb, rx, 3, ICON_BELL, INK_BLACK);
+        }
+    }
+    if (rx < x_right) {
+        ui_meta_add(meta, "top_right", rx, 3, x_right - rx, f->line_h, -1);
     }
     fb_hline(fb, UI_MARGIN, TOPBAR_RULE_Y, RLCD_W - 2 * UI_MARGIN, 1, INK_BLACK);
 }
 
-void ui_chrome_mascot(rlcd_fb_t *fb, const ui_model_t *m, int expr, const char *pill, ui_meta_t *meta)
+void ui_chrome_mascot(rlcd_fb_t *fb, const ui_model_t *m, int expr, const char *label, ui_meta_t *meta)
 {
-    const uint8_t *bits = mascot_bits((pip_expr_t)expr, m->blink_phase);
-    fb_blit_opaque(fb, MASCOT_X, MASCOT_Y, bits, MASCOT_W, MASCOT_H, 15);
-    int stage = ui_meta_add(meta, "mascot_stage", MASCOT_X, MASCOT_Y, MASCOT_W, MASCOT_H, -1);
-    (void)stage;
-    fb_hline(fb, MASCOT_X + 4, GROUND_Y, MASCOT_W - 8, 2, INK_BLACK);
-    if (pill && *pill) {
-        const font_t *f = &FONT_14;
-        int w = text_width(f, pill) + 16;
-        int x = MASCOT_X + (MASCOT_W - w) / 2;
-        fb_rrect(fb, x, PILL_Y, w, PILL_H, PILL_H / 2, 2, INK_BLACK);
-        text_draw(fb, f, x + 8, PILL_Y + 2, pill, INK_BLACK);
-        ui_meta_add(meta, "state_pill", x, PILL_Y, w, PILL_H, -1);
-    }
+    /* No stage box, ground line or pill: PIP shares the page with the text and looks toward it. */
+    (void)label;
+    ui_draw_mascot(fb, MASCOT_X, MASCOT_Y, (pip_expr_t)expr, &m->pose);
+    ui_meta_add(meta, "mascot_stage", MASCOT_X, MASCOT_Y, MASCOT_W, MASCOT_H, -1);
 }
 
 static void battery_glyph(rlcd_fb_t *fb, int x, int y, const ui_model_t *m)

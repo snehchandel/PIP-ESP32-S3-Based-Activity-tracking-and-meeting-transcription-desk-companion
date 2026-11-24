@@ -18,13 +18,13 @@ void ui_screen_done(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     ui_chrome_mascot(fb, m, PIP_EXPR_DONE, "Nice!", meta);
     headline(fb, &FONT_32B, 40, "Step Done!", meta);
     const char *done = m->done_title[0] ? m->done_title : "Step complete";
-    int n = text_draw_wrap(fb, &FONT_16, CONTENT_X, 86, CONTENT_W, 2, 2, done, INK_BLACK);
+    int n = text_draw_wrap(fb, &FONT_14, CONTENT_X, 86, CONTENT_W, 3, 2, done, INK_BLACK);
     ui_meta_add(meta, "secondary_text", CONTENT_X, 86, CONTENT_W, n * 21, -1);
     if (m->next_step_title[0]) {
         text_draw(fb, &FONT_14, CONTENT_X, 150, "Up next:", INK_BLACK);
         char buf[96];
         snprintf(buf, sizeof buf, "%s (%um)", m->next_step_title, (unsigned)m->next_step_min);
-        int k = text_draw_wrap(fb, &FONT_16B, CONTENT_X, 170, CONTENT_W, 2, 2, buf, INK_BLACK);
+        int k = text_draw_wrap(fb, &FONT_14B, CONTENT_X, 170, CONTENT_W, 3, 2, buf, INK_BLACK);
         ui_meta_add(meta, "next_step", CONTENT_X, 150, CONTENT_W, 20 + k * 21, -1);
         ui_hint_t h[] = {{ICON_PLAY, "Next"}, {ICON_CHECK, "Rest"}};
         ui_chrome_bar(fb, m, h, 2, meta);
@@ -69,7 +69,7 @@ void ui_screen_daily(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
             } else {
                 snprintf(buf, sizeof buf, "%s", it->title);
             }
-            text_draw_fit(fb, &FONT_16B, CONTENT_X + 28, ry - 1, CONTENT_W - 28, buf, INK_BLACK);
+            text_draw_fit(fb, &FONT_14B, CONTENT_X + 28, ry - 1, CONTENT_W - 28, buf, INK_BLACK);
         }
         ui_meta_add(meta, "checklist_rows", CONTENT_X, y, CONTENT_W, rows * 34 - 14, -1);
     }

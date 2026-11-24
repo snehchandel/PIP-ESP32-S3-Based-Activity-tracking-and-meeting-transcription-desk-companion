@@ -23,14 +23,24 @@ class IntentType(str, Enum):
 ABSTRACT_STARTERS = re.compile(r"^\s*(think|consider|reflect|plan|decide|figure|brainstorm|ponder|get ready)\b", re.I)
 
 
+HEADER_LIKE = re.compile(r"^\s*(#|step\s*\d|phase\b|part\s*\d|section\b|stage\b|preparation\s*:|setup\s*:)|:\s*$", re.I)
+
+
 class Step(BaseModel):
     title: str = Field(min_length=3, max_length=96)
     duration_min: int = Field(ge=1, le=60)
     is_starter: bool = False
 
+    @model_validator(mode="after")
+    def not_a_header(self) -> Step:
+        if HEADER_LIKE.search(self.title) or (self.title.isupper() and len(self.title) > 4):
+            raise ValueError(f"step '{self.title}' looks like a heading, not a concrete action")
+        return self
+
 
 class ActiveTask(BaseModel):
     title: str = Field(min_length=2, max_length=64)
+    short_title: str | None = Field(default=None, max_length=24)  # fits the 400x300 device header
     steps: list[Step]
     if_then_cue: str | None = None
 
@@ -57,6 +67,7 @@ class ScheduledItem(BaseModel):
     when_text: str = ""
     due_local: str | None = None  # ISO local datetime "YYYY-MM-DDTHH:MM"
     needs_confirmation: bool = False
+    repeat_days: str | None = Field(default=None, pattern=r"^(MO|TU|WE|TH|FR|SA|SU)(,(MO|TU|WE|TH|FR|SA|SU))*$")
 
 
 class ParkedItem(BaseModel):

@@ -6,6 +6,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "mascot.h"
+
 typedef enum {
     UI_STATE_IDLE_READY = 0,
     UI_STATE_LISTENING,
@@ -19,6 +21,7 @@ typedef enum {
     UI_STATE_NEEDS_CONFIRMATION,
     UI_STATE_SLEEP,
     UI_STATE_ERROR_RECOVERABLE,
+    UI_STATE_VOICE_PICK, /* device-local: choose what the voice message is about */
     UI_STATE_COUNT
 } ui_state_t;
 
@@ -27,6 +30,7 @@ typedef enum { LINK_STANDALONE = 0, LINK_TETHERED = 1 } link_state_t;
 typedef enum { TIMER_STOPPED = 0, TIMER_RUNNING = 1, TIMER_PAUSED = 2 } timer_state_t;
 
 #define UI_AGENDA_MAX 4
+#define UI_VOICE_CHOICES 4 /* picker order: Calendar, Brain dump, Focus, Alarms */
 
 typedef struct {
     char id[24];
@@ -46,7 +50,7 @@ typedef struct {
     char date_label[20];
 
     bool has_active_step;
-    char task_title[64];
+    char task_title[64]; /* host sends the short device title (<= 22 chars) */
     char step_id[24];
     char step_title[96];
     uint8_t step_index, step_total; /* 1-based index */
@@ -64,6 +68,7 @@ typedef struct {
     uint16_t listen_max_s;
     uint8_t audio_level; /* 0..8 bars */
     char thinking_stage[32];
+    uint8_t voice_choice; /* picker index 0..3 */
 
     char alarm_title[64];
     char alarm_hhmm[6];
@@ -78,7 +83,21 @@ typedef struct {
 
     bool batt_valid;
     uint8_t batt_pct;
-    uint8_t blink_phase; /* 0 normal, 1 blink frame */
+
+    /* environment: on-board SHTC3 + outdoor weather synced from the PC */
+    bool in_valid;
+    int16_t in_temp_c10; /* 0.1 C */
+    uint8_t in_hum;      /* % RH */
+    bool out_valid;
+    int16_t out_temp_c10;
+    uint8_t out_hum;
+    uint8_t out_code; /* 0 sun, 1 cloud, 2 rain, 3 snow, 4 storm, 5 fog */
+
+    char error_title[28];
+    char error_text[120];
+    bool error_flash; /* inverted frame of the attention flash */
+
+    mascot_pose_t pose; /* live animation pose */
     char toast[40];
 } ui_model_t;
 
@@ -94,11 +113,18 @@ typedef enum {
     SCREEN_ALARM_RINGING,
     SCREEN_NEEDS_CONFIRMATION,
     SCREEN_STANDALONE_SLEEP,
+    SCREEN_VOICE_PICK,
+    SCREEN_ERROR,
     SCREEN_COUNT
 } ui_screen_t;
 
 void ui_model_init(ui_model_t *m);
 ui_screen_t ui_screen_for(const ui_model_t *m);
 const char *ui_screen_name(ui_screen_t s);
+/* Which mascot expression the current screen shows (drives the animation repertoire). */
+pip_expr_t ui_expr_for(const ui_model_t *m);
+/* Picker labels and their protocol activity ids (0 brain dump, 1 calendar, 2 focus, 3 alarms). */
+const char *ui_voice_choice_label(uint8_t choice);
+uint8_t ui_voice_choice_activity(uint8_t choice);
 
 #endif

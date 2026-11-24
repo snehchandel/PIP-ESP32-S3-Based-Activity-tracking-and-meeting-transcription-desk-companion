@@ -50,12 +50,13 @@ class AudioStart:
     channels: int
     bits_per_sample: int
     max_sec: int
+    activity: int = 0  # former reserved u16: 0 brain dump, 1 calendar, 2 focus, 3 alarms
     FMT = "<IHBBHH"
 
     @classmethod
     def unpack(cls, b: bytes) -> AudioStart:
-        s, r, c, bps, mx, _ = struct.unpack(cls.FMT, b)
-        return cls(s, r, c, bps, mx)
+        s, r, c, bps, mx, act = struct.unpack(cls.FMT, b)
+        return cls(s, r, c, bps, mx, act)
 
 
 @dataclass

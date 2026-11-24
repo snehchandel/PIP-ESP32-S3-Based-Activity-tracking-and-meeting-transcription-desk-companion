@@ -129,3 +129,77 @@ def say_wav(text: str, req: Request) -> Response:
     if not s.tts.enabled:
         raise HTTPException(409, "Piper voice not configured")
     return Response(s.tts.synthesize_wav(text[:400]), media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+
+# ---- Kimi model ---------------------------------------------------------------------------------
+@router.get("/settings/kimi-models")
+def kimi_models(req: Request) -> dict[str, Any]:
+    s = svc(req)
+    key = s.settings.api_key()
+    if not key:
+        return {"models": [], "active": None}
+    try:
+        r = httpx.get(f"{s.settings.moonshot_base_url.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}"},
+                      timeout=15)
+        models = sorted(m.get("id", "") for m in r.json().get("data", []) if m.get("id", "").startswith("kimi"))
+    except (httpx.HTTPError, ValueError):
+        models = []
+    try:
+        active = s.kimi_model()
+    except Exception:
+        active = None
+    return {"models": models, "active": active, "pinned": s.settings.prefs().get("kimi_model") or None}
+
+
+class ModelIn(BaseModel):
+    model: str = Field(default="", max_length=80)  # "" = automatic (newest available)
+
+
+@router.put("/settings/kimi-model")
+def set_kimi_model(body: ModelIn, req: Request) -> dict[str, Any]:
+    s = svc(req)
+    s.settings.save_prefs(kimi_model=body.model)
+    s._model_cache = (None, "")
+    return kimi_models(req)
+
+
+# ---- weather location ---------------------------------------------------------------------------
+@router.get("/weather/search")
+async def weather_search(q: str, req: Request) -> list[dict[str, Any]]:
+    from ..weather import geocode
+    async with httpx.AsyncClient(timeout=15) as c:
+        try:
+            return await geocode(c, q[:80])
+        except httpx.HTTPError:
+            raise HTTPException(502, "weather service unreachable") from None
+
+
+class LocationIn(BaseModel):
+    name: str
+    admin1: str = ""
+    country: str = ""
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+@router.put("/weather/location")
+async def weather_location(body: LocationIn, req: Request) -> dict[str, Any]:
+    s = svc(req)
+    s.settings.save_prefs(weather_location=body.model_dump())
+    try:
+        return await s.weather.refresh()
+    except Exception as e:
+        raise HTTPException(502, f"weather refresh failed: {type(e).__name__}") from None
+
+
+@router.get("/weather")
+def weather(req: Request) -> dict[str, Any]:
+    s = svc(req)
+    return {**s.manager.weather, "location": s.weather.location(), "error": s.weather.last_error}
+
+
+# ---- errors -------------------------------------------------------------------------------------
+@router.post("/error/dismiss")
+def dismiss_error(req: Request) -> dict[str, bool]:
+    svc(req).manager.clear_error()
+    return {"dismissed": True}
