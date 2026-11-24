@@ -101,11 +101,16 @@ class DeviceTransport(ABC):
                 self._mark_down(e)
                 continue
             if not data:
+                if self.parser.buf and time.monotonic() - self.last_rx >= 0.02:
+                    self._dispatch(self.parser.idle())  # stalled partial frame: resync
                 continue
             self.last_rx = time.monotonic()
-            for frame in self.parser.feed(data):
-                if self.on_frame:
-                    try:
-                        self.on_frame(frame)
-                    except Exception:  # never let a handler kill the reader thread
-                        log.exception("frame handler failed")
+            self._dispatch(self.parser.feed(data))
+
+    def _dispatch(self, frames: list[Frame]) -> None:
+        for frame in frames:
+            if self.on_frame:
+                try:
+                    self.on_frame(frame)
+                except Exception:  # never let a handler kill the reader thread
+                    log.exception("frame handler failed")

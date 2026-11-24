@@ -16,12 +16,20 @@ static uint8_t s_tx[PIP_MAX_FRAME];
 static void rx_task(void *arg)
 {
     static uint8_t buf[512];
+    pip_frame_t f;
     for (;;) {
         int n = usb_serial_jtag_read_bytes(buf, sizeof buf, pdMS_TO_TICKS(20));
         for (int i = 0; i < n; i++) {
-            pip_frame_t f;
             if (pip_parser_feed(&s_parser, buf[i], &f) && s_cb) {
                 s_cb(&f, s_ctx);
+            }
+        }
+        if (n <= 0 && s_parser.len > 0) {
+            /* 20 ms of silence with a partial frame buffered: it can never complete, resync */
+            while (pip_parser_idle(&s_parser, &f)) {
+                if (s_cb) {
+                    s_cb(&f, s_ctx);
+                }
             }
         }
     }

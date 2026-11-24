@@ -75,6 +75,10 @@ void pip_parser_init(pip_parser_t *p);
 /* Feed one byte. Returns true when a complete valid frame is available in *out. The caller
  * must handle *out before the next feed. Bad sync/len/CRC drops one byte and rescans. */
 bool pip_parser_feed(pip_parser_t *p, uint8_t byte, pip_frame_t *out);
+/* Inter-frame idle resync: call when the line has been idle (e.g. >= 20 ms) while a partial
+ * frame is buffered. Drops one byte and rescans, so a frame swallowed by a corrupted LEN is
+ * recovered without waiting for more traffic. Returns true if a frame became available. */
+bool pip_parser_idle(pip_parser_t *p, pip_frame_t *out);
 
 /* ---- fixed payload structs (little-endian, packed manually) ---- */
 typedef struct {

@@ -80,6 +80,23 @@ int main(void)
     CHECK_EQ(got, 1);
     CHECK(pip_encode(0, 0, 0, out, PIP_MAX_PAYLOAD + 1, out, sizeof out) == 0);
 
+    /* idle resync: a header claiming LEN=4000 swallows a real frame; idle() recovers it */
+    pip_parser_init(&p);
+    uint8_t stall[64];
+    size_t sk = 0;
+    const uint8_t fake[] = {0xAA, 0x55, 0x01, 0x10, 0x00, 0x00, 0x00, 0xA0, 0x0F}; /* LEN 4000 */
+    memcpy(stall, fake, sizeof fake);
+    sk += sizeof fake;
+    memcpy(stall + sk, out, n); /* the valid "hi" frame from above */
+    sk += n;
+    got = feed_all(&p, stall, sk, frames, payloads, 4);
+    CHECK_EQ(got, 0); /* still waiting for 4000 bytes */
+    pip_frame_t idle_f;
+    CHECK(pip_parser_idle(&p, &idle_f));
+    CHECK_EQ(idle_f.seq, 0x1234);
+    CHECK(!pip_parser_idle(&p, &idle_f));
+    CHECK_EQ(p.len, 0);
+
     /* fixed payload sizes and roundtrips */
     uint8_t buf[32];
     pip_heartbeat_t h = {1, 1, 3, 100, 1763900000u, 42}, h2;

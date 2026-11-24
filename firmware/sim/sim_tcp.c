@@ -135,8 +135,18 @@ static void seed_offline_events(const char *spec)
     }
 }
 
+static void on_frame(const pip_frame_t *f, uint32_t now)
+{
+    pip_sim_input_t in;
+    if (f->type == PIP_SIM_INPUT && pip_unpack_sim_input(f->payload, f->len, &in)) {
+        on_sim_input(&in, now);
+    }
+    app_on_frame(&S.app, f);
+}
+
 int sim_tcp_run(const char *host, int port, const char *offline_events)
 {
+    uint32_t last_rx = 0;
     if (sim_net_init() != 0) {
         return 1;
     }
@@ -177,14 +187,17 @@ int sim_tcp_run(const char *host, int port, const char *offline_events)
             }
             now = sim_now_ms();
             S.app.now_ms = now;
+            pip_frame_t f;
             for (int i = 0; i < n; i++) {
-                pip_frame_t f;
                 if (pip_parser_feed(&parser, rx[i], &f)) {
-                    pip_sim_input_t in;
-                    if (f.type == PIP_SIM_INPUT && pip_unpack_sim_input(f.payload, f.len, &in)) {
-                        on_sim_input(&in, now);
-                    }
-                    app_on_frame(&S.app, &f);
+                    on_frame(&f, now);
+                }
+            }
+            if (n > 0) {
+                last_rx = now;
+            } else if (parser.len > 0 && now - last_rx >= 20u) {
+                while (pip_parser_idle(&parser, &f)) { /* stalled partial frame: resync */
+                    on_frame(&f, now);
                 }
             }
             S.app.crc_errors = parser.crc_errors;

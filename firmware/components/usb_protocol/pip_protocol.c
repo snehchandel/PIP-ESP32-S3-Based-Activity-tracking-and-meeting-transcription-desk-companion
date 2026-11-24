@@ -128,6 +128,30 @@ bool pip_parser_feed(pip_parser_t *p, uint8_t byte, pip_frame_t *out)
     }
 }
 
+bool pip_parser_idle(pip_parser_t *p, pip_frame_t *out)
+{
+    if (p->pending) {
+        drop(p, p->pending);
+        p->pending = 0;
+    }
+    /* The line is idle, so any partial frame at the head can never complete: discard it
+     * byte by byte and rescan until a complete frame surfaces or nothing is left. */
+    while (p->len > 0) {
+        p->frame_errors++;
+        drop(p, 1);
+        for (;;) {
+            int r = try_frame(p, out);
+            if (r == 1) {
+                return true;
+            }
+            if (r == 0 || p->len == 0) {
+                break;
+            }
+        }
+    }
+    return false;
+}
+
 size_t pip_pack_heartbeat(const pip_heartbeat_t *h, uint8_t *o)
 {
     o[0] = h->proto_ver;

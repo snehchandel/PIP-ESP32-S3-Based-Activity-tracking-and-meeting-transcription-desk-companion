@@ -100,6 +100,21 @@ class FrameParser:
             del self.buf[: len(self.buf) - MAX_FRAME]
         return out
 
+    def idle(self) -> list[Frame]:
+        """Line went idle with a partial frame buffered: it can never complete. Drop it byte by
+        byte and rescan, recovering any complete frame it swallowed (mirror of pip_parser_idle)."""
+        out: list[Frame] = []
+        while self.buf:
+            self.frame_errors += 1
+            del self.buf[0]
+            while True:
+                r = self._try()
+                if r is None:
+                    break
+                if isinstance(r, Frame):
+                    out.append(r)
+        return out
+
     def _drop(self) -> bool:
         del self.buf[0]
         return False
