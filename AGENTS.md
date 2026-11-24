@@ -255,9 +255,10 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   the Wi-Fi link end-to-end (mDNS, HMAC handshake, wrong token rejected, screen capture, speech streaming,
   wake test), cable preference (8 min with both links up: zero link changes), wake-word detection ("Hi ESP",
   "Jarvis" via WAKE_TEST; live "Hi ESP" by the user), cost meter against the real Moonshot API.
+- Cable pulled: the host moved to Wi-Fi 0.1 s later without a visible disconnect; PIP kept working on battery
+  (screen, speech with 0 dropped chunks, link stable).
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
-  end-of-speech timing in a real room, the automatic USB→Wi-Fi fallback when the cable is physically pulled
-  (unit-tested; needs someone to unplug PIP).
+  end-of-speech timing in a real room.
 - To exercise the app over Wi-Fi while the cable stays plugged in, start the host with `PIP_TRANSPORT=wifi`.
 - Wake word: stock Espressif words only; a custom "Hey PIP" needs a trained model (paid service) or a PC-side
   detector (rejected by the user in favour of on-device privacy).
