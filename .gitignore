@@ -32,3 +32,7 @@ artifacts/rlcd/preview/
 test-results/
 backups/
 tools/pip.ico
+
+# Real-device captures and build logs (personal data / local paths) - kept locally, never committed
+artifacts/rlcd/hardware/
+artifacts/firmware_size.txt
