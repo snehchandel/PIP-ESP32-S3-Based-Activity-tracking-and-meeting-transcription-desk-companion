@@ -11,6 +11,9 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 3. Optional: right-click the tray icon → **Start with Windows** so PIP is ready every time you log in.
 4. To close PIP completely: right-click the tray icon → **Quit PIP**.
 
+Starting from a terminal, restarting, and checking that it runs: see **9. Starting, restarting and checking the
+host**.
+
 ## 2. Reading the screen
 - **Top bar:** a big clock · 🔔 next alarm · 🏠 inside temperature and humidity (PIP's own sensor) · outside
   weather in °C with humidity (from the PC). The weather icon matches the sky and moves: spinning sun, moon and
@@ -171,10 +174,63 @@ for a minute; the spoken script needs the PC). The top bar says
 After 15 idle minutes offline PIP rests (sleep screen); press any button to wake it.
 
 ## 8. Troubleshooting
-- **Screen says OFFLINE while plugged in:** open PIP Companion (tray icon must be running).
+- **Screen says OFFLINE while plugged in:** open PIP Companion (tray icon must be running); see section 9 to
+  check it and restart it.
 - **"Connect PC for Voice":** voice needs the app running and the cable connected.
 - **Voice not understood:** speak after the Listening screen appears; check Settings → Speech-to-text = Ready.
 - **"AI has left the device":** check Settings → Kimi API key → *Test saved key*, and your internet connection.
 - **Weather missing:** Settings → Temperature & weather → pick your city.
 - **Logs:** `data/logs/pip.log` (everything) and `data/logs/errors.log` (only problems).
   **Restore Waveshare demo firmware:** see README.
+
+## 9. Starting, restarting and checking the host
+The **host** is the part of PIP that runs on your PC: it talks to PIP over USB or Wi-Fi, runs Kimi planning, speech
+recognition, meetings and alarms, and serves the Companion app at **http://127.0.0.1:18421**. It runs inside the
+**PIP Companion** tray app. PIP keeps working on its own while the host is off (see 7), but voice, planning,
+meetings and spoken alarms need it.
+
+Terminal commands below are for **PowerShell**, run from the PIP folder (e.g. `C:\claudecodefolder\PIP ESP`).
+
+### Start it
+- **Normal:** double-click **PIP Companion** (Desktop or Start menu). The app window opens and the PIP icon appears
+  in the tray. Right-click the icon → **Start with Windows** to have it start every time you log in.
+- **Shortcuts missing?** Recreate them once:
+  ```powershell
+  .\tools\install_windows.ps1
+  ```
+- **From a terminal, with the app window:**
+  ```powershell
+  Start-Process .venv\Scripts\pythonw.exe -ArgumentList '"tools\pip_tray.pyw"'
+  ```
+- **From a terminal, tray only (no window):** add `--background`. Open the window later from the tray icon
+  (**Open PIP**) or by browsing to http://127.0.0.1:18421.
+  ```powershell
+  Start-Process .venv\Scripts\pythonw.exe -ArgumentList '"tools\pip_tray.pyw"','--background'
+  ```
+
+### Stop or restart it
+- **Normal:** right-click the tray icon → **Quit PIP**, then open **PIP Companion** again.
+- **From a terminal** (e.g. the tray icon is gone but the host still runs):
+  ```powershell
+  Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" | ? CommandLine -match pip_tray | % { Stop-Process -Id $_.ProcessId }
+  ```
+  then start it again with one of the commands above.
+- Restarting **pauses a running focus timer** (it keeps the time left) — press KEY or Start to carry on.
+- **Don't restart during a meeting recording:** what was recorded before the restart is kept and transcribed, but
+  audio after it is not captured. If it happens, hold KEY on PIP to end the meeting and start a new one.
+- After updating PIP's software, restart once so the new version is used.
+
+### Check that it runs
+- Open **http://127.0.0.1:18421** — the Companion app should load. The pill top-right says **Linked · PIP device** when PIP is
+  connected (over USB or Wi-Fi).
+- PIP's bottom bar shows the link symbol instead of **OFFLINE**.
+- **Settings** shows Speech-to-text **Ready** and the Kimi key **active**.
+- Logs: `data\logs\pip.log` (everything) and `data\logs\errors.log` (only problems).
+
+### Run it in a console (for troubleshooting)
+Shows every log line live. **Quit the tray app first** — only one host may run, because both use port 18421 and
+PIP's USB port:
+```powershell
+.venv\Scripts\python -m uvicorn service.main:create_app --factory --app-dir host --port 18421
+```
+Press **Ctrl+C** to stop it, then start PIP Companion normally again.
