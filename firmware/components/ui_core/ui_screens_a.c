@@ -1,4 +1,5 @@
 /* Screens 01-06: idle (PIP's full-screen world), listening, thinking, focus running, paused, break. */
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -35,31 +36,217 @@ static void step_title_block(rlcd_fb_t *fb, const ui_model_t *m, const font_t *f
 /* ---- idle: PIP's world -------------------------------------------------------------------- */
 typedef char board_geometry_guard_t[(BOARD_X - STAGE_CX == (int)PIP_BOARD_DX) ? 1 : -1];
 
-/* the room: a floor of planks in gentle perspective and a little window on the back wall */
-static void world_backdrop(rlcd_fb_t *fb)
+/* the room: a little space station - porthole with a ringed planet, a blinking wall terminal with a scope, a
+ * conduit, deck plates with a hazard edge. Line art only, so the board text stays the loudest thing. */
+static uint32_t mix32(uint32_t x)
 {
-    fb_hline(fb, WORLD_X, FLOOR_Y, WORLD_W, 2, INK_BLACK);
-    const int y0 = FLOOR_Y + 2, y1 = BAR_Y - 1, vx = 200, vy = -260; /* vanishing point far above */
-    for (int x = -60; x <= 460; x += 34) {
-        for (int y = y0 + 2; y <= y1; y += 2) {
-            int px = vx + (x - vx) * (y - vy) / (y1 - vy);
-            if (px >= WORLD_X && px < WORLD_X + WORLD_W) {
-                fb_set(fb, px, y, INK_BLACK);
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+
+static void hazard(rlcd_fb_t *fb, int x, int y, int w, int h)
+{
+    for (int yy = y; yy < y + h; yy++) {
+        for (int xx = x; xx < x + w; xx++) {
+            if (((xx + yy) % 6 + 6) % 6 < 3) {
+                fb_set(fb, xx, yy, INK_BLACK);
             }
         }
     }
-    for (int x = WORLD_X + 1; x < WORLD_X + WORLD_W; x += 3) {
-        fb_set(fb, x, y0 + 9, INK_BLACK);
+}
+
+static void porthole(rlcd_fb_t *fb, int cx, int cy, uint32_t ms)
+{
+    fb_fill_circle(fb, cx, cy, 25, INK_BLACK);
+    fb_fill_circle(fb, cx, cy, 21, INK_WHITE);
+    fb_arc(fb, cx, cy, 18, 0, 360, 1, INK_BLACK);
+    for (int k = 0; k < 8; k++) { /* rivets */
+        float a = (float)k * 0.785398f + 0.39f;
+        fb_fill_rect(fb, cx + (int)lroundf(23.0f * cosf(a)), cy + (int)lroundf(23.0f * sinf(a)), 2, 2, INK_WHITE);
     }
-    /* window: frame, cross bars, sill and a bit of glare */
-    const int wx = 22, wy = 50, ww = 52, wh = 42;
-    fb_rect(fb, wx, wy, ww, wh, 2, INK_BLACK);
-    fb_vline(fb, wx + ww / 2 - 1, wy, wh, 2, INK_BLACK);
-    fb_hline(fb, wx, wy + wh / 2 - 1, ww, 2, INK_BLACK);
-    fb_fill_rect(fb, wx - 4, wy + wh, ww + 8, 3, INK_BLACK);
-    fb_line(fb, wx + 6, wy + 13, wx + 13, wy + 6, 1, INK_BLACK);
-    fb_line(fb, wx + 6, wy + 18, wx + 18, wy + 6, 1, INK_BLACK);
-    fb_line(fb, wx + ww / 2 + 6, wy + wh / 2 + 13, wx + ww / 2 + 13, wy + wh / 2 + 6, 1, INK_BLACK);
+    static const int8_t sx[7] = {-11, -4, 9, -13, 3, 12, -6}, sy[7] = {-9, -13, -10, 4, -4, 2, 11};
+    for (int i = 0; i < 7; i++) { /* stars, one or two twinkling */
+        int x = cx + sx[i], y = cy + sy[i];
+        fb_set(fb, x, y, INK_BLACK);
+        if ((mix32((uint32_t)i * 977u + ms / 700u) & 7u) == 0u) {
+            fb_set(fb, x - 1, y, INK_BLACK);
+            fb_set(fb, x + 1, y, INK_BLACK);
+            fb_set(fb, x, y - 1, INK_BLACK);
+            fb_set(fb, x, y + 1, INK_BLACK);
+        }
+    }
+    uint32_t ph = ms % 9000u; /* a shooting star every 9 s */
+    if (ph < 500u) {
+        int u = (int)ph * 22 / 500;
+        fb_line(fb, cx - 12 + u, cy - 12 + u / 3, cx - 16 + u, cy - 13 + u / 3, 1, INK_BLACK);
+    }
+    int px = cx + 4, py = cy + 4; /* ringed planet: ring behind, planet, then the ring's front half */
+    fb_ellipse(fb, px, py, 14, 4, 1, INK_BLACK);
+    fb_fill_circle(fb, px, py, 7, INK_BLACK);
+    fb_fill_circle(fb, px, py, 6, INK_WHITE);
+    fb_fill_ellipse_pat(fb, px + 2, py + 2, 4, 4, 1); /* shaded side */
+    for (int dx = -14; dx <= 14; dx++) {
+        float u = (float)dx / 14.0f;
+        int dy = (int)lroundf(4.0f * sqrtf(1.0f - u * u));
+        fb_set(fb, px + dx, py + dy, INK_BLACK);
+        fb_set(fb, px + dx, py + dy - 1, INK_WHITE);
+    }
+}
+
+static void terminal(rlcd_fb_t *fb, int x, int y, uint32_t ms)
+{
+    const int w = 40, h = 62;
+    fb_fill_rect(fb, x, y, w, h, INK_WHITE);
+    fb_rect(fb, x, y, w, h, 1, INK_BLACK);
+    fb_fill_rect(fb, x, y, w, 6, INK_BLACK);
+    for (int i = 0; i < 3; i++) {
+        fb_fill_rect(fb, x + 4 + i * 5, y + 2, 2, 2, INK_WHITE);
+    }
+    for (int r = 0; r < 3; r++) { /* status lights */
+        for (int c = 0; c < 5; c++) {
+            int lx = x + 5 + c * 7, ly = y + 10 + r * 7;
+            if (mix32((uint32_t)(r * 5 + c) * 131u + ms / 450u + (uint32_t)c) & 1u) {
+                fb_fill_rect(fb, lx, ly, 4, 4, INK_BLACK);
+            } else {
+                fb_rect(fb, lx, ly, 4, 4, 1, INK_BLACK);
+            }
+        }
+    }
+    int sx = x + 4, sy = y + 34, sw = w - 8, sh = 22; /* scope */
+    fb_fill_rect(fb, sx, sy, sw, sh, INK_BLACK);
+    for (int i = 1; i < sw - 1; i++) {
+        float ph = (float)i * 0.45f + (float)ms * 0.006f;
+        int wy = sy + sh / 2 + (int)lroundf(6.0f * sinf(ph) * (0.6f + 0.4f * sinf(ph * 0.31f)));
+        fb_set(fb, sx + i, wy, INK_WHITE);
+        fb_set(fb, sx + i, wy + 1, INK_WHITE);
+    }
+    for (int i = 2; i < sw; i += 6) { /* graticule */
+        fb_set(fb, sx + i, sy + sh / 2, INK_WHITE);
+    }
+}
+
+static void world_backdrop(rlcd_fb_t *fb, uint32_t ms)
+{
+    /* wall: a panel seam with rivets, a conduit from the terminal down into the deck */
+    for (int x = WORLD_X + 2; x < BOARD_X; x += 3) {
+        fb_set(fb, x, 128, INK_BLACK);
+    }
+    for (int x = 18; x < BOARD_X; x += 40) {
+        fb_fill_rect(fb, x, 124, 2, 2, INK_BLACK);
+        fb_fill_rect(fb, x, 131, 2, 2, INK_BLACK);
+    }
+    const int px = 124;
+    fb_vline(fb, px, 112, FLOOR_Y - 112, 1, INK_BLACK);
+    fb_vline(fb, px + 5, 112, FLOOR_Y - 112, 1, INK_BLACK);
+    for (int y = 140; y < FLOOR_Y - 8; y += 34) {
+        fb_fill_rect(fb, px - 2, y, 10, 4, INK_BLACK);
+    }
+    porthole(fb, 42, 78, ms);
+    terminal(fb, 104, 50, ms);
+    /* deck: lip, plates in gentle perspective, rivets, a hazard-striped edge */
+    fb_hline(fb, WORLD_X, FLOOR_Y, WORLD_W, 2, INK_BLACK);
+    fb_hline(fb, WORLD_X, FLOOR_Y + 3, WORLD_W, 1, INK_BLACK);
+    const int y0 = FLOOR_Y + 4, y1 = BAR_Y - 7, vx = 200, vy = -260, seam = y0 + 7;
+    for (int x = -60; x <= 460; x += 40) {
+        for (int y = y0 + 1; y <= y1; y += 2) {
+            int qx = vx + (x - vx) * (y - vy) / (y1 - vy);
+            if (qx >= WORLD_X && qx < WORLD_X + WORLD_W) {
+                fb_set(fb, qx, y, INK_BLACK);
+            }
+        }
+        int rx = vx + (x - vx) * (seam - vy) / (y1 - vy) + 20;
+        if (rx >= WORLD_X + 1 && rx < WORLD_X + WORLD_W - 2) {
+            fb_fill_rect(fb, rx, seam - 1, 2, 2, INK_BLACK);
+        }
+    }
+    for (int x = WORLD_X + 1; x < WORLD_X + WORLD_W; x += 3) {
+        fb_set(fb, x, seam, INK_BLACK);
+    }
+    fb_hline(fb, WORLD_X, BAR_Y - 6, WORLD_W, 1, INK_BLACK);
+    hazard(fb, WORLD_X, BAR_Y - 4, WORLD_W, 3);
+}
+
+/* drawn over PIP: the airlock pillar at the left edge, where PIP fetches its props from */
+static void world_foreground(rlcd_fb_t *fb, const ui_model_t *m)
+{
+    const int x = WORLD_X, w = 9, top = 116;
+    fb_fill_rect(fb, x, top, w, FLOOR_Y - top, INK_WHITE);
+    fb_rect(fb, x, top, w, FLOOR_Y - top, 1, INK_BLACK);
+    hazard(fb, x + 2, top + 2, w - 4, FLOOR_Y - top - 4);
+    fb_fill_rect(fb, x, top - 6, w + 3, 6, INK_BLACK);
+    bool busy = m->pose.x < PIP_WORLD_L + 10.0f; /* PIP is at the hatch */
+    int lx = x + 5, ly = top - 12;
+    fb_fill_circle(fb, lx, ly, 4, INK_BLACK);
+    if (!busy || (m->anim_ms / 250u) % 2u) {
+        fb_fill_circle(fb, lx, ly, 2, INK_WHITE);
+    }
+}
+
+/* octagonal (chamfered) panel shapes */
+static void chamfer_fill(rlcd_fb_t *fb, int x, int y, int w, int h, int c, ink_t ink)
+{
+    fb_fill_rect(fb, x + c, y, w - 2 * c, h, ink);
+    fb_fill_rect(fb, x, y + c, w, h - 2 * c, ink);
+    fb_fill_triangle(fb, x, y + c, x + c, y, x + c, y + c, ink);
+    fb_fill_triangle(fb, x + w - 1, y + c, x + w - 1 - c, y, x + w - 1 - c, y + c, ink);
+    fb_fill_triangle(fb, x, y + h - 1 - c, x + c, y + h - 1, x + c, y + h - 1 - c, ink);
+    fb_fill_triangle(fb, x + w - 1, y + h - 1 - c, x + w - 1 - c, y + h - 1, x + w - 1 - c, y + h - 1 - c, ink);
+}
+
+static void chamfer_outline(rlcd_fb_t *fb, int x, int y, int w, int h, int c, int t)
+{
+    int r = x + w - 1, b = y + h - 1;
+    fb_hline(fb, x + c, y, w - 2 * c, t, INK_BLACK);
+    fb_hline(fb, x + c, b - t + 1, w - 2 * c, t, INK_BLACK);
+    fb_vline(fb, x, y + c, h - 2 * c, t, INK_BLACK);
+    fb_vline(fb, r - t + 1, y + c, h - 2 * c, t, INK_BLACK);
+    for (int k = 0; k < t; k++) {
+        fb_line(fb, x + k, y + c, x + c, y + k, 1, INK_BLACK);
+        fb_line(fb, r - k, y + c, r - c, y + k, 1, INK_BLACK);
+        fb_line(fb, x + k, b - c, x + c, b - k, 1, INK_BLACK);
+        fb_line(fb, r - k, b - c, r - c, b - k, 1, INK_BLACK);
+    }
+}
+
+/* the message board is a holo-monitor: chamfered bezel, status tab, on a telescopic pedestal */
+static void board_panel(rlcd_fb_t *fb, int x, int y, int w, int h, uint32_t ms)
+{
+    chamfer_fill(fb, x + 3, y + 3, w, h, 12, INK_BLACK); /* drop shadow */
+    chamfer_fill(fb, x, y, w, h, 12, INK_WHITE);
+    chamfer_outline(fb, x, y, w, h, 12, 2);
+    chamfer_outline(fb, x + 4, y + 4, w - 8, h - 8, 9, 1);
+    /* status tab on the top edge: three lights, one blinking */
+    int tx = x + w - 84;
+    fb_fill_triangle(fb, tx - 6, y + 1, tx, y - 4, tx, y + 1, INK_BLACK);
+    fb_fill_rect(fb, tx, y - 4, 52, 5, INK_BLACK);
+    fb_fill_triangle(fb, tx + 52, y - 4, tx + 58, y + 1, tx + 52, y + 1, INK_BLACK);
+    for (int i = 0; i < 3; i++) {
+        if (i < 2 || (ms / 600u) % 2u) {
+            fb_fill_rect(fb, tx + 8 + i * 8, y - 2, 4, 2, INK_WHITE);
+        }
+    }
+    for (int i = 0; i < 4; i++) { /* signal bars */
+        fb_fill_rect(fb, tx + 36 + i * 3, y - 1 - i, 2, 1 + i, INK_WHITE);
+    }
+}
+
+static void board_stand(rlcd_fb_t *fb)
+{
+    /* two short, stubby legs with foot pads: the panel hovers just above the deck */
+    for (int k = 0; k < 2; k++) {
+        int lx = k == 0 ? BOARD_X + 30 : BOARD_R - 30 - 11;
+        int top = BOARD_B - 3;
+        fb_fill_rect(fb, lx, top, 11, FLOOR_Y - top - 2, INK_WHITE);
+        fb_vline(fb, lx, top, FLOOR_Y - top - 2, 2, INK_BLACK);
+        fb_vline(fb, lx + 9, top, FLOOR_Y - top - 2, 2, INK_BLACK);
+        fb_hline(fb, lx + 2, top + 8, 7, 1, INK_BLACK); /* piston ring */
+        int bx[4] = {lx - 6, lx + 17, lx + 14, lx - 3}, by[4] = {FLOOR_Y, FLOOR_Y, FLOOR_Y - 5, FLOOR_Y - 5};
+        fb_fill_quad(fb, bx, by, INK_BLACK);
+    }
 }
 
 typedef struct {
@@ -106,28 +293,19 @@ static void board_layout(const ui_model_t *m, board_t *b)
     b->footer = m->date_label[0] && y + b->agenda_rows * BOARD_ROW_H + 3 <= BOARD_FOOT_Y;
 }
 
-static void board_panel(rlcd_fb_t *fb, int x, int y, int w, int h)
-{
-    fb_fill_rrect(fb, x + 3, y + 3, w, h, 10, INK_BLACK); /* drop shadow */
-    fb_fill_rrect(fb, x, y, w, h, 10, INK_WHITE);
-    fb_rrect(fb, x, y, w, h, 10, 2, INK_BLACK);
-    fb_rrect(fb, x + 4, y + 4, w - 8, h - 8, 7, 1, INK_BLACK); /* inner bezel */
-}
-
-/* free-standing message board on an easel: PIP can walk behind it (legs and feet show underneath) */
+/* free-standing holo-monitor on a pedestal: PIP can walk behind it (legs and feet show underneath) */
 static void board_draw(rlcd_fb_t *fb, const ui_model_t *m, const board_t *b, ui_meta_t *meta)
 {
     const int x = BOARD_X, w = BOARD_R - BOARD_X, h = BOARD_B - BOARD_Y;
-    for (int k = 0; k < 2; k++) { /* easel legs splay out to little feet on the floor */
-        int lx = k == 0 ? x + 40 : x + w - 40, foot = k == 0 ? -10 : 10;
-        fb_line(fb, lx, BOARD_B - 4, lx + foot, FLOOR_Y - 1, 4, INK_BLACK);
-        fb_fill_rrect(fb, lx + foot - 8, FLOOR_Y - 3, 17, 4, 2, INK_BLACK);
-    }
-    board_panel(fb, x, BOARD_Y, w, h);
+    board_stand(fb);
+    board_panel(fb, x, BOARD_Y, w, h, m->anim_ms);
     int board = ui_meta_add(meta, "board", x, BOARD_Y, w + 3, h + 3, -1);
 
     int y = BOARD_HEAD_Y;
-    text_draw_bold(fb, &FONT_24B, BOARD_TX, y, "Let's Focus!", INK_BLACK);
+    int hw = text_draw_bold(fb, &FONT_24B, BOARD_TX, y, "Let's Focus!", INK_BLACK);
+    if ((m->anim_ms / 530u) % 2u == 0u) { /* terminal cursor */
+        fb_fill_rect(fb, BOARD_TX + hw + 3, y + 5, 9, FONT_24B.ascent - 3, INK_BLACK);
+    }
     ui_meta_add(meta, "primary_text", BOARD_TX, y, text_width(&FONT_24B, "Let's Focus!") + 1, FONT_24B.line_h, board);
     y += FONT_24B.line_h + 3;
     int n = text_draw_wrap(fb, &FONT_12B, BOARD_TX, y, BOARD_TW, 3, 2, b->msg, INK_BLACK);
@@ -169,7 +347,7 @@ static void board_draw(rlcd_fb_t *fb, const ui_model_t *m, const board_t *b, ui_
 void ui_screen_idle(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
 {
     ui_chrome_top(fb, m, meta);
-    world_backdrop(fb);
+    world_backdrop(fb, m->anim_ms);
     board_t b;
     board_layout(m, &b);
     /* depth: PIP behind the board is drawn first and covered by it */
@@ -180,6 +358,7 @@ void ui_screen_idle(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     if (!m->pose.behind) {
         ui_draw_mascot_on(fb, &m->pose, &UI_STAGE_WORLD);
     }
+    world_foreground(fb, m);
     ui_meta_add(meta, "mascot_stage", MASCOT_X, MASCOT_Y, MASCOT_W, MASCOT_H, -1);
     if (m->has_active_step) {
         ui_hint_t h[] = {{ICON_ARROW, "Start"}, {ICON_CYCLE, "2x: Calendar"}};

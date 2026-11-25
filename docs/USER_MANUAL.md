@@ -16,7 +16,10 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
   weather in °C with humidity (from the PC). The weather icon matches the sky and moves: spinning sun, moon and
   stars at night, sun or moon peeking past a cloud, drifting clouds, falling rain or drizzle, snow, a flickering
   storm bolt or fog. The inside reading can run a few degrees warm because the sensor sits next to PIP's electronics.
-- **PIP:** on the Let's Focus screen the whole screen is PIP's room and your text sits on a message board. PIP
+- **PIP:** on the Let's Focus screen the whole screen is PIP's little space station (porthole, wall terminal,
+  hazard-striped deck) and your text sits on a holo-monitor on short legs. PIP never makes props appear out of
+  nowhere: between two activities it walks off the edge of the screen (carrying what it was playing with) and comes
+  back with the next toy. PIP
   walks behind the board (you'll see its legs underneath) and peeks out from its edge, leans on it, points at it
   like a presenter, kicks a ball under it to the far wall, runs off one side and comes back in from the other, and
   plays with props (ball tricks, kite, paper plane, block tower, guitar, umbrella in the rain, telescope, plant…),

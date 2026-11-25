@@ -143,11 +143,16 @@ static void a_ball(mascot_pose_t *p, float t, float D, int v, float s, int mood)
         p->yaw = 15.0f * s + 10.0f * wav(t, 3.0f);
         emote(p, mood_emote(mood, EMOTE_SPARKLE, EMOTE_MUSIC, EMOTE_HEART), t, 1.0f);
     }
-    if (t > D - 1.0f) { /* drop it into its home corner */
-        p->obj = PROP_NONE;
-        p->floor_prop = PROP_BALL;
-        p->fp_x = -s * 52.0f;
-        p->fp_y = 6.0f;
+    if (t > D - 1.4f) { /* lets it drop beside its feet: the next prop trip picks it up from there */
+        float f = seg(t, D - 1.4f, D - 0.9f);
+        p->obj_x = mixf(p->obj_x, s * 24.0f, f);
+        p->obj_y = mixf(p->obj_y, -7.0f, f);
+        if (t > D - 0.9f) {
+            p->obj = PROP_NONE;
+            p->floor_prop = PROP_BALL;
+            p->fp_x = s * 24.0f;
+            p->fp_y = 0.0f;
+        }
     }
 }
 
@@ -888,11 +893,11 @@ static void a_kick(mascot_pose_t *p, float t, float D, int v, float s, int mood)
         p->eyes = EYE_HAPPY;
         emote(p, mood_emote(mood, EMOTE_SPARKLE, EMOTE_MUSIC, EMOTE_HEART), t, back);
     }
-    if (t > D - 1.0f) { /* park the ball in its home corner */
+    if (t > D - 1.0f) { /* it stays where PIP trapped it */
         p->obj = PROP_NONE;
         p->floor_prop = PROP_BALL;
-        p->fp_x = -52.0f;
-        p->fp_y = 6.0f;
+        p->fp_x = stop;
+        p->fp_y = 0.0f;
     }
     (void)s;
 }
@@ -1198,6 +1203,196 @@ static void e_fix(mascot_pose_t *p, float t, float D, int v, float s, int mood)
     p->eyes = EYE_ANGLED;
     p->mouth = MOUTH_WAVY;
     emote(p, EMOTE_SWEAT, t, 0.0f);
+}
+
+/* ==== prop trips: props come from (and go back to) the edge of the screen =====================
+ * Between two performances whose props differ, PIP picks up anything lying on the floor, carries everything
+ * off the nearest screen edge, swaps it off-screen and walks back in with the next act's props, setting floor
+ * props down where the act expects them. Nothing ever pops into or out of existence. */
+#define TRIP_V 110.0f     /* px/s walking pace */
+#define TRIP_READY 0.35f  /* turn toward the way out */
+#define TRIP_LIFT 0.55f   /* crouch + pick up / set down */
+#define TRIP_SWAP 0.45f   /* off-screen: drop one thing, grab the next */
+#define CARRY_DX 18.0f    /* a carried floor prop sits this far in front */
+#define CARRY_LIFT 20.0f
+
+typedef struct {
+    int held, held_l, fp, obj;
+} kit_t;
+
+/* what PIP has to carry: flying things are carried in a free hand, a balloon keeps floating on its string */
+static void kit_of(const mascot_pose_t *p, kit_t *k)
+{
+    k->held = p->held;
+    k->held_l = p->held_l;
+    k->fp = p->floor_prop;
+    k->obj = PROP_NONE;
+    if (p->obj == PROP_BALLOON) {
+        k->obj = PROP_BALLOON;
+    } else if (p->obj != PROP_NONE && p->obj != p->held && p->obj != p->held_l) {
+        if (k->held == PROP_NONE) {
+            k->held = p->obj;
+        } else if (k->held_l == PROP_NONE) {
+            k->held_l = p->obj;
+        }
+    }
+}
+
+bool mascot_same_props(const mascot_pose_t *a, const mascot_pose_t *b)
+{
+    kit_t ka, kb;
+    kit_of(a, &ka);
+    kit_of(b, &kb);
+    if (ka.held != kb.held || ka.held_l != kb.held_l || ka.fp != kb.fp || ka.obj != kb.obj) {
+        return false;
+    }
+    return ka.fp == PROP_NONE || (fabsf(a->fp_x - b->fp_x) <= 10.0f && fabsf(a->fp_y - b->fp_y) <= 6.0f);
+}
+
+typedef struct {
+    bool walk_only;   /* same props, just far from where the next act starts: walk there */
+    float side;       /* -1: out through the left edge, +1: the right one (only from far right in the room) */
+    float edge;       /* off-screen x */
+    float a, b;       /* pick-up spot / set-down spot */
+    float c[9];       /* phase end times */
+} trip_plan_t;
+
+static void trip_plan(const mascot_pose_t *f, const mascot_pose_t *to, trip_plan_t *tp)
+{
+    tp->walk_only = mascot_same_props(f, to);
+    bool pick = !tp->walk_only && f->floor_prop != PROP_NONE, drop = !tp->walk_only && to->floor_prop != PROP_NONE;
+    float start = pick ? f->fp_x : f->x;
+    tp->side = start > PIP_BOARD_DX ? 1.0f : -1.0f;
+    tp->edge = tp->side > 0.0f ? PIP_WORLD_R + PIP_OFFSCREEN : PIP_WORLD_L - PIP_OFFSCREEN;
+    if (tp->walk_only) {
+        tp->edge = f->x;
+    }
+    tp->a = pick ? f->fp_x - tp->side * CARRY_DX : f->x;
+    tp->b = drop ? to->fp_x + tp->side * CARRY_DX : to->x;
+    float d[9] = {TRIP_READY,
+                  fabsf(tp->a - f->x) / TRIP_V,
+                  pick ? TRIP_LIFT : 0.0f,
+                  fabsf(tp->edge - tp->a) / TRIP_V,
+                  tp->walk_only ? 0.0f : TRIP_SWAP,
+                  fabsf(tp->b - tp->edge) / TRIP_V,
+                  drop ? TRIP_LIFT : 0.0f,
+                  fabsf(to->x - tp->b) / TRIP_V,
+                  0.0f};
+    float acc = 0.0f;
+    for (int i = 0; i < 9; i++) {
+        acc += d[i];
+        tp->c[i] = acc;
+    }
+}
+
+float mascot_trip_seconds(const mascot_pose_t *from, const mascot_pose_t *to)
+{
+    trip_plan_t tp;
+    trip_plan(from, to, &tp);
+    return tp.c[8];
+}
+
+/* give PIP the props of `src` (old or new kit) */
+static void wear_kit(mascot_pose_t *p, const mascot_pose_t *src)
+{
+    kit_t k;
+    kit_of(src, &k);
+    p->held = k.held;
+    p->held_l = k.held_l;
+    p->obj = k.obj;
+    p->obj_t = src->obj_t;
+    p->held_t = src->held_t;
+    p->sign = src->sign;
+    p->floor_prop = k.fp;
+    p->fp_t = src->fp_t;
+    p->fp_x = src->fp_x;
+    p->fp_y = src->fp_y;
+}
+
+static float glide(float x0, float x1, float t, float t0, float t1) { return x0 + (x1 - x0) * seg(t, t0, t1); }
+
+void mascot_trip_pose(const mascot_pose_t *f, const mascot_pose_t *to, float t, mascot_pose_t *p)
+{
+    trip_plan_t tp;
+    trip_plan(f, to, &tp);
+    const float *c = tp.c;
+    mascot_home_pose(p);
+    bool out = tp.walk_only || t < c[3] + TRIP_SWAP * 0.5f;
+    wear_kit(p, out ? f : to);
+    float x0 = f->x, x, heading;
+    if (t < c[0]) { /* turn toward the first leg */
+        x = x0;
+        heading = tp.a != x0 ? (tp.a > x0 ? 1.0f : -1.0f) : tp.side;
+    } else if (t < c[1]) {
+        x = glide(x0, tp.a, t, c[0], c[1]);
+        heading = tp.a > x0 ? 1.0f : -1.0f;
+    } else if (t < c[2]) { /* pick up */
+        x = tp.a;
+        heading = tp.side;
+    } else if (t < c[3]) {
+        x = glide(tp.a, tp.edge, t, c[2], c[3]);
+        heading = tp.side;
+    } else if (t < c[4]) {
+        x = tp.edge;
+        heading = -tp.side;
+    } else if (t < c[5]) {
+        x = glide(tp.edge, tp.b, t, c[4], c[5]);
+        heading = tp.b > tp.edge ? 1.0f : -1.0f;
+    } else if (t < c[6]) { /* set down */
+        x = tp.b;
+        heading = -tp.side;
+    } else {
+        x = glide(tp.b, to->x, t, c[6], c[7]);
+        heading = to->x != tp.b ? (to->x > tp.b ? 1.0f : -1.0f) : -tp.side;
+        if (tp.walk_only) {
+            heading = to->x > f->x ? 1.0f : -1.0f;
+        }
+    }
+    p->x = x;
+    bool walking = (t >= c[0] && t < c[1]) || (t >= c[2] && t < c[3]) || (t >= c[4] && t < c[5]) ||
+                   (t >= c[6] && t < c[7]);
+    p->yaw = heading * 72.0f;
+    if (t >= c[7]) {
+        p->yaw = heading * 72.0f * (1.0f - seg(t, c[7] - 0.2f, c[7] + 0.2f));
+    }
+    p->arm_r = p->held ? 30.0f : 8.0f;
+    p->arm_l = p->held_l ? 30.0f : 8.0f;
+    if (walking) {
+        steps(p, t, 1.0f, 2.2f);
+    }
+    /* floor props: carried in both arms in front of PIP between pick-up and set-down */
+    if (p->floor_prop) {
+        float lift = 0.0f;
+        bool carried = false;
+        if (out && t >= c[1]) {
+            float u = t < c[2] ? (t - c[1]) / TRIP_LIFT : 1.0f;
+            lift = seg(u, 0.35f, 1.0f);
+            p->sit = 0.4f * bump(u, 0.0f, 0.9f);
+            carried = true;
+        } else if (!out && t < c[6]) {
+            float u = t >= c[5] ? (t - c[5]) / TRIP_LIFT : 0.0f;
+            lift = 1.0f - seg(u, 0.0f, 0.65f);
+            p->sit = 0.4f * bump(u, 0.1f, 1.0f);
+            carried = true;
+        }
+        if (carried) {
+            float dir = out ? tp.side : -tp.side;
+            p->fp_x = x + dir * CARRY_DX;
+            float ground = out ? f->fp_y : to->fp_y;
+            p->fp_y = mixf(ground, p->y + 1.0f, lift); /* in front of PIP while lifted */
+            p->fp_lift = CARRY_LIFT * lift;
+            float arms = 20.0f + 55.0f * fmaxf2(lift, p->sit * 2.0f);
+            p->arm_l = arms;
+            p->arm_r = p->held ? fmaxf2(arms, 30.0f) : arms;
+        }
+    }
+    /* far-right trips go behind the message board; never flip depth while overlapping it */
+    p->behind = tp.side > 0.0f && x > PIP_BOARD_DX - 40.0f && (!tp.walk_only || f->behind) ? 1 : 0;
+    if (tp.side < 0.0f && out && f->behind && x > PIP_BOARD_DX - 40.0f) {
+        p->behind = 1;
+    }
+    p->look_x = heading * 0.6f;
+    p->mouth = MOUTH_SMILE;
 }
 
 /* ==== tables ================================================================================ */

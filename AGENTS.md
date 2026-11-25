@@ -93,9 +93,10 @@ device-frame interceptor in `app_main.c` (`device_frame()` handles DEVICE_CONFIG
 break, step done, today's calendar, alarm, confirm time, sleep, voice picker, error. Layout: header 0–34 px
 (24 px bold clock, alarm, indoor and animated outdoor weather; **no link status in the header** — it is in the
 bottom bar), PIP stage column x 4–147 (home spot `STAGE_CX/STAGE_FY`, a plain floor line — no isometric tile),
-text column x 154–392, inverted bottom bar y 264–299. **The idle screen is PIP's world** (ADR-021): PIP may use the
-whole width (`UI_STAGE_WORLD`), the text sits on a free-standing message board (`BOARD_*` in `ui_layout.h`, x
-150–393, y 40–194, on easel legs) and `pose.behind` draws PIP behind the board (legs show underneath). Screen
+text column x 154–392, inverted bottom bar y 264–299. **The idle screen is PIP's world** (ADR-021, ADR-022): a small
+space station (porthole, wall terminal, airlock pillar PIP fetches props from, hazard-striped deck). PIP may use the
+whole width (`UI_STAGE_WORLD`), the text sits on a holo-monitor (`BOARD_*` in `ui_layout.h`, x 150–393, y 40–226,
+on short legs so the panel gets the most room) and `pose.behind` draws PIP behind the board (only its feet show). Screen
 changes **slide** (`ui_slide.c`, driven by `app_render_if_dirty()`): forward in the flow (idle → voice → plan →
 focus → done, calendar furthest right) pushes left, back pushes right, alarm/error/sleep drop in from the top;
 header and bar switch at once. The two 15 KB slide buffers are heap (PSRAM on the device), allocated on first use. Fonts: DejaVu 11/12/12B/14/14B/16/16B/20B/24B/32B/64 (regenerate with
@@ -105,6 +106,11 @@ header and bar switch at once. The two 15 KB slide buffers are heap (PSRAM on th
 into a V when raised) → `ui_draw_mascot()` (clipped to the stage). Scene engine: `mascot_set_mode()` per screen,
 acts are pure functions of time in `mascot_acts.c` (tables `IDLE[]`, `FOCUS[]`, ...). A performance is
 (mode, act, variant, dir, mood); the idle library offers 480 and none repeats within 2 h (C test simulates 2 h).
+**Props never pop:** when the next performance carries different props (or starts far away) the engine plays a
+*prop trip* first (`mascot_trip_pose`, state `trip_*` in `mascot_anim_t`): PIP picks up what lies on the floor,
+carries everything off the nearest screen edge, swaps it off-screen and walks back in with the new props, setting
+floor props down where the act expects them. Acts must therefore leave their props where they end (the ball is
+dropped beside PIP, not teleported home); `test_ui` runs 2 h of mode changes and fails on any jump or prop pop.
 Idle acts may roam the world (`PIP_BOARD_DX`, `PIP_WORLD_L/R`, `PIP_OFFSCREEN` in `mascot.h`): they may only flip
 `behind` while PIP is clear of the board or off-screen, and must start and end at home — `test_ui` checks both.
 To add an act: write `static void a_xxx(mascot_pose_t *p, float t, float D, int v, float s, int mood)`, start and

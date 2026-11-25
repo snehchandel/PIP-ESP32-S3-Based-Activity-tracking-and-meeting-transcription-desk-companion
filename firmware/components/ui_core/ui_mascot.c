@@ -384,7 +384,7 @@ void ui_draw_mascot_on(rlcd_fb_t *fb, const mascot_pose_t *p, const ui_stage_t *
     }
     bool fp_behind = p->floor_prop && p->fp_y < p->y;
     if (fp_behind) {
-        ui_prop_floor(fb, p, SX(p->fp_x), SY(p->fp_y));
+        ui_prop_floor(fb, p, SX(p->fp_x), SY(p->fp_y) - p->fp_lift);
     }
     bool phones = p->held_l == PROP_HEADPHONES;
     for (int i = 0; i < 2; i++) {
@@ -407,7 +407,7 @@ void ui_draw_mascot_on(rlcd_fb_t *fb, const mascot_pose_t *p, const ui_stage_t *
     }
     ui_prop_held(fb, p, &r, st->cx, st->fy, false);
     if (p->floor_prop && !fp_behind) {
-        ui_prop_floor(fb, p, SX(p->fp_x), SY(p->fp_y));
+        ui_prop_floor(fb, p, SX(p->fp_x), SY(p->fp_y) - p->fp_lift);
     }
     if (p->obj) {
         ui_prop_flying(fb, p, &r, st->cx, st->fy);

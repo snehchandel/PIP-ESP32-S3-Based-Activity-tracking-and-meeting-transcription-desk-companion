@@ -27,7 +27,7 @@
 #define BOARD_X 150
 #define BOARD_R 393
 #define BOARD_Y 40
-#define BOARD_B 194 /* PIP's body and legs stay visible under the board when it walks behind */
+#define BOARD_B 226 /* the panel nearly reaches the floor: short legs, maximum room for text. Behind it only PIP's feet show */
 #define BOARD_PAD 9
 
 /* legacy names: the region tests/tools sample for "is PIP visible" */

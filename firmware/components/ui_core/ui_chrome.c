@@ -90,13 +90,23 @@ void ui_chrome_top(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     if (rx < x_right) {
         ui_meta_add(meta, "top_right", rx, 5, x_right - rx, 26, -1);
     }
-    fb_hline(fb, UI_MARGIN, TOPBAR_RULE_Y, RLCD_W - 2 * UI_MARGIN, 1, INK_BLACK);
+    /* HUD rule: heavy end segments, a notch, a hairline between */
+    const int seg = 36;
+    fb_hline(fb, UI_MARGIN, TOPBAR_RULE_Y - 1, seg, 2, INK_BLACK);
+    fb_hline(fb, RLCD_W - UI_MARGIN - seg, TOPBAR_RULE_Y - 1, seg, 2, INK_BLACK);
+    fb_hline(fb, UI_MARGIN + seg + 4, TOPBAR_RULE_Y, RLCD_W - 2 * (UI_MARGIN + seg + 4), 1, INK_BLACK);
+    fb_fill_rect(fb, UI_MARGIN + seg + 1, TOPBAR_RULE_Y, 2, 1, INK_BLACK);
+    fb_fill_rect(fb, RLCD_W - UI_MARGIN - seg - 3, TOPBAR_RULE_Y, 2, 1, INK_BLACK);
 }
 
-/* the ground PIP stands on in its column: a short floor line that fades out at both ends */
+/* the ground PIP stands on in its column: a deck plate with rivets that fades out at both ends */
 static void column_floor(rlcd_fb_t *fb)
 {
     fb_hline(fb, STAGE_X + 14, FLOOR_Y, STAGE_W - 28, 2, INK_BLACK);
+    fb_hline(fb, STAGE_X + 22, FLOOR_Y + 3, STAGE_W - 44, 1, INK_BLACK);
+    for (int x = STAGE_X + 26; x < STAGE_X + STAGE_W - 24; x += 12) {
+        fb_fill_rect(fb, x, FLOOR_Y + 6, 2, 2, INK_BLACK);
+    }
     for (int x = STAGE_X + 4; x < STAGE_X + 14; x += 3) {
         fb_set(fb, x, FLOOR_Y, INK_BLACK);
         fb_set(fb, STAGE_X + STAGE_W - 1 - (x - STAGE_X), FLOOR_Y, INK_BLACK);
@@ -127,6 +137,8 @@ void ui_chrome_bar(rlcd_fb_t *fb, const ui_model_t *m, const ui_hint_t *hints, i
 {
     const font_t *f = &FONT_12B;
     fb_fill_rect(fb, 0, BAR_Y, RLCD_W, BAR_H, INK_BLACK);
+    fb_fill_triangle(fb, 0, BAR_Y, 9, BAR_Y, 0, BAR_Y + 9, INK_WHITE); /* chamfered corners */
+    fb_fill_triangle(fb, RLCD_W - 1, BAR_Y, RLCD_W - 10, BAR_Y, RLCD_W - 1, BAR_Y + 9, INK_WHITE);
     int bar = ui_meta_add(meta, "bottom_bar", 0, BAR_Y, RLCD_W, BAR_H, -1);
     int ty = BAR_Y + (BAR_H - f->line_h) / 2;
     int iy = BAR_Y + (BAR_H - UI_ICON_SIZE) / 2;

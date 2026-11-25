@@ -96,6 +96,7 @@ typedef struct {
     int held_l;       /* prop_t in the left hand */
     int floor_prop;   /* prop_t standing on the floor */
     float fp_x, fp_y, fp_t; /* its position (stage px) and animation phase */
+    float fp_lift;    /* px above the floor while PIP carries it */
     int obj;          /* free-flying prop_t (ball in the air, paper plane, kite, balloon) */
     float obj_x, obj_y, obj_t;
     float glass;      /* 0..1: glare streaks of the screen glass (PIP pressed against it) */
@@ -156,6 +157,10 @@ typedef struct {
     uint32_t react_start_ms;
     mascot_pose_t pose;         /* output */
     mascot_pose_t from;         /* pose at the last switch (cross-fade source) */
+    /* prop trip before the current performance: PIP fetches its props from the screen edge */
+    bool trip;
+    uint32_t trip_start_ms, trip_ms;
+    mascot_pose_t trip_from, trip_to;
     uint32_t blend_start_ms;
     uint32_t last_frame_ms;
     uint32_t next_blink_ms, blink_start_ms;
@@ -217,6 +222,11 @@ uint16_t mascot_perf_key(const pip_perf_t *p);
 void mascot_perf_pose(const pip_perf_t *p, float t, float dur, mascot_pose_t *out);
 void mascot_home_pose(mascot_pose_t *p);
 const char *mascot_sign_text(int idx);
+/* Props: do two poses carry the same things (so PIP can go from one to the other without a trip)? */
+bool mascot_same_props(const mascot_pose_t *a, const mascot_pose_t *b);
+/* The trip between two poses with different props: walk to the nearest screen edge, swap, walk back. */
+float mascot_trip_seconds(const mascot_pose_t *from, const mascot_pose_t *to);
+void mascot_trip_pose(const mascot_pose_t *from, const mascot_pose_t *to, float t, mascot_pose_t *out);
 float mascot_perf_seconds(const pip_perf_t *p);
 
 #endif

@@ -206,6 +206,81 @@ int main(void)
     CHECK_EQ(close_acts, 0);
     CHECK(redraws > 100000 && redraws <= (int)(MASCOT_NO_REPEAT_MS / MASCOT_FRAME_MS) + 1); /* <= 20 FPS */
 
+    /* ---- seamless chaining: 2 h of play with a screen change every ~7 s. PIP never jumps, and at every seam
+     * (new performance, end of a prop trip) its props are unchanged unless it is off-screen: props come from
+     * and go back to the screen edge instead of popping in or out. ---- */
+    mascot_anim_init(&an, 4321, 0);
+    mascot_set_mode(&an, PIP_MODE_IDLE, 0);
+    mascot_anim_step(&an, 0);
+    mascot_pose_t last = an.pose;
+    uint32_t seen_perf = an.perf_count;
+    bool was_trip = an.trip;
+    int trips = 0, seams = 0, jumps = 0, pops = 0;
+    uint32_t rng = 77;
+    for (uint32_t t = 50; t < MASCOT_NO_REPEAT_MS; t += 50) {
+        if (t % 6700u == 0u) {
+            rng = rng * 1103515245u + 12345u;
+            pip_mode_t md = (pip_mode_t)((rng >> 16) % PIP_MODE_COUNT);
+            mascot_set_mode(&an, md == PIP_MODE_PICK ? PIP_MODE_IDLE : md, t);
+        }
+        if (!mascot_anim_step(&an, t)) {
+            continue;
+        }
+        const mascot_pose_t *p = &an.pose;
+        bool off = p->x <= PIP_WORLD_L - 30.0f || p->x >= PIP_WORLD_R + 30.0f || last.x <= PIP_WORLD_L - 30.0f ||
+                   last.x >= PIP_WORLD_R + 30.0f;
+        if (!off && fabsf(p->x - last.x) > 10.0f) {
+            jumps++;
+            printf("jump %.1f -> %.1f at %u ms (%s/%s)\n", (double)last.x, (double)p->x, (unsigned)t,
+                   mascot_mode_name(an.mode), mascot_act_name(an.mode, an.perf.act));
+        }
+        bool seam = an.perf_count != seen_perf || (was_trip && !an.trip);
+        if (seam) {
+            seams++;
+            if (!off && !mascot_same_props(&last, p)) {
+                pops++;
+                printf("props pop at %u ms (%s/%s): held %d/%d fp %d obj %d -> held %d/%d fp %d obj %d\n", (unsigned)t,
+                       mascot_mode_name(an.mode), mascot_act_name(an.mode, an.perf.act), last.held, last.held_l,
+                       last.floor_prop, last.obj, p->held, p->held_l, p->floor_prop, p->obj);
+            }
+        }
+        trips += an.trip && !was_trip;
+        seen_perf = an.perf_count;
+        was_trip = an.trip;
+        last = *p;
+    }
+    printf("chaining: %d seams, %d prop trips, %d jumps, %d pops\n", seams, trips, jumps, pops);
+    CHECK(trips > 100);
+    CHECK_EQ(jumps, 0);
+    CHECK_EQ(pops, 0);
+
+    /* a trip really leaves the screen: the props are swapped while PIP is out of sight */
+    mascot_pose_t tf, tt, tp;
+    mascot_home_pose(&tf);
+    tf.held = PROP_MUG;
+    mascot_home_pose(&tt);
+    tt.floor_prop = PROP_PLANT;
+    tt.fp_x = 36.0f;
+    tt.fp_y = 2.0f;
+    CHECK(!mascot_same_props(&tf, &tt));
+    float trip_s = mascot_trip_seconds(&tf, &tt);
+    float min_x = 0.0f;
+    bool swapped_off = true, carried = false;
+    int prev_held = PROP_MUG;
+    for (float t = 0.0f; t <= trip_s; t += 0.05f) {
+        mascot_trip_pose(&tf, &tt, t, &tp);
+        min_x = fminf(min_x, tp.x);
+        if (tp.held != prev_held && tp.x > PIP_WORLD_L - PIP_OFFSCREEN + 1.0f) {
+            swapped_off = false;
+        }
+        carried |= tp.floor_prop == PROP_PLANT && tp.fp_lift > 10.0f;
+        prev_held = tp.held;
+    }
+    mascot_trip_pose(&tf, &tt, trip_s, &tp);
+    CHECK(min_x <= PIP_WORLD_L - PIP_OFFSCREEN + 0.5f);
+    CHECK(swapped_off && carried);
+    CHECK(tp.floor_prop == PROP_PLANT && fabsf(tp.fp_x - 36.0f) < 0.5f && tp.fp_lift < 0.5f && fabsf(tp.x) < 0.5f);
+
     /* ---- reactions: a double press spins PIP all the way round ---- */
     mascot_anim_init(&an, 99, 0);
     mascot_set_mode(&an, PIP_MODE_IDLE, 0);
@@ -255,13 +330,13 @@ int main(void)
         CHECK(memcmp(fb.px + y * RLCD_STRIDE + (BOARD_X + 8) / 8, ref.px + y * RLCD_STRIDE + (BOARD_X + 8) / 8,
                      (size_t)((BOARD_R - 8) / 8 - (BOARD_X + 8) / 8)) == 0);
     }
-    int shown = 0; /* PIP's body and legs show under the board */
-    for (int y = BOARD_B + 6; y < FLOOR_Y; y++) {
+    int shown = 0; /* PIP's feet show under the board, between its short legs */
+    for (int y = BOARD_B + 4; y < FLOOR_Y; y++) {
         for (int x = BOARD_X; x <= BOARD_R; x++) {
             shown += fb_get(&fb, x, y) != fb_get(&ref, x, y);
         }
     }
-    CHECK(shown > 200);
+    CHECK(shown > 40);
     m.pose.behind = 0; /* in front it covers the board */
     ui_render(&fb, &m, NULL);
     CHECK(memcmp(fb.px, ref.px, sizeof fb.px) != 0);

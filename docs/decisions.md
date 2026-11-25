@@ -146,3 +146,25 @@ isometric floor tile goes, and moving between screens should be smooth.
   into the two source rows side by side, so a frame costs a few thousand byte shifts plus one normal render. The
   two frame buffers are heap-allocated on first use (PSRAM on the device: allocations > 4 KB go there); if
   allocation fails the screen simply switches. Firmware 1.2.0.
+
+## ADR-022 — Futuristic room, seamless prop trips
+User request: make the idle room more futuristic; PIP's switch from one animation to the next must be seamless —
+a prop must never "magically appear": PIP should fetch it from the edge of the screen. The message board should
+have small legs so the text gets the maximum area.
+- **Look:** line art only, so text stays loudest. Porthole with twinkling stars, a shooting star and a ringed
+  planet; a wall terminal with blinking status lights and a live oscilloscope trace; a conduit; deck plates in
+  perspective with rivets and a hazard-striped edge; an airlock pillar at the left edge (drawn over PIP, its lamp
+  blinks while PIP is at the hatch). The message board is a chamfered holo-monitor with a status tab and a blinking
+  cursor after the headline. Header rule and bottom bar got HUD-style notches and chamfered corners; the other
+  screens' floor line became a riveted deck plate. All animated parts key off `anim_ms`.
+- **Board:** panel y 40–226 on two short piston legs (the deck lip is at y 240), so 5 agenda rows plus the date fit
+  (was 3). Behind the board only PIP's feet show.
+- **Prop trips:** `start_perf()` computes the first pose of the next act; if its props differ from PIP's current
+  ones (`mascot_same_props`) or PIP is > 12 px from where the act starts, a trip runs before the act: face the
+  exit, pick up the floor prop (crouch, carry it in both arms), walk off the nearest screen edge (left, or right
+  when the prop/PIP is right of the board - behind the board), swap props off-screen, walk back in carrying the
+  next act's props, set the floor prop down, walk to the start pose. Flying props are carried in a free hand
+  (balloon stays on its string). Trips take 2-5 s; the act's own clock starts when PIP is back, so acts are
+  unchanged. Ball acts now drop the ball beside PIP / leave it where it was trapped, and the next trip picks it up.
+- **Test:** two simulated hours of idle play with a random screen change every 6.7 s: 800+ trips, 0 jumps, 0 prop
+  pops. Firmware 1.3.0.

@@ -209,6 +209,20 @@ static void start_perf(mascot_anim_t *a, uint32_t now)
     a->act_start_ms = now;
     a->act_dur_ms = (uint32_t)(mascot_perf_seconds(&best) * 1000.0f);
     remember(a, now);
+    /* different props: fetch them from the screen edge first (the act starts when PIP is back) */
+    mascot_pose_t to;
+    if (m == PIP_MODE_PICK) {
+        mascot_pick_pose(&to, 0.0f, a->pick_row, a->pick_rows);
+    } else {
+        mascot_perf_pose(&best, 0.0f, (float)a->act_dur_ms / 1000.0f, &to);
+    }
+    a->trip = !mascot_same_props(&a->pose, &to) || fabsf(a->pose.x - to.x) > 12.0f; /* or just far away */
+    if (a->trip) {
+        a->trip_from = a->pose;
+        a->trip_to = to;
+        a->trip_start_ms = now;
+        a->trip_ms = (uint32_t)(mascot_trip_seconds(&a->pose, &to) * 1000.0f);
+    }
 }
 
 void mascot_anim_init(mascot_anim_t *a, uint32_t seed, uint32_t now_ms)
@@ -268,6 +282,11 @@ static void blend(mascot_pose_t *out, const mascot_pose_t *from, float w)
     t.leg_r = lerpf(from->leg_r, out->leg_r, w);
     t.antenna = lerpf(from->antenna, out->antenna, w);
     t.sit = lerpf(from->sit, out->sit, w);
+    if (from->floor_prop == out->floor_prop) { /* the same thing on the floor glides, never jumps */
+        t.fp_x = lerpf(from->fp_x, out->fp_x, w);
+        t.fp_y = lerpf(from->fp_y, out->fp_y, w);
+        t.fp_lift = lerpf(from->fp_lift, out->fp_lift, w);
+    }
     t.glass = lerpf(from->glass, out->glass, w);
     *out = t;
 }
@@ -332,12 +351,20 @@ bool mascot_anim_step(mascot_anim_t *a, uint32_t now_ms)
     if (!a->started) {
         mascot_set_mode(a, a->mode, now_ms);
     }
-    if (now_ms - a->act_start_ms >= a->act_dur_ms) {
+    if (a->trip && now_ms - a->trip_start_ms >= a->trip_ms) { /* back with the props: the act begins */
+        a->trip = false;
+        a->from = a->pose;
+        a->blend_start_ms = now_ms;
+        a->act_start_ms = now_ms;
+    }
+    if (!a->trip && now_ms - a->act_start_ms >= a->act_dur_ms) {
         start_perf(a, now_ms);
     }
     mascot_pose_t p;
     float t = (float)(now_ms - a->act_start_ms) / 1000.0f;
-    if (a->mode == PIP_MODE_PICK) {
+    if (a->trip) {
+        mascot_trip_pose(&a->trip_from, &a->trip_to, (float)(now_ms - a->trip_start_ms) / 1000.0f, &p);
+    } else if (a->mode == PIP_MODE_PICK) {
         mascot_pick_pose(&p, t, a->pick_row, a->pick_rows);
     } else {
         mascot_perf_pose(&a->perf, t, (float)a->act_dur_ms / 1000.0f, &p);

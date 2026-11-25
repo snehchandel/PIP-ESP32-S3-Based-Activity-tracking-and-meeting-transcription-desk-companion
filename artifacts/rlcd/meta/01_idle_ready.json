@@ -1,10 +1,10 @@
 {
   "screen": "01_idle_ready",
-  "render_ms": 0.3800,
+  "render_ms": 0.2600,
   "boxes": [
     {"name": "top_left", "x": 8, "y": 3, "w": 87, "h": 29, "parent": -1},
     {"name": "top_right", "x": 161, "y": 5, "w": 231, "h": 26, "parent": -1},
-    {"name": "board", "x": 150, "y": 40, "w": 246, "h": 157, "parent": -1},
+    {"name": "board", "x": 150, "y": 40, "w": 246, "h": 189, "parent": -1},
     {"name": "primary_text", "x": 159, "y": 47, "w": 160, "h": 29, "parent": 2},
     {"name": "secondary_text", "x": 159, "y": 79, "w": 225, "h": 34, "parent": 2},
     {"name": "mascot_stage", "x": 4, "y": 38, "w": 144, "h": 224, "parent": -1},
