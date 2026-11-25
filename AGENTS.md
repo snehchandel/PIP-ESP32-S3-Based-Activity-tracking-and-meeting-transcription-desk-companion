@@ -127,7 +127,9 @@ planning, break = its cue in order (stretch, sip water, look far away). Idle sta
 every third act previews it. A tag change mid-screen restarts the performance (props via a trip).
 **Hands on objects:** `pose.grip` makes the rig put the hands where the object needs them (laptop keyboard deck,
 guitar neck + strings; the guitar is strapped to the body) and draws the arms in front; a gripped laptop is drawn
-under the arms. **Easter eggs** (ADR-025): acts tagged `PIP_TAG_EGG` only come from a rare roll in `start_perf`
+under the arms. The laptop is one 3/4-view model (`mascot_laptop()` in `mascot.c`, used by the rig and `ui_props.c`):
+it stands on the floor beside PIP (`LAPTOP_DX`), keyboard toward PIP, screen turned toward you, lid shut while
+carried. Book and calendar are always held by their edges (`pip_rig_t.held_c`; a pencil writes on the page). **Easter eggs** (ADR-025): acts tagged `PIP_TAG_EGG` only come from a rare roll in `start_perf`
 (idle ~1 in 24, error screen 1 in 3, never twice in 2 h, never while focusing): PIP's relatives "PIP Mk.0" (tin toy)
 and "PIP-1960" (mainframe) swap in behind a smoke `puff` via `pose.form`, and an upset PIP hurls its potato battery (monocle + bow tie, no face). All
 original designs - do not draw film/game characters.
@@ -324,6 +326,8 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
 - Firmware 1.7.0 (1.6.0 meeting recording, 10-min messages, time pie + cues, BOOT 2x park; 1.7.0 activity named
   after the wake word): see the hardware notes below. Host: meetings verified end-to-end with real faster-whisper on synthetic voices
   (12/12 lines attributed) and in the Playwright flow; a real-room meeting with real people is not yet tested.
+- Firmware 1.7.1 (laptop redrawn in 3/4 view with a visible screen; book/calendar held by their edges, BUG-018):
+  on hardware via in-app OTA.
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
   end-of-speech timing in a real room, a slide transition and a full prop trip watched on the panel (needs a
   real button press / a minute of idle play; `simulate-button` is simulator-only).

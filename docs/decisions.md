@@ -225,6 +225,8 @@ random picks from a library.
   `pose.grip` now pulls the hands onto the object (keyboard deck with alternating taps, guitar neck + strings with a
   strum), arms drawn in front, a gripped laptop drawn under the arms; the guitar is strapped to the body instead of
   hanging between the hands. Tests check the hand positions. Firmware 1.5.0.
+- **Laptop + held props (1.7.1, BUG-018):** the laptop stands beside PIP in a 3/4 view with its screen turned toward
+  you (`mascot_laptop()`, shared by rig and renderer); book and calendar are held by their edges (`held_c`).
 
 ## ADR-026 — Meeting recordings with speakers, transcribed on the PC
 - **Device:** a 5th voice-picker option "Meeting" (AUDIO_START activity 4, `max_sec` 0 = no limit) puts PIP in

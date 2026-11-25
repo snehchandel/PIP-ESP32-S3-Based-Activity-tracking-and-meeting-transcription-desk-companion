@@ -21,6 +21,94 @@ static void ring_disc(rlcd_fb_t *fb, float x, float y, float r, float t)
     }
 }
 
+static void quad_pts(const pip_pt_t q[4], float x, float y, int qx[4], int qy[4])
+{
+    for (int i = 0; i < 4; i++) {
+        qx[i] = ri(x + q[i].x);
+        qy[i] = ri(y + q[i].y);
+    }
+}
+
+static void quad_outline(rlcd_fb_t *fb, const int qx[4], const int qy[4], int w)
+{
+    for (int i = 0; i < 4; i++) {
+        fb_line(fb, qx[i], qy[i], qx[(i + 1) % 4], qy[(i + 1) % 4], w, INK_BLACK);
+    }
+}
+
+/* point (a, b) of a quad: a runs corner 0 -> 1, b runs corner 0 -> 3 */
+static void quad_at(const pip_pt_t q[4], float a, float b, float *ox, float *oy)
+{
+    *ox = q[0].x + (q[1].x - q[0].x) * a + (q[3].x - q[0].x) * b;
+    *oy = q[0].y + (q[1].y - q[0].y) * a + (q[3].y - q[0].y) * b;
+}
+
+/* PIP's laptop, 3/4 view (geometry in mascot_laptop): keyboard deck toward PIP, a lit screen turned toward you
+ * with lines of text scrolling up and a blinking cursor at the end of the line being typed */
+static void laptop(rlcd_fb_t *fb, const mascot_pose_t *p, float x, float y, float t)
+{
+    pip_laptop_t g;
+    mascot_laptop(p, &g);
+    int qx[4], qy[4];
+    /* deck: a little slab, keys as rows of dots, a trackpad toward the typist */
+    quad_pts(g.deck, x, y, qx, qy);
+    int sx[4] = {qx[0], qx[1], qx[1], qx[0]}, sy[4] = {qy[0], qy[1], qy[1] + 2, qy[0] + 2};
+    fb_fill_quad(fb, sx, sy, INK_BLACK); /* front edge thickness */
+    fb_fill_quad(fb, qx, qy, INK_WHITE);
+    quad_outline(fb, qx, qy, 1);
+    const pip_pt_t deck_rev[4] = {g.deck[3], g.deck[2], g.deck[1], g.deck[0]}; /* a along the hinge, b toward PIP */
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 6; c++) {
+            float kx, ky;
+            quad_at(deck_rev, 0.14f + 0.144f * (float)c, 0.2f + 0.17f * (float)r, &kx, &ky);
+            fb_fill_rect(fb, ri(x + kx), ri(y + ky), 2, 1, INK_BLACK);
+        }
+    }
+    float pa, pb, pc, pd;
+    quad_at(deck_rev, 0.38f, 0.8f, &pa, &pb);
+    quad_at(deck_rev, 0.62f, 0.8f, &pc, &pd);
+    fb_line_f(fb, x + pa, y + pb, x + pc, y + pd, 1.0f, INK_BLACK);
+    /* lid: black bezel, white screen with text, or the plain back of the lid */
+    quad_pts(g.lid, x, y, qx, qy);
+    if (g.screen_vis) {
+        fb_fill_quad(fb, qx, qy, INK_BLACK);
+        pip_pt_t scr[4];
+        const float a0 = 0.1f, a1 = 0.9f, b0 = 0.12f, b1 = 0.86f;
+        quad_at(g.lid, a0, b0, &scr[0].x, &scr[0].y);
+        quad_at(g.lid, a1, b0, &scr[1].x, &scr[1].y);
+        quad_at(g.lid, a1, b1, &scr[2].x, &scr[2].y);
+        quad_at(g.lid, a0, b1, &scr[3].x, &scr[3].y);
+        int wx[4], wy[4];
+        quad_pts(scr, x, y, wx, wy);
+        fb_fill_quad(fb, wx, wy, INK_WHITE);
+        /* lines bottom-up: the bottom one is being typed, older lines scroll up off the top */
+        static const float LEN[8] = {0.8f, 0.55f, 0.7f, 0.35f, 0.9f, 0.6f, 0.45f, 0.75f};
+        float tt = t * 0.9f;
+        int line = (int)floorf(tt);
+        float typed = tt - (float)line;
+        for (int r = 0; r < 4; r++) {
+            int idx = ((line - r) % 8 + 8) % 8;
+            float len = LEN[idx] * (r == 0 ? typed : 1.0f);
+            float b = 0.16f + 0.23f * (float)r, ax0, ay0, ax1, ay1; /* b runs up the screen */
+            float indent = (idx & 1) ? 0.12f : 0.0f; /* a little code-like indentation */
+            quad_at(scr, 0.1f + indent, b, &ax0, &ay0);
+            quad_at(scr, 0.1f + indent + 0.75f * len, b, &ax1, &ay1);
+            if (len > 0.02f) {
+                fb_line_f(fb, x + ax0, y + ay0, x + ax1, y + ay1, 1.0f, INK_BLACK);
+            }
+            if (r == 0 && fmodf(t, 0.8f) < 0.45f) { /* cursor */
+                fb_fill_rect(fb, ri(x + ax1 + 1.0f), ri(y + ay1 - 1.0f), 2, 3, INK_BLACK);
+            }
+        }
+    } else {
+        fb_fill_quad(fb, qx, qy, INK_WHITE);
+        quad_outline(fb, qx, qy, 2);
+        float lx, ly;
+        quad_at(g.lid, 0.5f, 0.55f, &lx, &ly);
+        fb_disc_f(fb, x + lx, y + ly, 1.5f, INK_BLACK); /* logo */
+    }
+}
+
 /* a science-fair potato battery: lumpy spud, a copper and a zinc electrode, a wire loop up to a tiny bulb.
  * glow: 1 bright (rays), ~0.3 a feeble glimmer, 0 dead (hollow bulb). spin rolls the skin specks. */
 static void potato(rlcd_fb_t *fb, float x, float y, float s, float spin, float glow)
@@ -178,17 +266,7 @@ void ui_prop_floor(rlcd_fb_t *fb, const mascot_pose_t *p, float x, float y)
         }
         break;
     }
-    case PROP_LAPTOP: {
-        int bx[4] = {ri(x - 18.0f), ri(x + 18.0f), ri(x + 14.0f), ri(x - 14.0f)}, by[4] = {ri(y), ri(y), ri(y - 7.0f), ri(y - 7.0f)};
-        fb_fill_quad(fb, bx, by, INK_WHITE);
-        for (int i = 0; i < 4; i++) {
-            fb_line(fb, bx[i], by[i], bx[(i + 1) % 4], by[(i + 1) % 4], 2, INK_BLACK);
-        }
-        fb_fill_rrect(fb, ri(x - 14.0f), ri(y - 30.0f), 29, 24, 3, INK_BLACK); /* lid, seen from behind */
-        float glow = fmodf(t, 2.0f) < 1.0f ? 3.0f : 2.0f;
-        fb_disc_f(fb, x, y - 18.0f, glow, INK_WHITE);
-        break;
-    }
+    case PROP_LAPTOP: laptop(fb, p, x, y, t); break;
     case PROP_GIFT: {
         float lift = t * 14.0f;
         ui_iso_cube(fb, x, y, 14.0f, true);
@@ -430,8 +508,10 @@ void ui_prop_held(rlcd_fb_t *fb, const mascot_pose_t *p, const pip_rig_t *r, int
     bool juggle = p->held == PROP_BALL && p->held_l == PROP_BALL;
     if (two_handed_pass) {
         switch (p->held) {
-        case PROP_BOOK: book(fb, mx, my - 2.0f * s, s, p->held_t); break;
-        case PROP_CALENDAR: calendar(fb, mx, my + 2.0f * s, s, p->held_t); break;
+        /* held by its edges (the rig puts the hands there): centred where the rig says, not between the hands -
+         * a pencil or a pointing hand may be elsewhere */
+        case PROP_BOOK: book(fb, (float)cx + r->held_c.x, (float)fy + r->held_c.y - 2.0f * s, s, p->held_t); break;
+        case PROP_CALENDAR: calendar(fb, (float)cx + r->held_c.x, (float)fy + r->held_c.y + 6.0f * s, s, p->held_t); break;
         case PROP_GUITAR: { /* strapped on: body at the belly, neck up to the left */
             float cyb = (float)fy + (r->b_top + r->b_bot) * 0.5f;
             float gx = (float)cx + r->bx + 1.0f * s, gy = cyb + 4.0f * s;

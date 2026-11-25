@@ -25,6 +25,54 @@ void mascot_home_pose(mascot_pose_t *p)
     p->mouth = MOUTH_SMILE;
 }
 
+/* ---- laptop (shared by the rig's hand targets and the renderer) ---------------------------- */
+#define LT_W 34.0f     /* width */
+#define LT_D 20.0f     /* deck depth = lid height, so the shut lid covers the deck */
+#define LT_VIEW 0.4f   /* how far you look down on the floor: depth toward you moves things down the screen */
+
+void mascot_laptop(const mascot_pose_t *p, pip_laptop_t *g)
+{
+    /* ground plane: X right, Z toward you. f points from the hinge to the typist (PIP); it turns smoothly
+     * from "PIP on the left" through "PIP straight behind" to "PIP on the right", so gliding never pops. */
+    float dx = p->x - p->fp_x, fz = 30.0f, n = sqrtf(dx * dx + fz * fz);
+    float fx = dx / n;
+    fz /= n;
+    float ux = fz, uz = -fx; /* along the keyboard */
+    if (ux < 0.0f) {
+        ux = -ux;
+        uz = -uz;
+    }
+    /* lid: leaning back a little when open, folded onto the deck while carried */
+    float shut = smooth(p->fp_lift / 6.0f);
+    float al = -0.2f + (PI_F * 0.5f + 0.2f) * shut;
+    float ly = cosf(al), lf = sinf(al); /* lid direction: up and toward the typist */
+    const float T = 2.0f;               /* deck thickness */
+#define LT_P(X, Y, Z) ((pip_pt_t){(X), -(Y) + LT_VIEW * (Z)})
+    float hx = LT_W * 0.5f * ux, hz = LT_W * 0.5f * uz, dfx = LT_D * 0.5f * fx, dfz = LT_D * 0.5f * fz;
+    g->deck[0] = LT_P(dfx - hx, T, dfz - hz);
+    g->deck[1] = LT_P(dfx + hx, T, dfz + hz);
+    g->deck[2] = LT_P(-dfx + hx, T, -dfz + hz);
+    g->deck[3] = LT_P(-dfx - hx, T, -dfz - hz);
+    float tx = LT_D * lf * fx, ty = LT_D * ly, tz = LT_D * lf * fz;
+    g->lid[0] = LT_P(-dfx - hx, T, -dfz - hz);
+    g->lid[1] = LT_P(-dfx + hx, T, -dfz + hz);
+    g->lid[2] = LT_P(-dfx + hx + tx, T + ty, -dfz + hz + tz);
+    g->lid[3] = LT_P(-dfx - hx + tx, T + ty, -dfz - hz + tz);
+    for (int i = 0; i < 2; i++) { /* on the keys, toward the typist, a little in from each side */
+        float side = i == 0 ? -1.0f : 1.0f;
+        g->keys[i] = LT_P(0.3f * LT_D * fx + side * LT_W * 0.2f * ux, T, 0.3f * LT_D * fz + side * LT_W * 0.2f * uz);
+    }
+    if (g->keys[0].x > g->keys[1].x) {
+        pip_pt_t k = g->keys[0];
+        g->keys[0] = g->keys[1];
+        g->keys[1] = k;
+    }
+#undef LT_P
+    /* the screen faces the typist; you see it while it also turns toward you (view from slightly above) */
+    float nz = fz * cosf(al), ny = -sinf(al);
+    g->screen_vis = nz * 0.93f + ny * 0.37f > 0.05f;
+}
+
 /* ---- rig ---------------------------------------------------------------------------------- */
 void mascot_rig(const mascot_pose_t *p, pip_rig_t *r)
 {
@@ -113,11 +161,36 @@ void mascot_rig(const mascot_pose_t *p, pip_rig_t *r)
         r->hand[i].x = r->shoulder[i].x + out * dirx * len;
         r->hand[i].y = r->shoulder[i].y + cosf(a) * len;
     }
+    r->held_c.x = (r->hand[0].x + r->hand[1].x) * 0.5f;
+    r->held_c.y = (r->hand[0].y + r->hand[1].y) * 0.5f;
+    if (p->held == PROP_BOOK || p->held == PROP_CALENDAR) {
+        /* held by its edges: the arms set where it is, the hands close in on it. A left arm raised well above the
+         * right one lets go (points at the board) and the right hand holds it alone; a pencil writes on it. */
+        float half = 17.0f * s, dy = (p->held == PROP_CALENDAR ? -5.0f : 0.0f) * s;
+        float free_l = smooth((p->arm_l - p->arm_r - 20.0f) / 20.0f);
+        pip_pt_t hc = r->held_c;
+        hc.x += sn * 14.0f * s; /* turned: held out in front, not across the face */
+        hc.x += (r->hand[1].x - half - hc.x) * free_l;
+        hc.y += (r->hand[1].y - dy - hc.y) * free_l;
+        r->held_c = hc;
+        pip_pt_t edge_l = {hc.x - half, hc.y + dy};
+        if (p->held_l == PROP_PENCIL) { /* the arm's scribble moves the pencil across the page */
+            float sc = (p->arm_l - 74.0f) * 0.5f * s;
+            sc = sc > 5.0f * s ? 5.0f * s : (sc < -5.0f * s ? -5.0f * s : sc);
+            edge_l.x = hc.x - 4.0f * s + sc;
+            edge_l.y = hc.y - (p->held == PROP_CALENDAR ? 12.0f : 2.0f) * s;
+        }
+        r->hand[0].x += (edge_l.x - r->hand[0].x) * (1.0f - free_l);
+        r->hand[0].y += (edge_l.y - r->hand[0].y) * (1.0f - free_l);
+        r->hand[1].x = hc.x + half;
+        r->hand[1].y = hc.y + dy;
+    }
     /* grip: the hands go where the object needs them, reaching in front of the body */
     float g = clamp01(p->grip);
     if (g > 0.0f) {
         pip_pt_t tgt[2];
         bool have = false;
+        int front_only = -1; /* >= 0: only this arm is drawn in front; the other reaches across behind the body */
         float cy = (r->b_top + r->b_bot) * 0.5f;
         if (p->held == PROP_GUITAR) { /* left hand on the neck, right hand strumming over the sound hole */
             tgt[0].x = r->bx - 23.0f * s;
@@ -125,12 +198,15 @@ void mascot_rig(const mascot_pose_t *p, pip_rig_t *r)
             tgt[1].x = r->bx + 5.0f * s;
             tgt[1].y = cy + 3.0f * s + 3.5f * s * sinf(p->held_t * 14.0f);
             have = true;
-        } else if (p->floor_prop == PROP_LAPTOP) { /* both hands on the keyboard deck, tapping in turn */
+        } else if (p->floor_prop == PROP_LAPTOP) { /* both hands on the keyboard, tapping in turn */
+            pip_laptop_t lt;
+            mascot_laptop(p, &lt);
             float k = sinf(p->fp_t * 22.0f);
-            tgt[0].x = p->fp_x - 8.0f;
-            tgt[0].y = p->fp_y - p->fp_lift - 4.0f - 2.0f * fmaxf(0.0f, k);
-            tgt[1].x = p->fp_x + 8.0f;
-            tgt[1].y = p->fp_y - p->fp_lift - 4.0f - 2.0f * fmaxf(0.0f, -k);
+            for (int i = 0; i < 2; i++) {
+                tgt[i].x = p->fp_x + lt.keys[i].x;
+                tgt[i].y = p->fp_y - p->fp_lift + lt.keys[i].y - 2.0f * fmaxf(0.0f, i == 0 ? k : -k);
+            }
+            front_only = p->fp_x > p->x ? 1 : 0; /* the arm on the laptop's side */
             have = true;
         }
         if (have) {
@@ -138,7 +214,7 @@ void mascot_rig(const mascot_pose_t *p, pip_rig_t *r)
                 r->hand[i].x += (tgt[i].x - r->hand[i].x) * g;
                 r->hand[i].y += (tgt[i].y - r->hand[i].y) * g;
                 if (g > 0.5f) {
-                    r->arm_z[i] = 1.0f;
+                    r->arm_z[i] = front_only < 0 || front_only == i ? 1.0f : -1.0f;
                 }
             }
         }

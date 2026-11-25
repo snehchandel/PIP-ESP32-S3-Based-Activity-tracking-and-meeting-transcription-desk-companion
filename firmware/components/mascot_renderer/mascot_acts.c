@@ -710,21 +710,26 @@ static void a_idea(mascot_pose_t *p, float t, float D, int v, float s, int mood)
     }
 }
 
+/* the laptop stands on the floor beside PIP (screen turned toward you); every laptop act puts it here */
+#define LAPTOP_DX 38.0f
+#define LAPTOP_DY -3.0f
+
 static void a_laptop(mascot_pose_t *p, float t, float D, int v, float s, int mood)
 {
     float sit = win(t, 0.2f, D - 0.2f, 1.0f);
     p->sit = sit;
     p->floor_prop = PROP_LAPTOP;
-    p->fp_x = s * 6.0f;
-    p->fp_y = 18.0f;
+    p->fp_x = s * LAPTOP_DX;
+    p->fp_y = LAPTOP_DY;
     p->fp_t = t;
     p->grip = sit; /* hands on the keyboard */
     float typing = sinf(t * 22.0f);
     p->arm_l = (58.0f + 6.0f * typing) * sit;
     p->arm_r = (58.0f - 6.0f * typing) * sit;
-    p->look_y = 0.9f;
     float glance = bump(fmodf(t, 7.0f), 5.0f, 6.6f); /* glances up at you */
-    p->look_y = mixf(p->look_y, 0.0f, glance);
+    p->yaw = s * 40.0f * sit * (1.0f - glance); /* turned toward the screen */
+    p->look_x = s * 0.8f * sit * (1.0f - glance);
+    p->look_y = 0.5f * (1.0f - glance);
     if (glance > 0.5f) p->eyes = v == 0 ? EYE_HAPPY : EYE_WIDE;
     emote(p, mood_emote(mood, EMOTE_FOCUS, EMOTE_IDEA, EMOTE_MUSIC), t, 1.0f);
 }
@@ -983,14 +988,16 @@ static void f_point(mascot_pose_t *p, float t, float D, int v, float s, int mood
 static void f_peek(mascot_pose_t *p, float t, float D, int v, float s, int mood)
 {
     p->floor_prop = PROP_LAPTOP;
-    p->fp_x = 0.0f;
-    p->fp_y = 18.0f;
+    p->fp_x = s * LAPTOP_DX;
+    p->fp_y = LAPTOP_DY;
     p->fp_t = t;
     float rise = win(t, D * 0.3f, D * 0.8f, 1.5f);
-    p->sit = 1.0f - rise;
-    p->grip = 1.0f - seg(rise, 0.0f, 0.4f); /* typing until it pops up */
-    p->y = 10.0f * (1.0f - rise);
-    p->look_y = mixf(0.9f, 0.0f, rise);
+    float sit = win(t, 0.0f, D, 0.8f) * (1.0f - rise);
+    p->sit = sit;
+    p->grip = sit; /* typing until it pops up */
+    p->yaw = s * 40.0f * sit;
+    p->look_x = s * 0.8f * sit;
+    p->look_y = 0.5f * sit;
     p->eyes = rise > 0.5f ? EYE_WIDE : EYE_PILL;
     p->arm_r = (150.0f + 20.0f * wav(t, 0.5f)) * bump(t, D * 0.45f, D * 0.75f) + 55.0f * (1.0f - rise);
     p->arm_l = 55.0f * (1.0f - rise);
@@ -1456,8 +1463,8 @@ static void wear_gear(mascot_pose_t *p, int cat, float s, float in)
     p->held_l = g->held_l;
     p->floor_prop = g->floor;
     if (g->floor == PROP_LAPTOP) {
-        p->fp_x = s * 6.0f;
-        p->fp_y = 18.0f;
+        p->fp_x = s * LAPTOP_DX;
+        p->fp_y = LAPTOP_DY;
     } else if (g->floor) {
         p->fp_x = s * 36.0f;
         p->fp_y = 2.0f;
@@ -1748,7 +1755,7 @@ static void k_ready(mascot_pose_t *p, float t, float D, int v, float s, int mood
     if (!two_handed(GEAR[cat].held)) {
         p->arm_l = mixf(p->arm_l, 150.0f + 8.0f * wav(t, 0.8f), pt); /* points at "Next: ..." */
     } else {
-        p->arm_l = p->arm_r = mixf(p->arm_r, 110.0f, pt); /* shows it toward the board */
+        p->arm_l = p->arm_r = mixf(p->arm_r, 80.0f, pt); /* holds it out toward the board, below its face */
     }
     p->look_x = mixf(p->look_x, 1.0f, pt);
     p->look_y = mixf(p->look_y, -0.8f, pt);

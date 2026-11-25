@@ -447,13 +447,23 @@ int main(void)
         CHECK(strcmp(mascot_act_name(PIP_MODE_FOCUS, 1), "typing") == 0);
         mascot_pose_t ps;
         pip_rig_t rg;
-        mascot_perf_pose(&typing, 6.0f, mascot_perf_seconds(&typing), &ps);
+        mascot_perf_pose(&typing, 3.0f, mascot_perf_seconds(&typing), &ps); /* typing, not glancing up at you */
         mascot_rig(&ps, &rg);
-        for (int i = 0; i < 2; i++) { /* both hands on the keyboard deck, in front of the body */
-            CHECK(fabsf(rg.hand[i].x - (ps.fp_x + (i ? 8.0f : -8.0f))) < 1.5f);
-            CHECK(fabsf(rg.hand[i].y - (ps.fp_y - 4.0f)) < 3.0f);
-            CHECK(rg.arm_z[i] > 0.5f);
+        pip_laptop_t lt;
+        mascot_laptop(&ps, &lt);
+        CHECK(lt.screen_vis);                                  /* the screen is turned toward you */
+        CHECK(ps.fp_x > ps.x + 25.0f && ps.yaw > 20.0f);       /* beside PIP, PIP turned toward it */
+        CHECK(lt.lid[2].y < lt.deck[2].y - 12.0f);             /* lid open, standing up from the deck */
+        CHECK(ps.fp_x + lt.lid[2].x < (float)(STAGE_X + STAGE_W - STAGE_CX)); /* inside the column stage */
+        for (int i = 0; i < 2; i++) { /* both hands on the keys (tapping lifts them up to 2 px) */
+            CHECK(fabsf(rg.hand[i].x - (ps.fp_x + lt.keys[i].x)) < 1.5f);
+            CHECK(fabsf(rg.hand[i].y - (ps.fp_y + lt.keys[i].y)) < 3.0f);
         }
+        CHECK(rg.arm_z[1] > 0.5f && rg.arm_z[0] < 0.0f); /* the arm on the laptop's side in front, the other behind */
+        ps.fp_lift = 12.0f; /* carried on a prop trip: lid shut, no screen */
+        mascot_laptop(&ps, &lt);
+        CHECK(!lt.screen_vis);
+        CHECK(fabsf(lt.lid[2].y - lt.deck[1].y) < 3.0f);
         int gi = -1;
         for (int k = 0; k < mascot_act_count(PIP_MODE_FOCUS); k++) {
             if (strcmp(mascot_act_name(PIP_MODE_FOCUS, k), "plays guitar") == 0) gi = k;
@@ -465,6 +475,30 @@ int main(void)
         float cyb = (rg.b_top + rg.b_bot) * 0.5f;
         CHECK(rg.hand[0].x < rg.bx - 18.0f && fabsf(rg.hand[0].y - (cyb - 8.0f)) < 2.0f); /* on the neck */
         CHECK(fabsf(rg.hand[1].x - (rg.bx + 5.0f)) < 2.0f && fabsf(rg.hand[1].y - cyb) < 8.0f); /* strings */
+
+        /* the calendar is held by its edges below the face; pointing at the board, one hand holds it */
+        int ci = -1;
+        for (int k = 0; k < mascot_act_count(PIP_MODE_IDLE); k++) {
+            if (strcmp(mascot_act_name(PIP_MODE_IDLE, k), "check calendar") == 0) ci = k;
+        }
+        CHECK(ci >= 0);
+        pip_perf_t cal = {PIP_MODE_IDLE, (uint8_t)ci, 0, 1, 1};
+        float cd = mascot_perf_seconds(&cal);
+        mascot_perf_pose(&cal, 2.0f, cd, &ps);
+        mascot_rig(&ps, &rg);
+        CHECK(ps.held == PROP_CALENDAR);
+        CHECK(fabsf(rg.hand[0].x - (rg.held_c.x - 17.0f)) < 0.5f && fabsf(rg.hand[1].x - (rg.held_c.x + 17.0f)) < 0.5f);
+        CHECK(rg.held_c.y - 22.0f > rg.h_bot - 3.0f); /* the calendar's top stays below the face */
+        mascot_perf_pose(&cal, cd * 0.8f, cd, &ps); /* turned to the board, pointing */
+        mascot_rig(&ps, &rg);
+        CHECK(fabsf(rg.hand[1].x - (rg.held_c.x + 17.0f)) < 0.5f);
+        CHECK(rg.hand[0].y < rg.held_c.y - 12.0f); /* the pointing hand let go and is up */
+        CHECK(rg.held_c.x > rg.bx + 5.0f);                        /* held out in front, toward the board */
+        cal.variant = 1; /* with a pencil: the left hand writes on the page */
+        mascot_perf_pose(&cal, 2.0f, cd, &ps);
+        mascot_rig(&ps, &rg);
+        CHECK(ps.held_l == PROP_PENCIL);
+        CHECK(fabsf(rg.hand[0].x - rg.held_c.x) < 10.0f && rg.hand[0].y < rg.held_c.y);
     }
 
     /* ---- reactions: a double press spins PIP all the way round ---- */

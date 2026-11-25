@@ -245,6 +245,7 @@ typedef struct {
     float ear_z[2];                /* > 0: in front of the head */
     pip_pt_t ant_base, ant_tip;
     pip_pt_t shoulder[2], hand[2];
+    pip_pt_t held_c;               /* centre of a two-handed prop (book, calendar): held by its edges */
     float arm_z[2];                /* > 0: arm in front of the body */
     pip_pt_t chest;
     bool chest_vis;
@@ -254,6 +255,18 @@ typedef struct {
 } pip_rig_t;
 
 void mascot_rig(const mascot_pose_t *p, pip_rig_t *r);
+
+/* PIP's laptop in a 3/4 view: it stands on the floor with the keyboard turned toward PIP and the screen toward you
+ * (straight at you when it stands right in front of PIP). Points are px offsets from the floor anchor
+ * (fp_x, fp_y - fp_lift); the lid folds shut while PIP carries it (fp_lift > 0). */
+typedef struct {
+    pip_pt_t deck[4];   /* keyboard deck: two corners on PIP's side, then the two hinge corners */
+    pip_pt_t lid[4];    /* hinge corners (same order as deck[3], deck[2]), then the matching top corners */
+    pip_pt_t keys[2];   /* where the hands type, screen-left one first */
+    bool screen_vis;    /* the screen faces you (else you see the back of the lid) */
+} pip_laptop_t;
+
+void mascot_laptop(const mascot_pose_t *p, pip_laptop_t *g);
 
 /* library introspection (tests / sim contact sheets) */
 int mascot_act_count(pip_mode_t mode);
