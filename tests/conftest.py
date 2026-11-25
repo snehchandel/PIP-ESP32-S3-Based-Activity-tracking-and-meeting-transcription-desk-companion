@@ -27,3 +27,9 @@ def manager():  # type: ignore[no-untyped-def]
     m = DeviceStateManager(Database(":memory:"), "America/Toronto", clock=lambda: clock["t"])
     m._clock = clock  # type: ignore[attr-defined]
     return m
+
+
+@pytest.fixture(autouse=True)
+def _no_real_local_ai(monkeypatch):  # type: ignore[no-untyped-def]
+    """Tests never talk to an Ollama that may be running on the developer's PC (a closed port instead)."""
+    monkeypatch.setenv("PIP_LOCAL_AI_URL", "http://127.0.0.1:9")

@@ -1,8 +1,8 @@
-import { CircleParking, Download, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Upload, UserPlus, Users } from "lucide-react";
+import { CircleCheck, CircleParking, Cpu, Download, Loader2, Pencil, RefreshCw, Search, Sparkles, Trash2, Upload, UserPlus, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
-import type { MeetingDetail, MeetingList, MeetingListItem, Segment, Speaker } from "../api/types";
+import type { MeetingAnswer, MeetingDetail, MeetingHit, MeetingList, MeetingListItem, Segment, Speaker } from "../api/types";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { Badge, Card, CardTitle, Empty, Input, Label, PageHeader, Select, Textarea } from "../components/ui/primitives";
@@ -177,6 +177,9 @@ function MeetingPanel({ id, onDeleted }: { id: string; onDeleted: () => void }) 
     reload();
   };
   const ready = m.status === "READY";
+  const summarizing = m.summary_status === "QUEUED" || m.summary_status === "SUMMARIZING";
+  const part = meetingEvt.id === id && meetingEvt.summary_parts
+    ? { part: meetingEvt.summary_part ?? 0, parts: meetingEvt.summary_parts } : null;
   return (
     <div className="min-w-0 space-y-5">
       <Card aria-label="Meeting">
@@ -244,23 +247,47 @@ function MeetingPanel({ id, onDeleted }: { id: string; onDeleted: () => void }) 
             </div>
           </Card>
           <Card aria-label="Summary">
-            <CardTitle aside={<Button size="sm" disabled={busy !== null} onClick={() => void act("sum", () => api.summarizeMeeting(m.id))}>
-              {busy === "sum" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Sparkles size={14} aria-hidden />}
-              {m.summary ? "Redo" : "Summarize with Kimi"}</Button>}>Summary</CardTitle>
+            <CardTitle aside={<div className="flex gap-1.5">
+              <Button size="sm" disabled={busy !== null || summarizing} title="Summarise on this PC (free, private)"
+                onClick={() => void act("sum", () => api.summarizeMeeting(m.id, "local"))}>
+                <Cpu size={14} aria-hidden /> {m.summary ? "Redo on this PC" : "Summarise on this PC"}</Button>
+              <Button size="sm" variant="ghost" disabled={busy !== null || summarizing} title="Uses your AI budget"
+                onClick={() => void act("kimi", () => api.summarizeMeeting(m.id, "kimi"))}>
+                {busy === "kimi" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Sparkles size={14} aria-hidden />}
+                Kimi</Button></div>}>Summary</CardTitle>
+            {summarizing && (
+              <p role="status" className="mb-3 flex items-center gap-2 text-sm text-muted">
+                <Loader2 size={14} className="animate-spin" aria-hidden />
+                {m.summary_status === "QUEUED" ? "Waiting its turn (transcriptions and voice commands go first)…"
+                  : part ? `Summarising on this PC — part ${Math.min(part.part + 1, part.parts)} of ${part.parts}…`
+                    : "Summarising…"}</p>
+            )}
+            {m.summary_status === "FAILED" && m.summary_error && (
+              <p className="mb-3 text-sm text-[#8a3b2e]">Summary failed: {m.summary_error}</p>
+            )}
             {m.summary ? (
               <div className="space-y-3 text-sm">
                 <p className="leading-relaxed">{m.summary.summary}</p>
+                {(m.summary.topics?.length ?? 0) > 0 && <div className="flex flex-wrap gap-1.5">
+                  {m.summary.topics?.map((t) => <Badge key={t}>{t}</Badge>)}</div>}
                 {m.summary.decisions.length > 0 && (<div><Label>Decisions</Label>
                   <ul className="list-disc space-y-0.5 pl-5">{m.summary.decisions.map((d, i) => <li key={i}>{d}</li>)}</ul></div>)}
                 {m.summary.action_items.length > 0 && (<div><Label>Action items</Label>
                   <ul className="space-y-1">{m.summary.action_items.map((a, i) => (
-                    <li key={i} className="rounded-lg border border-line bg-white/60 px-2.5 py-1.5">{a.task}
+                    <li key={i} className={cn("rounded-lg border border-line bg-white/60 px-2.5 py-1.5", a.done && "text-muted line-through")}>
+                      {a.done && <CircleCheck size={13} className="mr-1 inline text-sage" aria-label="done" />}{a.task}
                       {(a.owner || a.due) && <span className="text-xs text-muted"> — {[a.owner, a.due && `due ${a.due}`].filter(Boolean).join(", ")}</span>}
+                      {a.parked && <Badge className="ml-2">parked</Badge>}
                     </li>))}</ul>
-                  <Button size="sm" className="mt-2" onClick={() => void act("park", () => api.parkMeetingActions(m.id))}>
+                  <Button size="sm" className="mt-2" disabled={m.summary.action_items.every((a) => a.parked || a.done)}
+                    onClick={() => void act("park", () => api.parkMeetingActions(m.id))}>
                     <CircleParking size={14} aria-hidden /> Park action items</Button></div>)}
+                <p className="text-xs text-muted">Summary by {m.summary_engine?.startsWith("local/")
+                  ? `this PC (${m.summary_engine.slice(6)})` : m.summary_engine ?? "AI"}
+                  {m.vault_note && <> · in Obsidian: <span className="break-all">{m.vault_note}</span></>}</p>
               </div>
-            ) : <Empty>Kimi can pull out the gist, decisions and action items (uses your AI budget).</Empty>}
+            ) : !summarizing && <Empty>Summaries are made on this PC after each transcription (Settings → Meetings).
+              Kimi is there if you want a second opinion (uses your AI budget).</Empty>}
             <div className="mt-4">
               <Label htmlFor="mt-notes">Your notes</Label>
               <Textarea id="mt-notes" value={notes} placeholder="Anything to remember about this meeting…"
@@ -298,6 +325,71 @@ function MeetingPanel({ id, onDeleted }: { id: string; onDeleted: () => void }) 
   );
 }
 
+/** Questions across every meeting: PIP finds the passages that match (no AI), then one short AI call answers
+    from just those - local by default. Sources open the meeting. */
+function AskCard({ onOpen }: { onOpen: (id: string) => void }) {
+  const { run } = useLive();
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState<"" | "search" | "local" | "kimi">("");
+  const [hits, setHits] = useState<MeetingHit[] | null>(null);
+  const [answer, setAnswer] = useState<MeetingAnswer | null>(null);
+  const ok = q.trim().length >= 3;
+  const go = async (kind: "search" | "local" | "kimi") => {
+    if (!ok) return;
+    setBusy(kind);
+    if (kind === "search") {
+      const r = await run(() => api.searchMeetings(q.trim()));
+      if (r) { setHits(r.hits); setAnswer(null); }
+    } else {
+      const r = await run(() => api.askMeetings(q.trim(), kind));
+      if (r) { setAnswer(r); setHits(null); }
+    }
+    setBusy("");
+  };
+  return (
+    <Card aria-label="Ask your meetings" className="mb-5">
+      <CardTitle>Ask your meetings</CardTitle>
+      <div className="flex flex-wrap gap-2">
+        <Input aria-label="Question or words to find" className="min-w-64 flex-1" value={q}
+          placeholder="Who is sending the Q3 budget? · What did we decide about hiring?"
+          onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void go("local"); }} />
+        <Button variant="primary" disabled={busy !== "" || !ok} onClick={() => void go("local")}>
+          {busy === "local" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Cpu size={14} aria-hidden />} Ask</Button>
+        <Button disabled={busy !== "" || !ok} onClick={() => void go("search")}>
+          <Search size={14} aria-hidden /> Find</Button>
+        <Button variant="ghost" disabled={busy !== "" || !ok} title="Ask Kimi instead (uses your AI budget)"
+          onClick={() => void go("kimi")}>
+          {busy === "kimi" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Sparkles size={14} aria-hidden />} Kimi</Button>
+      </div>
+      {answer && (
+        <div className="mt-3 space-y-2 text-sm" role="status">
+          <p className="whitespace-pre-line leading-relaxed">{answer.answer}</p>
+          {answer.sources.length > 0 && <div className="flex flex-wrap gap-1.5">
+            {answer.sources.map((s, i) => (
+              <button key={i} className="rounded-full border border-line bg-white/60 px-2 py-0.5 text-xs hover:bg-white"
+                onClick={() => onOpen(s.meeting_id)}>{s.title}{s.at && ` @ ${s.at}`}</button>))}</div>}
+          <p className="text-xs text-muted">Answered by {answer.engine.startsWith("local/") ? "this PC" : answer.engine} from
+            {" "}{answer.context_chars.toLocaleString()} characters of matching passages.</p>
+        </div>
+      )}
+      {hits && (hits.length === 0 ? <p className="mt-3 text-sm text-muted">Nothing found.</p> : (
+        <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
+          {hits.map((h, i) => (
+            <li key={i}><button className="w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-paper-2/60" onClick={() => onOpen(h.meeting_id)}>
+              <span className="font-semibold">{h.title}</span> <span className="text-xs text-muted">{h.date}{h.at && ` @ ${h.at}`}
+                {h.speaker && ` · ${h.speaker}`}{h.kind !== "turn" && ` · ${h.kind}`}</span>
+              <span className="block text-muted">{highlight(h.snippet)}</span></button></li>))}
+        </ul>
+      ))}
+    </Card>
+  );
+}
+
+/** FTS snippets mark matches as **word**: show those parts bold (as React text, never as HTML). */
+function highlight(snippet: string) {
+  return snippet.split("**").map((part, i) => (i % 2 ? <b key={i}>{part}</b> : <span key={i}>{part}</span>));
+}
+
 export default function MeetingsView() {
   const { meetingEvt, run } = useLive();
   const [list, setList] = useState<MeetingList | null>(null);
@@ -323,6 +415,7 @@ export default function MeetingsView() {
       <PageHeader title="Meetings"
         subtitle="Hold KEY on PIP, pick Meeting, hold KEY again to record. Transcribed on this PC — nothing leaves it."
         actions={<ImportButton onDone={(id) => { setSel(id); load(); }} />} />
+      <AskCard onOpen={setSel} />
       <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
         <div className="space-y-5">
           <Card aria-label="All meetings" className="p-3">
@@ -337,6 +430,8 @@ export default function MeetingsView() {
                       <p className="text-xs text-muted">{when(m)} · <span className="tabular">{clock(m.duration_s)}</span></p>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <StatusBadge m={m} />
+                        {(m.summary_status === "QUEUED" || m.summary_status === "SUMMARIZING") &&
+                          <Badge><Loader2 size={11} className="animate-spin" aria-hidden />Summarising</Badge>}
                         {m.speaker_names.length > 0 && <span className="flex items-center gap-1 truncate text-xs text-muted">
                           <Users size={11} aria-hidden /> {m.speaker_names.join(", ")}</span>}
                       </div>
@@ -346,6 +441,8 @@ export default function MeetingsView() {
               </ul>
             )}
             {list && list.status.queued > 0 && <p className="mt-2 text-xs text-muted">{list.status.queued} waiting to be transcribed.</p>}
+            {list && list.status.summaries_queued > 0 && <p className="mt-1 text-xs text-muted">
+              {list.status.summaries_queued} summary(ies) on this PC in progress or waiting.</p>}
           </Card>
           <Card aria-label="Remembered voices" className="p-4">
             <CardTitle>Remembered voices</CardTitle>

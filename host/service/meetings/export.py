@@ -1,4 +1,4 @@
-"""Meeting transcript exports: Markdown, plain text, SubRip subtitles (.srt) and JSON."""
+"""Meeting transcript exports: Markdown (an Obsidian note), plain text, SubRip subtitles (.srt) and JSON."""
 from __future__ import annotations
 
 import json
@@ -46,7 +46,7 @@ def filename(meeting: dict[str, Any], ext: str) -> str:
     return f"{start.strftime('%Y-%m-%d_%H%M') + '_' if start else ''}{stem}.{ext}"
 
 
-def _turns(segments: list[dict[str, Any]], names: dict[str, str]) -> list[tuple[str, float, str]]:
+def speaker_turns(segments: list[dict[str, Any]], names: dict[str, str]) -> list[tuple[str, float, str]]:
     """Consecutive segments of one speaker joined into a turn: (name, start, text)."""
     turns: list[tuple[str, float, str]] = []
     for s in segments:
@@ -58,7 +58,8 @@ def _turns(segments: list[dict[str, Any]], names: dict[str, str]) -> list[tuple[
     return turns
 
 
-def render(meeting: dict[str, Any], segments: list[dict[str, Any]], fmt: str) -> str:
+def render(meeting: dict[str, Any], segments: list[dict[str, Any]], fmt: str,
+           vocabulary: list[str] | None = None) -> str:
     names = {sp["key"]: sp["name"] for sp in meeting.get("speakers", [])}
     summary = meeting.get("summary") or None
     if fmt == "json":
@@ -87,21 +88,9 @@ def render(meeting: dict[str, Any], segments: list[dict[str, Any]], fmt: str) ->
             lines += [f"Action: {a.get('task', '')}" + (f" ({a['owner']})" if a.get("owner") else "")
                       + (f" - due {a['due']}" if a.get("due") else "") for a in summary.get("action_items", [])]
             lines.append("")
-        lines += [f"[{clock(t)}] {name}: {text}" for name, t, text in _turns(segments, names)]
+        lines += [f"[{clock(t)}] {name}: {text}" for name, t, text in speaker_turns(segments, names)]
         return "\n".join(lines) + "\n"
-    # markdown
-    md = [f"# {meeting['title']}", "", f"**When:** {when(meeting)}  ", f"**Duration:** {dur}  ",
-          f"**Speakers:** {who}", ""]
-    if meeting.get("notes"):
-        md += ["## Notes", "", meeting["notes"], ""]
-    if summary:
-        md += ["## Summary", "", summary.get("summary", ""), ""]
-        if summary.get("decisions"):
-            md += ["### Decisions", "", *[f"- {d}" for d in summary["decisions"]], ""]
-        if summary.get("action_items"):
-            md += ["### Action items", "", *[f"- [ ] {a.get('task', '')}" + (f" — {a['owner']}" if a.get("owner") else "")
-                                              + (f" (due {a['due']})" if a.get("due") else "")
-                                              for a in summary["action_items"]], ""]
-    md += ["## Transcript", ""]
-    md += [f"**{name}** `{clock(t)}`  \n{text}\n" for name, t, text in _turns(segments, names)]
-    return "\n".join(md)
+    # markdown: the same Obsidian-ready note the vault gets (frontmatter, [[links]]), transcript inline
+    from .obsidian import render_note
+
+    return render_note(meeting, segments, vocabulary or [])

@@ -320,3 +320,41 @@ random picks from a library.
   still ping on time (hard times). Nothing is switched for the user.
 - **Also:** a task added while another is in progress now gets a toast "Added to today: ..." (it used to land
   silently); a spoken activity name heard without a pause ("Focus I want to...") wins over the brain-dump default.
+
+## ADR-031 — Meeting summaries on the PC (local AI), Obsidian vault, questions by retrieval
+- **Ask:** summaries made locally by default once a transcript is ready; meetings in Obsidian so notes link to each
+  other; easy, token-efficient questions and task harvesting across meetings; a clear answer to "what happens when a
+  transcription and a summary are due at the same time".
+- **Local AI = Ollama** (`meetings/local_ai.py`, default `qwen3:8b`, prefs `local_ai_model`, URL
+  `PIP_LOCAL_AI_URL`). Every call asks for JSON matching a schema (Ollama structured outputs, `think: false`,
+  `num_ctx` 8192), so a small model can't break the format. Tokens are metered as `local/<model>` at $0. The user
+  installs Ollama and clicks *Download model* in Settings (`POST /settings/local-ai/pull`); PIP never downloads by
+  itself. This is not planning: Kimi stays the only planner (ADR-013). A failed local summary is shown as failed,
+  never silently redone by Kimi; Kimi summaries/answers are per click (or the "Summarise with Kimi" setting).
+- **Map-reduce** (`meetings/summarize.py`): transcripts up to ~20k chars (~30 min) in one call; longer ones in
+  ~12k-char parts at speaker turns -> a few lines of notes each -> one merge call that reads only the notes. Keeps
+  every call inside an 8B model's context on an 8 GB GPU and makes the job pausable.
+- **Scheduling** (one worker thread, `MeetingService._run`): transcriptions always first; local summaries in their own
+  queue after them. Between two parts a summary yields (`Yielded`) when a transcription is queued or a voice command
+  is being heard/transcribed (`manager.overlay` LISTENING/TRANSCRIBING, bounded by the stuck-state watchdog; the
+  summary waits at most 5 min for it), keeping finished parts in memory. Only one big model holds memory at a time:
+  the meeting Whisper model is unloaded before a summary, the Ollama model (`keep_alive: 0`) before a transcription.
+  A host restart re-queues summaries that were QUEUED/SUMMARIZING (parts are redone). Kimi summaries are remote and
+  run at once.
+- **Obsidian** (`meetings/obsidian.py`, prefs `obsidian_vault` / `obsidian_folder`): per meeting a small note
+  (frontmatter: date, attendees, topics, open_actions, transcript, pip_id; `[[people]]` only for named speakers,
+  `[[YYYY-MM-DD]]` daily note, topics from the summary + the user's vocabulary) and a separate transcript note;
+  plus `Meetings index.md`, `Action items.md`, `_About these notes.md`. A note is written once its summary is
+  settled (so it is born with its final title), rewritten on any change, renamed with the meeting if the new name
+  is free. Text under the `%% PIP ... %%` marker and ticked checkboxes are preserved; ticks flow back as
+  `action_items[].done`. Deleting a meeting leaves its note (it may hold the user's writing). The Markdown download
+  is the same note with the transcript inline.
+- **Questions** (`meetings/ask.py`): SQLite FTS5 (`meeting_fts`, migration 007: one row per speaker turn + summary
+  parts, porter stemming, bm25 with summary parts weighted 1.6x) finds passages; no hit -> answer without any model
+  call; else the hits +- one turn, grouped per meeting with its summary, capped at 6,000 chars, go to one call that
+  cites `[Meeting @ mm:ss]`. Local by default, Kimi on request. `GET /meetings/search` (no AI), `POST
+  /meetings/ask`, `GET /meetings/actions`; park-actions parks each action item once (`parked`).
+- **Outside AI tools:** for deep cross-meeting analysis (trends, "what did we promise the client across November",
+  harvesting tasks) point an assistant such as Claude Code at the vault folder: index -> notes -> transcripts only
+  when needed. Next step if this is used a lot: a small MCP server over `/meetings/search`, `/meetings/actions` and
+  park-actions so assistants query the index instead of reading files, and create tasks through PIP.

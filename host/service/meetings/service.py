@@ -7,7 +7,16 @@ already received; chunks lost to a link drop are filled with silence (the timeli
 Transcription runs on this PC in a background thread with its own faster-whisper instance (voice commands
 never wait behind a long meeting): 10-minute windows cut at quiet moments -> timed segments -> voice features
 -> speakers (diarize.py) -> remembered voices name the speakers they recognise; the rest are "Speaker 01..."
-until the user names them in the app."""
+until the user names them in the app.
+
+Then, by default, the summary is made on this PC too (local AI, summarize.py) and the meeting is written to the
+Obsidian vault (obsidian.py). One worker thread runs both kinds of job, so they never compete for the GPU/CPU:
+  - transcriptions always go first; a summary waits until no transcription is queued, and between two parts of a
+    long meeting it steps aside (keeping the parts already done) when a new transcription arrives;
+  - a voice command being captured or transcribed (Whisper on the same GPU) pauses summaries the same way;
+  - the meeting's Whisper model is unloaded before a summary and the local AI model before a transcription, so
+    only one big model holds memory at a time.
+Kimi summaries (on request) are remote and run at once."""
 from __future__ import annotations
 
 import json
@@ -28,9 +37,14 @@ from .. import errors
 from ..calendar.agenda import day_items
 from ..speech.stt import SpeechToText
 from ..state.manager import DeviceStateManager
+from . import ask as ask_mod
 from . import diarize
 from .export import FORMATS, filename, render
+from .local_ai import LocalAI, LocalAIError
+from .obsidian import ObsidianVault
 from .store import MeetingRepo, speaker_label
+from .summarize import Yielded, clean
+from .summarize import summarize as summarize_local
 
 log = logging.getLogger("pip.meetings")
 SR = 16000
@@ -39,6 +53,9 @@ WINDOW_S = 600.0                # transcribe in 10 minute windows...
 CUT_SEARCH_S = 30.0             # ...cut at the quietest moment of the window's last 30 s
 STALE_RECORDING_S = 180.0       # no audio for this long: the device is gone, keep what we have
 MAX_GAP_CHUNKS = 30000          # a seq jump larger than this (10 min) is a restart, not lost audio
+VOICE_WAIT_S = 300.0            # a summary waits at most this long for a voice command to finish
+IDLE_EXIT_S = 30.0              # the worker frees Whisper and exits after this long with nothing to do
+SUMMARY_MODES = ("local", "kimi", "off")
 Notify = Callable[[str, dict[str, Any]], None]
 
 
@@ -136,18 +153,34 @@ def finalize_wav(path: Path) -> float:
 
 class MeetingService:
     def __init__(self, manager: DeviceStateManager, data_dir: Path, model_name: str, notify: Notify,
-                 summarizer: Callable[[], Any] | None = None, stt: SpeechToText | None = None) -> None:
+                 summarizer: Callable[[], Any] | None = None, stt: SpeechToText | None = None,
+                 local_ai: LocalAI | None = None, summary_mode: Callable[[], str] = lambda: "off",
+                 vault: Callable[[], ObsidianVault | None] = lambda: None,
+                 vocabulary: Callable[[], list[str]] | None = None,
+                 voice_busy: Callable[[], bool] = lambda: False) -> None:
         self.m = manager
         self.repo = MeetingRepo(manager.db)
         self.dir = data_dir / "meetings"
         self.stt = stt or SpeechToText(model_name)
         self.notify = notify
-        self.summarizer = summarizer  # -> a planner with summarize_meeting(text, meta) (Kimi, budget-checked)
+        self.summarizer = summarizer  # -> a planner with summarize_meeting(text) (Kimi, budget-checked)
+        self.local_ai = local_ai      # Ollama on this PC: the default summariser
+        self.summary_mode = summary_mode  # "local" (default in the app) | "kimi" | "off": after each transcription
+        self.vault = vault            # the Obsidian vault to write meetings into, or None
+        self.vocabulary = vocabulary or (lambda: list(getattr(self.stt, "vocabulary", [])))
+        self.voice_busy = voice_busy  # a voice command is being captured / transcribed right now
         self._rec: dict[int, _Recording] = {}
-        self._q: queue.Queue[tuple[str, int | None]] = queue.Queue()
+        self._q: queue.Queue[tuple[str, int | None]] = queue.Queue()  # transcriptions (always first)
+        self._sq: list[str] = []      # local summaries waiting for the transcriptions to finish
+        self._partial: dict[str, dict[int, dict[str, Any]]] = {}  # parts of long meetings already summarised
+        self._sum_progress: dict[str, tuple[int, int]] = {}
+        self._wake = threading.Event()
         self._worker: threading.Thread | None = None
         self._busy = ""
+        self._busy_kind = ""
+        self._llm_warm = False        # the local AI model may still be in (V)RAM
         self._lock = threading.RLock()
+        self._vault_lock = threading.Lock()
 
     # ---- recording (device link thread) -------------------------------------------------------------
     def default_title(self, start: datetime) -> str:
@@ -238,6 +271,15 @@ class MeetingService:
                              ended_at=utc_iso(start + timedelta(seconds=dur)))
         for m in self.repo.with_status("QUEUED", "TRANSCRIBING"):
             self.enqueue(m["id"])
+        for m in self.repo.with_status("READY"):
+            if m.get("summary_status") in ("QUEUED", "SUMMARIZING"):  # interrupted by a restart: do it again
+                if self.summary_mode() == "local" and self.local_ai is not None:
+                    self.enqueue_summary(m["id"])
+                else:
+                    self.repo.update(m["id"], summary_status="NONE")
+        if self.repo.index_is_empty():  # meetings from before search existed
+            for m in self.repo.with_status("READY"):
+                self.repo.reindex(m["id"])
 
     # ---- import ---------------------------------------------------------------------------------------
     def import_audio(self, src: Path, title: str, started: datetime | None = None) -> str:
@@ -260,37 +302,144 @@ class MeetingService:
     # ---- transcription worker -------------------------------------------------------------------------
     def enqueue(self, mid: str, num_speakers: int | None = None) -> None:
         self._q.put((mid, num_speakers))
+        self._kick()
+
+    def enqueue_summary(self, mid: str) -> None:
+        """Summarise on this PC once no transcription is waiting (re-queuing a queued meeting is a no-op)."""
         with self._lock:
+            if mid not in self._sq:
+                self._sq.append(mid)
+        self.repo.update(mid, summary_status="QUEUED", summary_error=None)
+        self.notify("meeting_updated", {"id": mid, "status": "READY", "summary_status": "QUEUED"})
+        self._kick()
+
+    def _kick(self) -> None:
+        with self._lock:
+            self._wake.set()
             if self._worker is None or not self._worker.is_alive():
                 self._worker = threading.Thread(target=self._run, name="pip-meetings", daemon=True)
                 self._worker.start()
 
     def wait_idle(self, timeout: float = 600.0) -> bool:
-        """Tests: block until the queue is processed."""
+        """Tests: block until every transcription and summary is processed."""
         end = time.monotonic() + timeout
         while time.monotonic() < end:
-            if self._q.unfinished_tasks == 0:
-                return True
+            with self._lock:
+                if self._q.unfinished_tasks == 0 and not self._sq and not self._busy:
+                    return True
             time.sleep(0.05)
         return False
 
     def _run(self) -> None:
         while True:
             try:
-                mid, n = self._q.get(timeout=30)
+                mid, n = self._q.get_nowait()
             except queue.Empty:
-                self.stt.unload()  # give the memory back until the next meeting
-                return
-            try:
-                self._busy = mid
-                self.transcribe(mid, n)
-            except Exception as e:
-                errors.report(self.m.db, "meetings", "Meeting transcription failed", str(e), e, meeting=mid)
-                self.repo.update(mid, status="FAILED", error=str(e)[:300])
-                self.notify("meeting_updated", {"id": mid, "status": "FAILED"})
-            finally:
-                self._busy = ""
-                self._q.task_done()
+                mid = ""
+            if mid:
+                self._run_transcription(mid, n)
+                continue
+            with self._lock:
+                smid = self._sq[0] if self._sq else ""
+            if smid:
+                self._run_summary(smid)
+                continue
+            if not self._wake.wait(IDLE_EXIT_S):
+                with self._lock:
+                    if self._q.empty() and not self._sq:
+                        self.stt.unload()  # give the memory back until the next meeting
+                        self._worker = None
+                        return
+            self._wake.clear()
+
+    def _run_transcription(self, mid: str, n: int | None) -> None:
+        try:
+            self._busy, self._busy_kind = mid, "transcribe"
+            if self._llm_warm and self.local_ai is not None:
+                self.local_ai.unload()  # Whisper gets the GPU memory the summariser held
+                self._llm_warm = False
+            self.transcribe(mid, n)
+        except Exception as e:
+            errors.report(self.m.db, "meetings", "Meeting transcription failed", str(e), e, meeting=mid)
+            self.repo.update(mid, status="FAILED", error=str(e)[:300])
+            self.notify("meeting_updated", {"id": mid, "status": "FAILED"})
+        finally:
+            self._busy = self._busy_kind = ""
+            self._q.task_done()
+
+    def _run_summary(self, mid: str) -> None:
+        """One local summary job. Leaves it queued (Yielded) when a transcription or a voice command needs the
+        machine; the parts already summarised are kept in `_partial`."""
+        waited = 0.0
+        while self.voice_busy() and self._q.empty() and waited < VOICE_WAIT_S:
+            time.sleep(0.25)
+            waited += 0.25
+        if not self._q.empty():
+            return  # transcription first; this summary stays at the head of its queue
+        patient = waited < VOICE_WAIT_S  # a voice capture that never ends must not stall summaries forever
+
+        def done() -> None:
+            with self._lock:
+                if mid in self._sq:
+                    self._sq.remove(mid)
+            self._partial.pop(mid, None)
+            self._sum_progress.pop(mid, None)
+
+        m = self.repo.get(mid)
+        if m is None or m["status"] != "READY" or self.local_ai is None:
+            if m is not None and m["status"] == "READY":
+                self.repo.update(mid, summary_status="FAILED", summary_error="local AI is not set up")
+                self.notify("meeting_updated", {"id": mid, "status": "READY", "summary_status": "FAILED"})
+            done()
+            return
+        self._busy, self._busy_kind = mid, "summarize"
+        try:  # the job leaves the queue only once its result is stored (wait_idle / status stay truthful)
+            self._summary_job(mid, m, patient)
+        except Yielded:
+            log.info("meeting %s: summary paused after %d part(s) for more urgent work", mid,
+                     len(self._partial.get(mid, {})))
+            self.repo.update(mid, summary_status="QUEUED")
+            self.notify("meeting_updated", {"id": mid, "status": "READY", "summary_status": "QUEUED"})
+            return
+        except Exception as e:
+            if isinstance(e, LocalAIError):
+                log.warning("meeting %s: local summary failed: %s", mid, e)
+            else:
+                errors.report(self.m.db, "meetings", "Meeting summary failed", str(e), e, meeting=mid)
+            self.repo.update(mid, summary_status="FAILED", summary_error=str(e)[:300])
+            self.notify("meeting_updated", {"id": mid, "status": "READY", "summary_status": "FAILED"})
+            self.touched(mid)  # the vault still gets the meeting, without a summary
+            done()
+            return
+        finally:
+            self._busy = self._busy_kind = ""
+        done()
+
+    def _summary_job(self, mid: str, m: dict[str, Any], patient: bool) -> None:
+        assert self.local_ai is not None
+        self.local_ai.check_ready()
+        self.stt.unload()  # the meeting Whisper model is reloaded for the next transcription
+        self.repo.update(mid, summary_status="SUMMARIZING", summary_error=None)
+        self.notify("meeting_updated", {"id": mid, "status": "READY", "summary_status": "SUMMARIZING"})
+
+        def progress(i: int, n: int) -> None:
+            self._sum_progress[mid] = (i, n)
+            self.notify("meeting_updated", {"id": mid, "status": "READY", "summary_status": "SUMMARIZING",
+                                            "summary_part": i, "summary_parts": n})
+
+        self._llm_warm = True
+        data = summarize_local(self.local_ai, m, self.repo.segments(mid), self._context(m),
+                               notes=self._partial.setdefault(mid, {}),
+                               should_yield=lambda: not self._q.empty() or (patient and self.voice_busy()),
+                               on_progress=progress)
+        self._save_summary(mid, data, self.local_ai.engine)
+        log.info("meeting %s summarised on this PC (%s)", mid, self.local_ai.engine)
+
+    def _context(self, m: dict[str, Any]) -> str:
+        people = [sp["name"] for sp in m.get("speakers", [])]
+        words = self.vocabulary()
+        return "\n".join(x for x in (f"Speakers: {', '.join(people)}" if people else "",
+                                     f"Words the user uses (spellings): {', '.join(words)}" if words else "") if x)
 
     def _read(self, path: Path, start_s: float, end_s: float) -> np.ndarray:
         a, b = int(start_s * SR), int(end_s * SR)
@@ -343,9 +492,28 @@ class MeetingService:
                                  "embedding": [round(float(x), 5) for x in feats] if feats is not None else None})
             pos = end
         self._assign_speakers(mid, segments, num_speakers)
+        self._partial.pop(mid, None)  # a new transcript: parts summarised from an old one are stale
         self.repo.update(mid, status="READY", progress=1.0, duration_s=round(total, 2))
         log.info("meeting %s transcribed: %d segments", mid, len(segments))
         self.notify("meeting_updated", {"id": mid, "status": "READY", "progress": 1.0})
+        self._auto_summary(mid)
+        self.touched(mid)
+
+    def _auto_summary(self, mid: str) -> None:
+        """After a transcription: summarise as Settings say - on this PC (default), with Kimi, or not at all."""
+        mode = self.summary_mode()
+        if mode == "local" and self.local_ai is not None:
+            self.enqueue_summary(mid)
+        elif mode == "kimi" and self.summarizer is not None:
+            def run() -> None:
+                try:
+                    self.summarize(mid, "kimi")
+                except Exception as e:  # shown on the meeting; the transcript is fine
+                    self.repo.update(mid, summary_status="FAILED", summary_error=str(e)[:300])
+                    self.notify("meeting_updated", {"id": mid, "status": "READY", "summary_status": "FAILED"})
+                    self.touched(mid)
+            self.repo.update(mid, summary_status="QUEUED", summary_error=None)
+            threading.Thread(target=run, name="pip-meeting-kimi", daemon=True).start()
 
     def _assign_speakers(self, mid: str, segments: list[dict[str, Any]], num_speakers: int | None) -> None:
         feats = [np.array(s["embedding"]) if s.get("embedding") else None for s in segments]
@@ -366,6 +534,7 @@ class MeetingService:
             raise ValueError("this meeting has no transcript yet")
         self._assign_speakers(mid, segs, num_speakers)
         self.notify("meeting_updated", {"id": mid, "status": "READY"})
+        self.touched(mid)
 
     # ---- review ---------------------------------------------------------------------------------------------
     def speaker_centroid(self, mid: str, key: str) -> tuple[list[float], int] | None:
@@ -389,25 +558,141 @@ class MeetingService:
         if not self.repo.rename_speaker(mid, key, name, profile_id):
             raise KeyError(key)
         self.notify("meeting_updated", {"id": mid, "status": "READY"})
+        self.touched(mid)
         return {"key": key, "name": name, "profile_id": profile_id}
 
-    def summarize(self, mid: str) -> dict[str, Any]:
+    def summarize(self, mid: str, engine: str = "local") -> dict[str, Any]:
+        """engine "local": queue it for the worker (returns at once); "kimi": ask Kimi now (returns the summary)."""
         m = self.repo.get(mid)
         if m is None:
             raise KeyError(mid)
+        if not self.repo.segments(mid):
+            raise ValueError("this meeting has no transcript yet")
+        if engine == "local":
+            if self.local_ai is None:
+                raise RuntimeError("local AI is not set up")
+            self.enqueue_summary(mid)
+            return {"queued": True, "summary_status": "QUEUED"}
         if self.summarizer is None:
             raise RuntimeError("no AI configured")
-        segs = self.repo.segments(mid)
-        if not segs:
-            raise ValueError("this meeting has no transcript yet")
-        text = render({**m, "summary": None, "notes": ""}, segs, "txt")
-        summary = self.summarizer().summarize_meeting(text[-120_000:])
+        planner = self.summarizer()
+        text = render({**m, "summary": None, "notes": ""}, self.repo.segments(mid), "txt")
+        self.repo.update(mid, summary_status="SUMMARIZING", summary_error=None)
+        self.notify("meeting_updated", {"id": mid, "status": m["status"], "summary_status": "SUMMARIZING"})
+        try:
+            summary = planner.summarize_meeting(text[-120_000:])
+        except Exception as e:
+            self.repo.update(mid, summary_status="FAILED", summary_error=str(e)[:300])
+            self.notify("meeting_updated", {"id": mid, "status": m["status"], "summary_status": "FAILED"})
+            raise
         data = summary.model_dump() if hasattr(summary, "model_dump") else dict(summary)
-        self.repo.update(mid, summary_json=json.dumps(data))
+        return self._save_summary(mid, clean(data, m["title"]), str(getattr(planner, "model", "kimi")))
+
+    def _save_summary(self, mid: str, data: dict[str, Any], engine: str) -> dict[str, Any]:
+        m = self.repo.get(mid)
+        if m is None:
+            return data
+        old = {a["task"].strip().lower(): a for a in (m.get("summary") or {}).get("action_items") or []}
+        for a in data.get("action_items") or []:  # a redone summary keeps what was ticked or parked
+            prev = old.get(a["task"].strip().lower())
+            if prev:
+                a["done"], a["parked"] = bool(prev.get("done")), bool(prev.get("parked"))
+        self.repo.update(mid, summary_json=json.dumps(data), summary_status="READY", summary_engine=engine,
+                         summary_error=None)
         if data.get("title") and m["title"].startswith("Meeting · "):
             self.repo.update(mid, title=str(data["title"])[:80])
-        self.notify("meeting_updated", {"id": mid, "status": m["status"]})
+        self.notify("meeting_updated", {"id": mid, "status": m["status"], "summary_status": "READY"})
+        self.touched(mid)
         return data
+
+    # ---- search index + Obsidian vault ------------------------------------------------------------------
+    def touched(self, mid: str) -> None:
+        """A meeting's transcript, speakers, title, notes or summary changed: refresh search and its vault note."""
+        try:
+            self.repo.reindex(mid)
+        except Exception as e:
+            errors.report(self.m.db, "meetings", "Search index update failed", str(e), e, meeting=mid)
+        self.sync_vault(mid)
+
+    def sync_vault(self, mid: str, overview: bool = True) -> str | None:
+        """Write the meeting into the Obsidian vault (if one is set). Waits while its summary is still coming, so
+        the note is born with its final title. Never raises: the vault is a copy, not the source of truth."""
+        vault = self.vault()
+        if vault is None:
+            return None
+        m = self.repo.get(mid)
+        if m is None or m["status"] != "READY" or m.get("summary_status") in ("QUEUED", "SUMMARIZING"):
+            return None
+        try:
+            with self._vault_lock:
+                rel, ticked = vault.write_meeting(m, self.repo.segments(mid), self.vocabulary())
+                updates: dict[str, Any] = {}
+                if rel != m.get("vault_note"):
+                    updates["vault_note"] = rel
+                summary = m.get("summary")
+                if summary and ticked:  # ticked in Obsidian -> done in PIP
+                    updates["summary_json"] = json.dumps(summary)
+                if updates:
+                    self.repo.update(mid, **updates)
+                if overview:
+                    vault.write_overview(self.repo.all_with_summaries(), datetime.now(self.m.tz))
+            return rel
+        except Exception as e:
+            errors.report(self.m.db, "meetings", "Writing the meeting to Obsidian failed", str(e), e, meeting=mid)
+            return None
+
+    def sync_vault_all(self) -> int:
+        """Write every finished meeting (after the vault is chosen in Settings). Returns how many were written."""
+        vault = self.vault()
+        if vault is None:
+            return 0
+        n = sum(1 for m in self.repo.with_status("READY") if self.sync_vault(m["id"], overview=False))
+        try:
+            with self._vault_lock:
+                vault.write_overview(self.repo.all_with_summaries(), datetime.now(self.m.tz))
+        except Exception as e:
+            errors.report(self.m.db, "meetings", "Writing the Obsidian index failed", str(e), e)
+        return n
+
+    # ---- questions + action items -----------------------------------------------------------------------
+    def search(self, q: str, meeting_id: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        return ask_mod.search(self.repo, q, limit, meeting_id)
+
+    def ask(self, question: str, engine: str = "local", meeting_id: str | None = None) -> dict[str, Any]:
+        """Answer from the passages that match (see ask.py). Local AI by default; Kimi when asked."""
+        if engine == "kimi":
+            if self.summarizer is None:
+                raise RuntimeError("no AI configured")
+            planner = self.summarizer()
+            out = ask_mod.ask(self.repo, lambda sys, user: planner.chat_text(sys, user, "meeting_question"),
+                              question, meeting_id)
+            out["engine"] = str(getattr(planner, "model", "kimi"))
+            return out
+        if self.local_ai is None:
+            raise RuntimeError("local AI is not set up")
+        local = self.local_ai
+        out = ask_mod.ask(self.repo, lambda sys, user: local.chat_text(sys, user, "meeting_question"), question,
+                          meeting_id)
+        out["engine"] = local.engine
+        return out
+
+    def action_items(self) -> list[dict[str, Any]]:
+        """Every action item of every meeting (open first, newest meeting first)."""
+        out = []
+        for m in self.repo.all_with_summaries():
+            for i, a in enumerate((m.get("summary") or {}).get("action_items") or []):
+                out.append({**a, "index": i, "meeting_id": m["id"], "meeting": m["title"],
+                            "started_at": m["started_at"]})
+        return sorted(out, key=lambda a: bool(a.get("done")))
+
+    def mark_parked(self, mid: str, indexes: list[int]) -> None:
+        m = self.repo.get(mid)
+        if m is None or not m.get("summary"):
+            return
+        for i in indexes:
+            m["summary"]["action_items"][i]["parked"] = True
+        self.repo.update(mid, summary_json=json.dumps(m["summary"]))
+        self.touched(mid)
 
     def export(self, mid: str, fmt: str) -> tuple[str, str, str]:
         if fmt not in FORMATS:
@@ -415,20 +700,32 @@ class MeetingService:
         m = self.repo.get(mid)
         if m is None:
             raise KeyError(mid)
-        return render(m, self.repo.segments(mid), fmt), FORMATS[fmt], filename(m, fmt)
+        return render(m, self.repo.segments(mid), fmt, self.vocabulary()), FORMATS[fmt], filename(m, fmt)
 
     def delete(self, mid: str) -> bool:
         m = self.repo.get(mid)
         if m is None or any(r.mid == mid for r in self._rec.values()):
             return False
         self.repo.delete(mid)
+        with self._lock:
+            if mid in self._sq:
+                self._sq.remove(mid)
         try:
             Path(m["audio_path"]).unlink(missing_ok=True)
         except OSError:
             log.warning("could not delete %s", m["audio_path"])
+        vault = self.vault()
+        if vault is not None:  # its note stays in the vault (it may hold the user's own notes); the index drops it
+            try:
+                with self._vault_lock:
+                    vault.write_overview(self.repo.all_with_summaries(), datetime.now(self.m.tz))
+            except Exception as e:
+                errors.report(self.m.db, "meetings", "Writing the Obsidian index failed", str(e), e)
         self.notify("meeting_updated", {"id": mid, "status": "DELETED"})
         return True
 
     def status(self) -> dict[str, Any]:
-        return {"stt": self.stt.status, "busy": self._busy, "queued": self._q.qsize(),
+        return {"stt": self.stt.status, "busy": self._busy, "busy_kind": self._busy_kind, "queued": self._q.qsize(),
+                "summaries_queued": len(self._sq), "summary_mode": self.summary_mode(),
+                "summary_progress": {k: {"part": v[0], "parts": v[1]} for k, v in self._sum_progress.items()},
                 "recording": [{"id": r.mid, "recorded_s": round(r.bytes / (SR * 2), 1)} for r in self._rec.values()]}

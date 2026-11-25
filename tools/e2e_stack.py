@@ -13,6 +13,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tests.support.fake_kimi import FakeKimi  # noqa: E402
+from tests.support.fake_ollama import FakeOllama
 
 ROOT = Path(__file__).resolve().parents[1]
 SIM = ROOT / "build/host" / ("sim_rlcd.exe" if sys.platform == "win32" else "sim_rlcd")
@@ -34,6 +35,7 @@ class Stack:
         self.svc: subprocess.Popen[bytes] | None = None
         self.http = httpx.Client(base_url=self.base, timeout=10)
         self.kimi = FakeKimi()  # test double for the Moonshot API (tests/support/fake_kimi.py)
+        self.ollama = FakeOllama()  # test double for the local AI (tests/support/fake_ollama.py)
 
     def start_sim(self, offline_events: str | None = None) -> None:
         args = [str(SIM), "--tcp", f"127.0.0.1:{self.sim_port}"]
@@ -52,7 +54,7 @@ class Stack:
         self.start_sim()
         env = dict(os.environ, PIP_DB_PATH=str(Path(self.tmp) / "e2e.db"), PIP_TRANSPORT="sim",
                    PIP_SIM_ADDR=f"127.0.0.1:{self.sim_port}", PIP_HOST_PORT=str(self.port), MOONSHOT_API_KEY="test-key",
-                   MOONSHOT_BASE_URL=self.kimi.base_url, PIP_WEATHER="0",
+                   MOONSHOT_BASE_URL=self.kimi.base_url, PIP_LOCAL_AI_URL=self.ollama.url, PIP_WEATHER="0",
                    PIP_USE_KEYRING="0", PIP_STT_PRELOAD="0",
                    PIP_PREFS_PATH=str(Path(self.tmp) / "prefs.json"),
                    PYTHONPATH=str(ROOT / "host"))

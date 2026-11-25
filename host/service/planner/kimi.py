@@ -95,7 +95,8 @@ JSON schema: {schema}"""
 MEETING_PROMPT = """You read meeting transcripts for an ADHD-friendly assistant. Reply with ONE JSON object only:
 {"title": "<what the meeting was about, max 60 chars>", "summary": "<3-6 plain sentences: purpose, what was
 discussed, outcome>", "decisions": ["<each decision made>"], "action_items": [{"task": "<concrete next action>",
-"owner": "<speaker name if said, else null>", "due": "<deadline if said, else null>"}]}
+"owner": "<speaker name if said, else null>", "due": "<deadline if said, else null>"}],
+"topics": ["<2-6 short noun phrases naming the subjects discussed, not people>"]}
 Use the speaker names from the transcript. Only include decisions and action items that were actually said.
 No markdown, no emojis."""
 
@@ -184,6 +185,20 @@ class KimiPlanner:
             raise PlannerError(f"Kimi HTTP {r.status_code} {detail}".strip())
         try:
             return str(r.json()["choices"][0]["message"]["content"])
+        except (KeyError, IndexError, ValueError) as e:
+            raise PlannerError("Kimi response missing content") from e
+
+    def chat_text(self, system: str, user: str, purpose: str, max_out: int = 700) -> str:
+        """A plain-text answer (questions about meetings). `max_out` is unused: Kimi sizes its own answer."""
+        try:
+            r = self._post([{"role": "system", "content": system}, {"role": "user", "content": user}], purpose,
+                           json_mode=False)
+        except httpx.HTTPError as e:
+            raise PlannerError(f"Kimi unreachable: {type(e).__name__}") from e
+        if r.status_code >= 400:
+            raise PlannerError(f"Kimi HTTP {r.status_code}")
+        try:
+            return str(r.json()["choices"][0]["message"]["content"]).strip()
         except (KeyError, IndexError, ValueError) as e:
             raise PlannerError("Kimi response missing content") from e
 

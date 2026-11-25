@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from ..storage.db import Database, new_id, utcnow
+from .export import speaker_turns
 
 
 def speaker_label(n: int) -> str:
@@ -27,7 +28,7 @@ class MeetingRepo:
 
     def update(self, mid: str, **fields: Any) -> bool:
         allowed = {"title", "ended_at", "duration_s", "status", "progress", "error", "notes", "summary_json", "gaps_s",
-                   "audio_path"}
+                   "audio_path", "summary_status", "summary_engine", "summary_error", "vault_note"}
         cols = {k: v for k, v in fields.items() if k in allowed}
         if not cols:
             return False
@@ -66,7 +67,59 @@ class MeetingRepo:
 
     def delete(self, mid: str) -> bool:
         with self.db.tx() as c:
+            c.execute("DELETE FROM meeting_fts WHERE meeting_id=?", (mid,))
             return c.execute("DELETE FROM meetings WHERE id=?", (mid,)).rowcount == 1
+
+    def all_with_summaries(self) -> list[dict[str, Any]]:
+        """Every meeting, newest first, with its summary and speakers (the Obsidian index, action items)."""
+        out = []
+        for r in self.db.query("SELECT * FROM meetings ORDER BY started_at DESC"):
+            m = dict(r)
+            m["summary"] = json.loads(m.pop("summary_json") or "null")
+            m["speakers"] = self.speakers(m["id"])
+            out.append(m)
+        return out
+
+    # ---- full-text search (FTS5: one row per speaker turn + the summary's parts) --------------------
+    def reindex(self, mid: str) -> None:
+        m = self.get(mid)
+        if m is None:
+            return
+        names = {sp["key"]: sp["name"] for sp in m["speakers"]}
+        rows: list[tuple[str, float, str, str]] = [("title", 0.0, "", m["title"])]
+        summary = m.get("summary") or {}
+        if summary.get("summary"):
+            rows.append(("summary", 0.0, "", summary["summary"]))
+        rows += [("decision", 0.0, "", d) for d in summary.get("decisions") or []]
+        for a in summary.get("action_items") or []:
+            rows.append(("action", 0.0, a.get("owner") or "", a["task"] + (f" (due {a['due']})" if a.get("due") else "")))
+        if summary.get("topics"):
+            rows.append(("topics", 0.0, "", ", ".join(summary["topics"])))
+        if m.get("notes"):
+            rows.append(("notes", 0.0, "", m["notes"]))
+        rows += [("turn", t, name, text) for name, t, text in speaker_turns(self.segments(mid), names)]
+        with self.db.tx() as c:
+            c.execute("DELETE FROM meeting_fts WHERE meeting_id=?", (mid,))
+            for kind, t, who, text in rows:
+                c.execute("INSERT INTO meeting_fts(meeting_id,kind,start_s,speaker,text) VALUES (?,?,?,?,?)",
+                          (mid, kind, round(t, 2), who, text))
+
+    def index_is_empty(self) -> bool:
+        r = self.db.one("SELECT COUNT(*) FROM meeting_fts")
+        return not r or int(r[0]) == 0
+
+    def search(self, match: str, limit: int = 20, meeting_id: str | None = None) -> list[dict[str, Any]]:
+        """FTS5 query `match` -> best hits first (summary parts weigh more than a single line of talk)."""
+        where = "meeting_fts MATCH ?" + (" AND meeting_fts.meeting_id = ?" if meeting_id else "")
+        args: tuple[Any, ...] = (match, meeting_id, limit) if meeting_id else (match, limit)
+        rows = self.db.query(
+            "SELECT meeting_fts.meeting_id AS meeting_id, meeting_fts.kind AS kind, meeting_fts.start_s AS start_s, "
+            "meeting_fts.speaker AS speaker, meeting_fts.text AS text, "
+            "snippet(meeting_fts, 4, '**', '**', '…', 24) AS snippet, m.title AS title, m.started_at AS started_at, "
+            "m.timezone AS timezone, bm25(meeting_fts) * (CASE meeting_fts.kind WHEN 'turn' THEN 1.0 ELSE 1.6 END) AS score "
+            f"FROM meeting_fts JOIN meetings m ON m.id = meeting_fts.meeting_id WHERE {where} "  # noqa: S608 - fixed text
+            "ORDER BY score LIMIT ?", args)
+        return [dict(r) for r in rows]
 
     # ---- transcript -------------------------------------------------------------------------
     def replace_transcript(self, mid: str, segments: list[dict[str, Any]], speakers: list[dict[str, Any]]) -> None:

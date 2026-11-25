@@ -23,21 +23,39 @@ export interface Parked {
 export type MeetingStatus = "RECORDING" | "QUEUED" | "TRANSCRIBING" | "READY" | "FAILED";
 export interface Speaker { key: string; name: string; profile_id: string | null; auto: boolean; segments: number; talk_s: number }
 export interface Segment { id: number; idx: number; start_s: number; end_s: number; text: string; speaker_key: string }
-export interface MeetingSummary {
-  title: string; summary: string; decisions: string[];
-  action_items: { task: string; owner: string | null; due: string | null }[];
-}
+export interface ActionItem { task: string; owner: string | null; due: string | null; done?: boolean; parked?: boolean }
+export interface MeetingSummary { title: string; summary: string; decisions: string[]; action_items: ActionItem[]; topics?: string[] }
+export type SummaryStatus = "NONE" | "QUEUED" | "SUMMARIZING" | "READY" | "FAILED";
 export interface Meeting {
   id: string; title: string; started_at: string; ended_at: string | null; duration_s: number; timezone: string;
   status: MeetingStatus; source: "DEVICE" | "IMPORT"; progress: number; error: string | null; notes: string | null;
-  gaps_s: number;
+  gaps_s: number; summary_status: SummaryStatus; summary_engine: string | null; summary_error: string | null;
+  vault_note: string | null;
 }
 export interface MeetingListItem extends Meeting { has_summary: boolean; speaker_names: string[]; segment_count: number }
 export interface MeetingList {
   meetings: MeetingListItem[];
-  status: { stt: string; busy: string; queued: number; recording: { id: string; recorded_s: number }[] };
+  status: {
+    stt: string; busy: string; busy_kind: string; queued: number; summaries_queued: number; summary_mode: string;
+    summary_progress: Record<string, { part: number; parts: number }>; recording: { id: string; recorded_s: number }[];
+  };
 }
 export interface MeetingDetail extends Meeting { speakers: Speaker[]; segments: Segment[]; summary: MeetingSummary | null }
+export interface MeetingHit {
+  meeting_id: string; kind: string; start_s: number; speaker: string; text: string; snippet: string; title: string;
+  date: string; at: string;
+}
+export interface MeetingAnswer {
+  answer: string; engine: string; context_chars: number;
+  sources: { meeting_id: string; title: string; date: string; kind: string; start_s: number | null; at: string }[];
+}
+export interface MeetingActionRow extends ActionItem { index: number; meeting_id: string; meeting: string; started_at: string }
+export interface MeetingSettings {
+  summary_mode: "local" | "kimi" | "off"; summary_modes: string[];
+  local_ai: { running: boolean; url: string; model: string; model_ready: boolean; models: string[]; detail: string;
+    pull: { active: boolean; model: string; status: string; error: string } };
+  obsidian: { vault: string; folder: string; enabled: boolean; detected: string[] };
+}
 export interface VoiceProfile { id: string; name: string; samples: number; updated_at: string }
 export interface Reminder { id: string; title: string; due_utc: string; timezone: string; done: number }
 

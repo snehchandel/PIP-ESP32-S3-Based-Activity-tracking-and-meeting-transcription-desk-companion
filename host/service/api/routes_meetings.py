@@ -1,8 +1,10 @@
-"""REST: meeting recordings - list, transcript review (speakers, lines), summary, exports, audio, voices."""
+"""REST: meeting recordings - list, transcript review (speakers, lines), summary (on this PC or Kimi), search and
+questions across meetings, action items, Obsidian vault, exports, audio, voices; Settings -> Meetings."""
 from __future__ import annotations
 
 import asyncio
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,9 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from ..meetings.local_ai import LocalAIError
+from ..meetings.obsidian import DEFAULT_FOLDER, detected_vaults
+from ..meetings.service import SUMMARY_MODES
 from ..planner import PlannerError
 from .routes_core import svc
 
@@ -27,6 +32,45 @@ def _meeting(req: Request, mid: str) -> dict[str, Any]:
 def list_meetings(req: Request) -> dict[str, Any]:
     s = svc(req)
     return {"meetings": s.meetings.repo.list(), "status": s.meetings.status()}
+
+
+@router.get("/meetings/search")
+def search_meetings(req: Request, q: str, meeting_id: str | None = None, limit: int = 20) -> dict[str, Any]:
+    """Full-text search over every transcript and summary (no AI): best passages first."""
+    return {"hits": svc(req).meetings.search(q[:300], meeting_id, max(1, min(limit, 50)))}
+
+
+class AskIn(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+    engine: str = Field(default="local", pattern="^(local|kimi)$")
+    meeting_id: str | None = None
+
+
+@router.post("/meetings/ask")
+async def ask_meetings(body: AskIn, req: Request) -> dict[str, Any]:
+    """Answer a question from the meeting passages that match it (local AI by default)."""
+    try:
+        return await asyncio.to_thread(svc(req).meetings.ask, body.question, body.engine, body.meeting_id)
+    except LocalAIError as e:
+        raise HTTPException(503, f"Local AI couldn't answer: {e}") from e
+    except PlannerError as e:
+        raise HTTPException(502, f"Kimi couldn't answer: {e}") from e
+    except RuntimeError as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@router.get("/meetings/actions")
+def meeting_actions(req: Request) -> dict[str, Any]:
+    """Every action item from every summarised meeting, open first."""
+    return {"items": svc(req).meetings.action_items()}
+
+
+@router.post("/meetings/vault/sync")
+def vault_sync(req: Request) -> dict[str, Any]:
+    s = svc(req)
+    if s.vault() is None:
+        raise HTTPException(409, "choose an Obsidian vault in Settings first")
+    return {"written": s.meetings.sync_vault_all()}
 
 
 @router.get("/meetings/{mid}")
@@ -47,6 +91,7 @@ def patch_meeting(mid: str, body: MeetingPatch, req: Request) -> dict[str, Any]:
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     if fields:
         svc(req).meetings.repo.update(mid, **fields)
+        svc(req).meetings.touched(mid)
     return {"updated": bool(fields)}
 
 
@@ -82,7 +127,9 @@ class NewSpeaker(BaseModel):
 def add_speaker(mid: str, body: NewSpeaker, req: Request) -> dict[str, str]:
     """A speaker the detection missed: add one, then move their lines to it."""
     _meeting(req, mid)
-    return {"key": svc(req).meetings.repo.add_speaker(mid, body.name)}
+    key = svc(req).meetings.repo.add_speaker(mid, body.name)
+    svc(req).meetings.touched(mid)
+    return {"key": key}
 
 
 class Merge(BaseModel):
@@ -94,6 +141,7 @@ def merge_speaker(mid: str, key: str, body: Merge, req: Request) -> dict[str, bo
     _meeting(req, mid)
     if not svc(req).meetings.repo.merge_speakers(mid, key, body.into):
         raise HTTPException(404, "speaker not found")
+    svc(req).meetings.touched(mid)
     return {"merged": True}
 
 
@@ -113,6 +161,7 @@ def patch_segment(mid: str, seg_id: int, body: SegmentPatch, req: Request) -> di
         ok = repo.set_segment_text(mid, seg_id, body.text.strip())
     if not ok:
         raise HTTPException(404, "line or speaker not found")
+    svc(req).meetings.touched(mid)
     return {"updated": True}
 
 
@@ -140,13 +189,16 @@ def retry(mid: str, req: Request) -> dict[str, bool]:
 
 
 @router.post("/meetings/{mid}/summarize")
-async def summarize(mid: str, req: Request) -> dict[str, Any]:
+async def summarize(mid: str, req: Request, engine: str = "local") -> dict[str, Any]:
+    """engine=local: queued for this PC (answer at once, `meeting_updated` events follow); engine=kimi: Kimi now."""
     _meeting(req, mid)
+    if engine not in ("local", "kimi"):
+        raise HTTPException(422, "engine must be local or kimi")
     try:
-        return await asyncio.to_thread(svc(req).meetings.summarize, mid)
+        return await asyncio.to_thread(svc(req).meetings.summarize, mid, engine)
     except PlannerError as e:
         raise HTTPException(502, f"Kimi couldn't summarize: {e}") from e
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         raise HTTPException(409, str(e)) from e
 
 
@@ -158,10 +210,13 @@ def park_actions(mid: str, req: Request) -> dict[str, Any]:
     items = (m.get("summary") or {}).get("action_items") or []
     if not items:
         raise HTTPException(409, "summarize the meeting first")
+    todo = [(i, a) for i, a in enumerate(items) if not a.get("parked") and not a.get("done")]  # never twice
     ids = [s.manager.tasks.park(str(a["task"])[:64], f"From meeting '{m['title']}': {a['task']}"
                                 + (f" (owner: {a['owner']})" if a.get("owner") else "")
-                                + (f" (due: {a['due']})" if a.get("due") else "")) for a in items]
-    s.manager.changed()
+                                + (f" (due: {a['due']})" if a.get("due") else "")) for _, a in todo]
+    if todo:
+        s.meetings.mark_parked(mid, [i for i, _ in todo])
+        s.manager.changed()
     return {"parked_ids": ids}
 
 
@@ -229,3 +284,59 @@ def forget_voice(pid: str, req: Request) -> dict[str, bool]:
     if not svc(req).meetings.repo.delete_profile(pid):
         raise HTTPException(404, "voice not found")
     return {"deleted": True}
+
+
+# ---- Settings -> Meetings: summaries, local AI, Obsidian ----------------------------------------------------
+def _meeting_settings(req: Request) -> dict[str, Any]:
+    s = svc(req)
+    p = s.settings.prefs()
+    vault = str(p.get("obsidian_vault") or "")
+    return {"summary_mode": s.meeting_summary_mode(), "summary_modes": list(SUMMARY_MODES),
+            "local_ai": s.local_ai.status(),
+            "obsidian": {"vault": vault, "folder": str(p.get("obsidian_folder") or DEFAULT_FOLDER),
+                         "enabled": s.vault() is not None, "detected": detected_vaults()}}
+
+
+@router.get("/settings/meetings")
+def meeting_settings(req: Request) -> dict[str, Any]:
+    return _meeting_settings(req)
+
+
+class MeetingSettingsIn(BaseModel):
+    summary_mode: str | None = Field(default=None, pattern="^(local|kimi|off)$")
+    local_ai_model: str | None = Field(default=None, min_length=2, max_length=80, pattern=r"^[\w.:/-]+$")
+    obsidian_vault: str | None = Field(default=None, max_length=400)  # "" turns the vault off
+    obsidian_folder: str | None = Field(default=None, min_length=1, max_length=60)
+
+
+@router.put("/settings/meetings")
+def set_meeting_settings(body: MeetingSettingsIn, req: Request) -> dict[str, Any]:
+    s = svc(req)
+    vault_changed = False
+    if body.obsidian_vault is not None:
+        path = body.obsidian_vault.strip()
+        if path and not Path(path).is_dir():
+            raise HTTPException(404, "that folder does not exist")
+        vault_changed = path != str(s.settings.prefs().get("obsidian_vault") or "")
+        s.settings.save_prefs(obsidian_vault=path)
+    if body.obsidian_folder is not None:
+        vault_changed = vault_changed or body.obsidian_folder.strip() != s.settings.prefs().get("obsidian_folder")
+        s.settings.save_prefs(obsidian_folder=body.obsidian_folder.strip())
+    if body.summary_mode is not None:
+        s.settings.save_prefs(meeting_summary=body.summary_mode)
+    if body.local_ai_model is not None:
+        s.settings.save_prefs(local_ai_model=body.local_ai_model)
+    if vault_changed and s.vault() is not None:  # write every meeting there now, in the background
+        threading.Thread(target=s.meetings.sync_vault_all, name="pip-vault-sync", daemon=True).start()
+    return _meeting_settings(req)
+
+
+@router.post("/settings/local-ai/pull")
+def pull_local_model(req: Request) -> dict[str, Any]:
+    """Download the chosen local AI model through Ollama (several GB; progress in GET /settings/meetings)."""
+    s = svc(req)
+    if not s.local_ai.status()["running"]:
+        raise HTTPException(409, "Ollama is not running on this PC - install it from ollama.com first")
+    if not s.local_ai.pull(s.local_ai.model):
+        raise HTTPException(409, "a download is already running")
+    return _meeting_settings(req)

@@ -235,6 +235,12 @@ def meeting_review(page: Page, stack: Stack, base: str) -> list[str]:
     stack.wait(lambda: any(s["name"] == "Priya" for s in stack.http.get(f"/api/v1/meetings/{mid}").json()["speakers"]),
                5, "speaker renamed")
     page.get_by_text("Priya").first.wait_for()
+    stack.wait(lambda: stack.http.get(f"/api/v1/meetings/{mid}").json()["summary_status"] == "READY", 30,
+               "summarised on this PC")
+    page.get_by_text("Summary by this PC").wait_for()
+    page.get_by_label("Question or words to find").fill("Who is sending the Q3 budget?")
+    page.get_by_role("button", name="Ask", exact=True).click()
+    page.get_by_text("Answered by this PC").wait_for()
     page.screenshot(path=str(OUT / "1440x900/meeting_review.png"), full_page=True)
     md = stack.http.get(f"/api/v1/meetings/{mid}/export?format=md").text
     assert "**Priya**" in md and "pricing" in md.lower()
@@ -242,7 +248,8 @@ def meeting_review(page: Page, stack: Stack, base: str) -> list[str]:
     for v in stack.http.get("/api/v1/voices").json():
         if v["name"] == "Priya":
             stack.http.delete(f"/api/v1/voices/{v['id']}")
-    return ["meetings: imported 2-voice recording -> Whisper transcript with 2 speakers -> named in the UI -> exported"]
+    return [("meetings: imported 2-voice recording -> Whisper transcript with 2 speakers -> named in the UI -> "
+             "summarised on this PC (fake local AI) -> question answered -> exported")]
 
 
 def main() -> int:

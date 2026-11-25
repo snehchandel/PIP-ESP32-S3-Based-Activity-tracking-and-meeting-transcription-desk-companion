@@ -19,7 +19,10 @@ from .config import Settings
 from .device.firmware import FirmwareUpdater
 from .device.link import DeviceLink, make_transport
 from .device.voice_out import speak_on_device
-from .meetings.service import MeetingService
+from .meetings.local_ai import DEFAULT_MODEL as LOCAL_AI_MODEL
+from .meetings.local_ai import LocalAI
+from .meetings.obsidian import DEFAULT_FOLDER, ObsidianVault
+from .meetings.service import SUMMARY_MODES, MeetingService
 from .planner import PlannerError, TaskPlanner, make_planner, resolve_model
 from .protocol import FrameType
 from .speech.pipeline import VoicePipeline
@@ -62,8 +65,11 @@ class Services:
         self.link.on_diag = self._on_diag
         root = Path(__file__).resolve().parents[2]
         self.firmware = FirmwareUpdater(self.link, data_dir, root / "firmware" / "build" / "pip_firmware.bin")
+        self.local_ai = LocalAI(settings.pip_local_ai_url, model=self.local_ai_model, on_usage=self.cost.record)
         self.meetings = MeetingService(self.manager, data_dir, settings.pip_meeting_model, self.hub.publish,
-                                       summarizer=self.planner)
+                                       summarizer=self.planner, local_ai=self.local_ai,
+                                       summary_mode=self.meeting_summary_mode, vault=self.vault,
+                                       vocabulary=self.vocabulary, voice_busy=self._voice_busy)
         self.voice.meetings = self.meetings
         self.stt.vocabulary = self.meetings.stt.vocabulary = self.vocabulary()
         self.nudges = NudgeScheduler(self.manager)
@@ -96,6 +102,28 @@ class Services:
         p = make_planner(s.api_key(), s.moonshot_base_url, self.kimi_model(), s.pip_timezone, on_usage=self.cost.record)
         p.vocabulary = self.vocabulary()
         return p
+
+    # ---- meetings: local AI summaries + Obsidian vault ----------------------------------------------
+    def local_ai_model(self) -> str:
+        return str(self.settings.prefs().get("local_ai_model") or LOCAL_AI_MODEL)
+
+    def meeting_summary_mode(self) -> str:
+        """After each transcription: "local" (default, on this PC), "kimi" (uses the AI budget) or "off"."""
+        mode = str(self.settings.prefs().get("meeting_summary") or "local")
+        return mode if mode in SUMMARY_MODES else "local"
+
+    def vault(self) -> ObsidianVault | None:
+        p = self.settings.prefs()
+        root = str(p.get("obsidian_vault") or "").strip()
+        if not root or not Path(root).is_dir():
+            return None
+        return ObsidianVault(Path(root), str(p.get("obsidian_folder") or DEFAULT_FOLDER))
+
+    def _voice_busy(self) -> bool:
+        """A voice command is being heard or transcribed (Whisper on the GPU): summaries step aside. The overlay,
+        not the open streams, decides: a capture cut off mid-way leaves a stream behind, while the stuck-state
+        watchdog always clears the overlay."""
+        return self.manager.overlay in ("LISTENING", "TRANSCRIBING")
 
     def vocabulary(self) -> list[str]:
         v = self.settings.prefs().get("vocabulary") or []

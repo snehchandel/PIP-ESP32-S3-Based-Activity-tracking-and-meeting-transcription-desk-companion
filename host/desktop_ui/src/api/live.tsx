@@ -6,7 +6,10 @@ import type { FullState, Health } from "./types";
 
 export type Conn = "connecting" | "live" | "offline";
 /** Latest meeting_updated event (n increments on every event so views can refetch). */
-export interface MeetingEvt { n: number; id: string; status: string; progress?: number }
+export interface MeetingEvt {
+  n: number; id: string; status: string; progress?: number;
+  summary_status?: string; summary_part?: number; summary_parts?: number;
+}
 
 interface LiveValue {
   state: FullState | null;
@@ -71,7 +74,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         if (msg.event === "framebuffer_updated") return;
         if (msg.event === "meeting_updated") { // recordings + transcription progress: the Meetings view refetches
           setMeetingEvt((m) => ({ n: m.n + 1, id: String(msg.data.id ?? ""), status: String(msg.data.status ?? ""),
-            progress: typeof msg.data.progress === "number" ? msg.data.progress : undefined }));
+            progress: typeof msg.data.progress === "number" ? msg.data.progress : undefined,
+            summary_status: typeof msg.data.summary_status === "string" ? msg.data.summary_status : undefined,
+            summary_part: typeof msg.data.summary_part === "number" ? msg.data.summary_part : undefined,
+            summary_parts: typeof msg.data.summary_parts === "number" ? msg.data.summary_parts : undefined }));
           return;
         }
         scheduleRefresh();

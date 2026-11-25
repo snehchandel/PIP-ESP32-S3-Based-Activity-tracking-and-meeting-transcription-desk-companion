@@ -1,4 +1,4 @@
-import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingDetail, MeetingList, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
+import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingActionRow, MeetingAnswer, MeetingDetail, MeetingHit, MeetingList, MeetingSettings, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
 
 const BASE = "/api/v1";
 
@@ -124,7 +124,16 @@ export const api = {
   rediarize: (id: string, num_speakers: number | null) =>
     req<{ speakers: Speaker[] }>("POST", `/meetings/${id}/rediarize`, { num_speakers }),
   retryMeeting: (id: string) => req<unknown>("POST", `/meetings/${id}/retry`),
-  summarizeMeeting: (id: string) => req<MeetingSummary>("POST", `/meetings/${id}/summarize`),
+  summarizeMeeting: (id: string, engine: "local" | "kimi") =>
+    req<MeetingSummary | { queued: boolean }>("POST", `/meetings/${id}/summarize?engine=${engine}`),
+  searchMeetings: (q: string) => req<{ hits: MeetingHit[] }>("GET", `/meetings/search?q=${encodeURIComponent(q)}`),
+  askMeetings: (question: string, engine: "local" | "kimi") => req<MeetingAnswer>("POST", "/meetings/ask", { question, engine }),
+  meetingActions: () => req<{ items: MeetingActionRow[] }>("GET", "/meetings/actions"),
+  syncVault: () => req<{ written: number }>("POST", "/meetings/vault/sync"),
+  meetingSettings: () => req<MeetingSettings>("GET", "/settings/meetings"),
+  setMeetingSettings: (body: { summary_mode?: string; local_ai_model?: string; obsidian_vault?: string; obsidian_folder?: string }) =>
+    req<MeetingSettings>("PUT", "/settings/meetings", body),
+  pullLocalModel: () => req<MeetingSettings>("POST", "/settings/local-ai/pull"),
   parkMeetingActions: (id: string) => req<{ parked_ids: string[] }>("POST", `/meetings/${id}/park-actions`),
   meetingExportUrl: (id: string, format: "md" | "txt" | "srt" | "json") => `${BASE}/meetings/${id}/export?format=${format}`,
   meetingAudioUrl: (id: string, download = false) => `${BASE}/meetings/${id}/audio${download ? "?download=true" : ""}`,

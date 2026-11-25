@@ -40,6 +40,8 @@ class CostMeter:
         return {**DEFAULT_PRICES, **{k: dict(v) for k, v in custom.items()}}
 
     def price(self, model: str) -> dict[str, float]:
+        if model.startswith("local/"):  # the local AI (meeting summaries on this PC): tokens counted, never billed
+            return {"input": 0.0, "cached": 0.0, "output": 0.0}
         return self.prices().get(model, FALLBACK)
 
     def cap(self) -> float | None:

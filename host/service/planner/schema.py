@@ -136,11 +136,14 @@ class ActionItem(BaseModel):
     task: str = Field(min_length=2, max_length=200)
     owner: str | None = Field(default=None, max_length=60)
     due: str | None = Field(default=None, max_length=60)
+    done: bool = False    # ticked in the meeting's Obsidian note
+    parked: bool = False  # sent to PIP's parked tangents
 
 
 class MeetingSummary(BaseModel):
-    """Kimi's read of a meeting transcript (optional, on request in the app)."""
+    """A meeting's summary - made on this PC by default (meetings/summarize.py) or by Kimi on request."""
     title: str = Field(min_length=2, max_length=80)
     summary: str = Field(min_length=2, max_length=2000)
     decisions: list[str] = Field(default_factory=list)
     action_items: list[ActionItem] = Field(default_factory=list)
+    topics: list[str] = Field(default_factory=list)  # subjects discussed: Obsidian links + search

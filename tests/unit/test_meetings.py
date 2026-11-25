@@ -227,6 +227,7 @@ def test_meeting_review_api_and_exports(tmp_path) -> None:  # type: ignore[no-un
         md = c.get(f"/api/v1/meetings/{mid}/export?format=md")
         assert md.status_code == 200 and "attachment" in md.headers["content-disposition"]
         assert "# Budget chat" in md.text and "**Sam**" in md.text and "Q3 budget" in md.text and "Follow up Friday" in md.text
+        assert md.text.startswith("---\ntype: meeting\n") and "[[Ana]]" in md.text  # an Obsidian note
         srt = c.get(f"/api/v1/meetings/{mid}/export?format=srt").text
         assert "00:00:02,200 --> 00:00:04,000" in srt and "Sam: I'll send the Q3 budget." in srt
         js = json.loads(c.get(f"/api/v1/meetings/{mid}/export?format=json").text)
@@ -237,11 +238,12 @@ def test_meeting_review_api_and_exports(tmp_path) -> None:  # type: ignore[no-un
         audio = c.get(f"/api/v1/meetings/{mid}/audio")
         assert audio.status_code == 200 and audio.content[:4] == b"RIFF"
         # Kimi summary -> action items into Parked tangents
-        summ = c.post(f"/api/v1/meetings/{mid}/summarize").json()
+        summ = c.post(f"/api/v1/meetings/{mid}/summarize?engine=kimi").json()
         assert summ["action_items"][0]["task"] == "Send the Q3 budget spreadsheet"
         assert "## Summary" in c.get(f"/api/v1/meetings/{mid}/export?format=md").text
         parked = c.post(f"/api/v1/meetings/{mid}/park-actions").json()["parked_ids"]
         assert len(parked) == 2 and len(c.get("/api/v1/state").json()["parked"]) == 2
+        assert c.post(f"/api/v1/meetings/{mid}/park-actions").json()["parked_ids"] == []  # never parked twice
         # merge speakers, re-run detection with a fixed count, delete
         assert c.post(f"/api/v1/meetings/{mid}/speakers/{new}/merge", json={"into": key}).status_code == 200
         assert len(c.get(f"/api/v1/meetings/{mid}").json()["speakers"]) == 1

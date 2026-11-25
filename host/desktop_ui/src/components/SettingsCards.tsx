@@ -1,8 +1,8 @@
-import { CheckCircle2, KeyRound, Loader2, Mic, Volume2, XCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, Cpu, Download, KeyRound, Loader2, Mic, NotebookPen, RefreshCw, Volume2, XCircle } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
-import type { Settings } from "../api/types";
+import type { MeetingSettings, Settings } from "../api/types";
 import { Button } from "./ui/button";
 import { Badge, Card, CardTitle, Input, Label, Select, Textarea } from "./ui/primitives";
 
@@ -163,6 +163,84 @@ export function SpeechCard({ s, onChange }: { s: Settings; onChange: (s: Setting
       {note && <p role="status" className="mt-2 text-sm text-muted">{note}</p>}
       <audio ref={audio} className="hidden" />
       <p className="mt-3 text-xs text-muted">Alarms set to "Piper voice" speak their message on PIP after the chime.</p>
+    </Card>
+  );
+}
+
+/** Meetings: who summarises after each transcription (this PC by default), the local AI (Ollama) and the
+    Obsidian vault every meeting is written into. */
+export function MeetingAiCard() {
+  const { run } = useLive();
+  const [m, setM] = useState<MeetingSettings | null>(null);
+  const [vault, setVault] = useState("");
+  const [model, setModel] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const load = useCallback(() => {
+    void api.meetingSettings().then((r) => { setM(r); setVault(r.obsidian.vault); setModel(r.local_ai.model); })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {  // follow a model download
+    if (!m?.local_ai.pull.active) return;
+    const t = window.setInterval(() => void api.meetingSettings().then(setM).catch(() => undefined), 1500);
+    return () => window.clearInterval(t);
+  }, [m?.local_ai.pull.active]);
+  if (!m) return null;
+  const save = async (body: Parameters<typeof api.setMeetingSettings>[0], msg?: string) => {
+    const r = await run(() => api.setMeetingSettings(body));
+    if (r) { setM(r); setVault(r.obsidian.vault); setModel(r.local_ai.model); if (msg) setNote(msg); }
+  };
+  const ai = m.local_ai;
+  return (
+    <Card aria-label="Meetings">
+      <CardTitle><span className="inline-flex items-center gap-2"><Cpu size={16} aria-hidden /> Meetings</span></CardTitle>
+      <Label htmlFor="sum-mode">After each transcription</Label>
+      <Select id="sum-mode" value={m.summary_mode} onChange={(e) => void save({ summary_mode: e.target.value })}>
+        <option value="local">Summarise on this PC (free, nothing leaves it)</option>
+        <option value="kimi">Summarise with Kimi (uses your AI budget)</option>
+        <option value="off">Don't summarise</option>
+      </Select>
+      <div className="mt-3 rounded-xl border border-line bg-paper-2 p-3 text-sm">
+        <p className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold">Local AI</span>
+          <Badge tone={ai.model_ready ? "sage" : "neutral"}>{ai.model_ready ? "Ready" : ai.running ? "Model missing" : "Not running"}</Badge>
+          <span className="text-xs text-muted">{ai.detail}</span>
+        </p>
+        {!ai.running && <p className="mt-2 text-xs text-muted">Install Ollama from ollama.com (it runs in the background and
+          uses your GPU), then come back here to download the model.</p>}
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <div className="min-w-48 flex-1"><Label htmlFor="ai-model">Model</Label>
+            <Input id="ai-model" value={model} list="ai-models" onChange={(e) => setModel(e.target.value)} />
+            <datalist id="ai-models">{[...new Set(["qwen3:8b", "llama3.1:8b", "qwen3:4b", ...ai.models])].map((x) =>
+              <option key={x} value={x} />)}</datalist></div>
+          <Button size="sm" disabled={!model.trim() || model === ai.model} onClick={() => void save({ local_ai_model: model.trim() })}>Use</Button>
+          <Button size="sm" disabled={!ai.running || ai.model_ready || ai.pull.active} onClick={async () => {
+            const r = await run(() => api.pullLocalModel()); if (r) setM(r); }}>
+            {ai.pull.active ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Download size={14} aria-hidden />}
+            Download model</Button>
+        </div>
+        {(ai.pull.active || ai.pull.error) && <p className="mt-1 text-xs text-muted" role="status">
+          {ai.pull.error ? `Download failed: ${ai.pull.error}` : `${ai.pull.model}: ${ai.pull.status}`}</p>}
+        <p className="mt-2 text-xs text-muted">8B models need ~6 GB of GPU memory; 4B ones run on smaller GPUs or the CPU.
+          Transcriptions and voice commands always go first.</p>
+      </div>
+      <div className="mt-3">
+        <Label htmlFor="vault"><span className="inline-flex items-center gap-1"><NotebookPen size={13} aria-hidden /> Obsidian vault</span></Label>
+        <div className="flex gap-2">
+          <Input id="vault" value={vault} list="vaults" placeholder="C:\Users\you\Documents\MyVault" onChange={(e) => setVault(e.target.value)} />
+          <datalist id="vaults">{m.obsidian.detected.map((v) => <option key={v} value={v} />)}</datalist>
+          <Button size="sm" variant={vault !== m.obsidian.vault ? "primary" : "outline"} disabled={vault === m.obsidian.vault}
+            onClick={() => void save({ obsidian_vault: vault.trim() }, vault.trim() ? "Writing your meetings into the vault…" : "Vault turned off.")}>Save</Button>
+        </div>
+        <p className="mt-1 text-xs text-muted">{m.obsidian.enabled
+          ? <>Meetings go to <b>{m.obsidian.folder}</b> in this vault: one note per meeting (summary, people and topics as
+            links), its transcript, an index and all action items. Text under "My notes" and ticked items are kept.</>
+          : m.obsidian.detected.length ? "Pick one of your vaults (suggested as you type) or paste its folder." : "Paste the folder of your vault."}</p>
+        {m.obsidian.enabled && <Button size="sm" className="mt-2" onClick={async () => {
+          const r = await run(() => api.syncVault()); if (r) setNote(`${r.written} meeting(s) written to Obsidian.`); }}>
+          <RefreshCw size={14} aria-hidden /> Write all meetings now</Button>}
+      </div>
+      {note && <p role="status" className="mt-2 text-sm text-muted">{note}</p>}
     </Card>
   );
 }

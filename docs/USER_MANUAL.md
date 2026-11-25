@@ -97,7 +97,7 @@ host**.
    it says **"Time to wrap up"**. Works offline too.
 4. **Meetings.** Pick **Meeting** in the voice menu and hold KEY: PIP records until you **hold KEY again** — no time
    limit (the screen shows REC and the running time). The recording is saved on the PC as it goes, then transcribed
-   there (nothing is uploaded). Open **Meetings** in the app to read who said what.
+   and summarised there (nothing is uploaded). Open **Meetings** in the app to read who said what.
 5. Click **KEY** to start the 2-minute starter. Click **BOOT** when done. Repeat.
 6. Vague times like "Friday afternoon" are never set silently — PIP asks **Confirm Time**: BOOT to confirm,
    KEY to keep it as a parked note instead.
@@ -127,8 +127,12 @@ host**.
   click a line's time to jump there. Speakers PIP doesn't know are **Speaker 01, Speaker 02...**: type a name and
   Save — with **Remember this voice** ticked, PIP names that person automatically in later meetings. Fix a line's
   speaker from its drop-down, edit a mis-heard word, merge two speakers who are the same person ("Same person as…"),
-  add a missed speaker, or tell PIP how many people were there and **Detect again**. **Summarize with Kimi** writes
-  a summary, decisions and action items (uses your AI budget); **Park action items** puts them in Parked tangents.
+  add a missed speaker, or tell PIP how many people were there and **Detect again**. Right after transcription the
+  PC writes a **summary**, decisions, action items and topics itself (local AI, free, nothing leaves the PC; see
+  *Meetings: summaries, Obsidian and questions* below). **Redo on this PC** makes it again; **Kimi** asks Kimi
+  instead (uses your AI budget). **Park action items** puts the ones not yet parked or done in Parked tangents.
+  **Ask your meetings** (top of the page) answers questions across every meeting — *"Who is sending the Q3 budget?"*
+  — with links to where it was said; **Find** just lists the matching lines (no AI at all).
   **Export** as Markdown, TXT, SRT subtitles or JSON, or download the audio. **Import audio** transcribes a recording
   from elsewhere (wav, mp3, m4a...). Speaker detection is lightweight: clearly different voices separate well;
   similar voices may need a fix by hand.
@@ -144,6 +148,25 @@ host**.
 - **Device:** a live copy of PIP's screen and battery/health info.
 - **Settings:** Kimi API key (see below), speech status, voice picker and "Play on PIP" voice test.
 - Keyboard: **Space** start/pause · **N** brain dump · **S** cut in half · **1–8** switch views.
+
+## 5a. Meetings: summaries, Obsidian and questions
+- **Local AI.** Summaries and questions use a model running on your PC through **Ollama** (free, from ollama.com).
+  Install it once, then open **Settings → Meetings** and click **Download model** (`qwen3:8b`, about 5 GB; a GPU
+  with 8 GB is ideal, `qwen3:4b` suits smaller machines). Until then summaries show *"local AI not running"* and
+  you can still use **Kimi** per meeting. **After each transcription** can be set to *Summarise on this PC*
+  (default), *Summarise with Kimi* or *Don't summarise*. PIP never switches to Kimi by itself.
+- **Several things at once.** Transcriptions always go first: a summary waits for them, and a long meeting is
+  summarised in parts so it can pause between parts and continue later without redoing work. While PIP is
+  listening to or transcribing a voice command, summaries wait too. A one-hour meeting takes about a minute on a
+  laptop GPU.
+- **Obsidian.** In **Settings → Meetings → Obsidian vault**, pick your vault (PIP suggests the ones Obsidian knows)
+  and Save. Every finished meeting is written into the folder **PIP Meetings**: one note per meeting (date, people
+  as `[[links]]`, topics, summary, decisions, action items as checkboxes, a link to the full transcript), the
+  transcript in `Transcripts/`, a **Meetings index** and a list of all **Action items**. Write your own thoughts
+  under **My notes** in a meeting's note — PIP keeps them when it updates the note, and an action item you tick in
+  Obsidian shows as done in PIP. Deleting a meeting in PIP leaves its note in the vault.
+- **Asking with other AI tools.** The vault is laid out so any AI assistant can read it cheaply: the index first,
+  then the meeting notes, and a transcript only for exact wording (see `_About these notes.md` in the folder).
 
 ## 6. Kimi AI (required for planning)
 PIP uses Kimi to break tasks into steps. Set it up once: **Settings → Kimi API key → paste → Test this key →
