@@ -6,6 +6,10 @@ import threading
 from typing import Any
 
 log = logging.getLogger("pip.stt")
+# Once CUDA has failed in this process, never try it again: a second CUDA attempt after a failed one (missing
+# cuBLAS) hung inside ctranslate2 forever, which froze the meeting transcriber's model load.
+_DEVICE_FAILED: set[str] = set()
+_LOAD_LOCK = threading.Lock()  # one model load at a time (the voice and meeting instances load independently)
 
 
 class SpeechToText:
@@ -35,20 +39,29 @@ class SpeechToText:
         return f"NOT_LOADED ({self.model_name})"
 
     def _load(self) -> Any:
+        with _LOAD_LOCK:
+            return self._load_locked()
+
+    def _load_locked(self) -> Any:
         import numpy as np
         from faster_whisper import WhisperModel
 
         for device, compute in (("cuda", "float16"), ("cpu", "int8")):
+            if device in _DEVICE_FAILED:
+                continue
             try:
                 model = WhisperModel(self.model_name, device=device, compute_type=compute)
                 # CUDA can construct fine yet fail at inference (e.g. cuBLAS DLL missing): prove it works.
                 segs, _ = model.transcribe(np.zeros(16000, dtype=np.float32), language="en", beam_size=1)
                 list(segs)
                 self.device = f"{device}/{compute}"
+                self.error = ""
                 log.info("faster-whisper %s loaded on %s", self.model_name, self.device)
                 return model
             except Exception as e:  # CUDA libs missing, no GPU, or offline model fetch failed
                 log.info("whisper load on %s failed: %s", device, e)
+                if device != "cpu":
+                    _DEVICE_FAILED.add(device)
                 self.error = str(e)[:120]
         raise RuntimeError(self.error or "model load failed")
 
