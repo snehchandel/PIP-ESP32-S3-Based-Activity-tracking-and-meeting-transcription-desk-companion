@@ -201,7 +201,7 @@ export function TimeGrid({ days, selectedId, onSelect, onSlot, onChange }: {
           <div className="px-1.5 py-2 text-right text-[10px] font-semibold uppercase leading-tight text-muted">All day /<br />anytime</div>
           {days.map((d) => <AllDay key={d.date} day={d} selectedId={selectedId} onSelect={onSelect} />)}
         </div>
-        <div ref={scroller} className="relative max-h-[68vh] overflow-y-auto">
+        <div ref={scroller} className="relative max-h-[max(360px,calc(100vh-19rem))] overflow-y-auto">
           <div className="grid" style={{ gridTemplateColumns: cols }}>
             <div>
               {hours.map((h) => (

@@ -6,7 +6,7 @@ import { Card, CardTitle, Empty, PageHeader } from "../components/ui/primitives"
 import { splitPreview } from "../components/RescueDialog";
 import { fmtMs } from "../api/live";
 
-/** Step Rescue Editor panel: the active step, a live split preview, and the full step list. */
+/** Focus owns the full timer and its controls (Today only shows a slim strip), the rescue preview and the step list. */
 export default function FocusView() {
   const { state } = useLive();
   const [params] = useSearchParams();
@@ -15,7 +15,7 @@ export default function FocusView() {
   const [cur, nxt] = splitPreview(rem);
   return (
     <>
-      <PageHeader title="Focus" subtitle="Feeling stuck? Cut the step in half — the work moves, it never disappears." />
+      <PageHeader title="Focus" subtitle="The timer, the step in front of you and every step after it. Stuck? Cut the step in half — the work moves, it never disappears." />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <FocusCard autoOpenSplit={params.get("split") === "1"} />
         <Card aria-label="Rescue preview">
@@ -34,7 +34,7 @@ export default function FocusView() {
       </div>
       {state?.active_task && (
         <Card className="mt-5" aria-label="All steps">
-          <CardTitle>All steps</CardTitle>
+          <CardTitle aside={<span className="text-xs text-muted">Alt+↑/↓ to reorder</span>}>All steps</CardTitle>
           <StepList task={state.active_task} activeId={state.active_step_id} />
         </Card>
       )}

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
@@ -28,11 +28,18 @@ function rangeFor(mode: Mode, anchor: string): [string, number] {
   return [addDays(first, -lead), 42];
 }
 
+/* The editor sits at the top of the sticky side panel, right next to the grid (on narrow windows it floats over the
+   bottom of the screen), so the block being edited stays in view: no scrolling away from the calendar. */
 function ItemEditor({ item, date, onDone }: { item: CalItem; date: string; onDone: () => void }) {
   const { run } = useLive();
   const nav = useNavigate();
   const [d, setD] = useState(date);
   const [t, setT] = useState(item.hhmm);
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onDone(); };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onDone]);
   const save = async () => {
     if (item.kind === 0) await run(() => api.patchTask(item.id, { target_date: d, start_hhmm: t }));
     else if (item.kind === 1) await run(() => api.patchReminder(item.id, { due_local: `${d}T${t || "09:00"}` }));
@@ -43,10 +50,18 @@ function ItemEditor({ item, date, onDone }: { item: CalItem; date: string; onDon
     onDone();
   };
   return (
-    <div className="rounded-2xl border border-ink bg-white p-3" aria-label={`Edit ${item.title}`}>
-      <div className="mb-2 flex items-center gap-2"><Badge>{KIND[item.kind]}</Badge>
-        <p className="flex-1 truncate font-semibold">{item.title}</p>
-        {item.kind !== 2 && <span className="tabular text-xs text-muted">{item.duration_min} min</span>}</div>
+    <section aria-label={`Edit ${item.title}`} className="rounded-2xl border border-ink bg-white p-4 shadow-[0_1px_0_#0000000a]
+      max-xl:fixed max-xl:inset-x-4 max-xl:bottom-4 max-xl:z-40 max-xl:mx-auto max-xl:max-w-lg max-xl:shadow-xl">
+      <div className="mb-1 flex items-center gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Editing</p>
+        <Badge>{KIND[item.kind]}</Badge>
+        <Button size="icon" variant="ghost" className="ml-auto -mr-2 -mt-1 h-7 w-7" aria-label="Close editor" title="Close (Esc)"
+          onClick={onDone}><X size={15} aria-hidden /></Button>
+      </div>
+      <p className="mb-1 break-words font-semibold leading-snug">{item.title}</p>
+      <p className="tabular mb-3 text-xs text-muted">
+        {new Date(`${date}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+        {item.hhmm ? ` · ${item.hhmm}` : " · anytime"}{item.kind !== 2 ? ` · ${item.duration_min} min` : ""}</p>
       {item.kind === 2 ? (
         <div className="flex items-center justify-between gap-2 text-sm text-muted">
           <span>{item.recurring ? "Weekly alarm" : "Alarm"} at <span className="tabular">{item.hhmm}</span></span>
@@ -66,7 +81,7 @@ function ItemEditor({ item, date, onDone }: { item: CalItem; date: string; onDon
           </div>
         </>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -106,6 +121,11 @@ export default function CalendarView() {
     setTitle("");
     void load();
   };
+  const closeEditor = useCallback(() => { setPicked(null); void load(); }, [load]);
+  // follow the picked item through drags and reloads so the editor always shows where it is now
+  const pickedDay = picked && days.find((d) => d.items.some((i) => i.id === picked.item.id));
+  const editing = picked && (pickedDay
+    ? { item: pickedDay.items.find((i) => i.id === picked.item.id) ?? picked.item, date: pickedDay.date } : picked);
   const sel = days.find((d) => d.date === selected);
   const offset = -new Date().getTimezoneOffset() / 60;
   return (
@@ -120,8 +140,9 @@ export default function CalendarView() {
           <Button size="sm" onClick={() => { setAnchor(todayIso()); setSelected(todayIso()); }}>Today</Button>
           <Button size="icon" aria-label="Next" onClick={() => setAnchor(addDays(anchor, step))}><ChevronRight size={16} /></Button>
         </div>} />
-      {/* week view gets the full width (like Outlook); the day panel then sits underneath */}
-      <div className={cn("grid gap-5", mode !== "week" && "xl:grid-cols-[minmax(0,1fr)_340px]")}>
+      {/* Outlook-style: the grid and a sticky side panel (editor, the selected day, add) sit side by side in every mode,
+          so editing an event never means scrolling away from the calendar. */}
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
         <Card aria-label="Calendar grid" className="min-w-0 p-3">
           {mode === "month" ? (
             <div className="grid grid-cols-7 gap-1.5">
@@ -154,39 +175,43 @@ export default function CalendarView() {
                 window.setTimeout(() => document.getElementById("cal-title")?.focus(), 20); }} />
           )}
         </Card>
-        <Card aria-label="Selected day">
-          <h2 className="mb-3 text-[15px] font-bold">{new Date(`${selected}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</h2>
-          {picked && <div className="mb-4"><ItemEditor key={picked.item.id} item={picked.item} date={picked.date}
-            onDone={() => { setPicked(null); void load(); }} /></div>}
-          <ul className="mb-4 space-y-1.5">
-            {(sel?.items ?? []).map((i) => (
-              <li key={i.id}>
-                <button onClick={() => setPicked({ item: i, date: selected })}
-                  className={cn("flex w-full items-center gap-2 rounded-xl border border-line bg-white/60 px-3 py-2 text-left text-sm hover:bg-white",
-                    picked?.item.id === i.id && "border-ink")}>
-                  <span className="tabular w-11 shrink-0 text-xs font-semibold text-muted">{i.hhmm || "any"}</span>
-                  <span className={cn("flex-1 truncate", i.done && "text-muted line-through")}>{i.title}</span>
-                  <Badge>{KIND[i.kind].toLowerCase()}</Badge>
-                </button>
-              </li>))}
-            {(sel?.items.length ?? 0) === 0 && <li className="text-sm text-muted">Free day.</li>}
-          </ul>
-          <form className="space-y-2 border-t border-line pt-3" onSubmit={(e) => { e.preventDefault(); void add(); }} aria-label="Add to this day">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Add on this day</p>
-            <div className="flex gap-2">
-              <Select aria-label="Item type" value={kind} onChange={(e) => setKind(e.target.value as "task" | "reminder")} className="w-32">
-                <option value="task">Task</option><option value="reminder">Reminder</option></Select>
-              <Input aria-label="Time" type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-32" />
-            </div>
-            <div className="flex gap-2">
-              <Input id="cal-title" aria-label="Title" placeholder={time ? `What at ${time}?` : "What? (no time = anytime)"} value={title}
-                onChange={(e) => setTitle(e.target.value)} />
-              <Button type="submit" variant="primary" disabled={!title.trim()}><Plus size={16} aria-hidden /> Add</Button>
-            </div>
-            <p className="text-xs text-muted">Tip: click any hour in Week or Day view to schedule there. Drag a block to
-              move it; drag a task's top or bottom edge to change its length.</p>
-          </form>
-        </Card>
+        <aside aria-label="Day details" className="min-w-0 space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
+          {editing && <ItemEditor key={`${editing.item.id}|${editing.date}|${editing.item.hhmm}`} item={editing.item}
+            date={editing.date} onDone={closeEditor} />}
+          <Card aria-label="Selected day" className="p-4">
+            <h2 className="mb-3 text-[15px] font-bold">{new Date(`${selected}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
+              <span className="ml-2 text-xs font-normal text-muted">{sel?.items.length ?? 0} item{(sel?.items.length ?? 0) === 1 ? "" : "s"}</span></h2>
+            <ul className={cn("-mx-1 mb-4 space-y-1.5 overflow-y-auto px-1", editing ? "max-h-[26vh]" : "max-h-[40vh]")}
+              aria-label="Items on this day">
+              {(sel?.items ?? []).map((i) => (
+                <li key={i.id}>
+                  <button onClick={() => setPicked({ item: i, date: selected })}
+                    className={cn("flex w-full items-center gap-2 rounded-xl border border-line bg-white/60 px-3 py-2 text-left text-sm hover:bg-white",
+                      picked?.item.id === i.id && "border-ink")}>
+                    <span className="tabular w-11 shrink-0 text-xs font-semibold text-muted">{i.hhmm || "any"}</span>
+                    <span className={cn("flex-1 truncate", i.done && "text-muted line-through")}>{i.title}</span>
+                    <Badge>{KIND[i.kind].toLowerCase()}</Badge>
+                  </button>
+                </li>))}
+              {(sel?.items.length ?? 0) === 0 && <li className="text-sm text-muted">Free day.</li>}
+            </ul>
+            <form className="space-y-2 border-t border-line pt-3" onSubmit={(e) => { e.preventDefault(); void add(); }} aria-label="Add to this day">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Add on this day</p>
+              <div className="flex gap-2">
+                <Select aria-label="Item type" value={kind} onChange={(e) => setKind(e.target.value as "task" | "reminder")} className="w-32">
+                  <option value="task">Task</option><option value="reminder">Reminder</option></Select>
+                <Input aria-label="Time" type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-32" />
+              </div>
+              <div className="flex gap-2">
+                <Input id="cal-title" aria-label="Title" placeholder={time ? `What at ${time}?` : "What? (no time = anytime)"} value={title}
+                  onChange={(e) => setTitle(e.target.value)} />
+                <Button type="submit" variant="primary" disabled={!title.trim()}><Plus size={16} aria-hidden /> Add</Button>
+              </div>
+              <p className="text-xs text-muted">Tip: click any hour in Week or Day view to schedule there. Click a block to
+                edit it here; drag it to move it; drag a task's top or bottom edge to change its length.</p>
+            </form>
+          </Card>
+        </aside>
       </div>
     </>
   );

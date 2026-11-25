@@ -100,20 +100,26 @@ host**.
    KEY to keep it as a parked note instead.
 
 ## 5. The Companion app
-- **Today:** focus timer, steps (Alt+↑/↓ to reorder), today/tomorrow, parked tangents. **Drag** any task,
+- **Today:** the overview — a slim **Now focusing** strip (the step in progress, time left, a progress bar, one
+  Start/Pause button and **Open Focus**; after a step: *Start next step* / *Break*; on a break: *I'm back*), then
+  today/tomorrow and parked tangents. The big timer, the step controls and the step list are on **Focus**. **Drag** any task,
   reminder or one-time alarm between **Today** and **Tomorrow**, or onto **Parked tangents**; drag a parked item onto
   Today to start it (the row buttons do the same without a mouse). Moving the task in progress sets it down with its
   time left. **Park for later** on the
-  focus card sends the task in progress to Parked tangents; **Resume** brings it back exactly where it stopped. For a
+  Focus page sends the task in progress to Parked tangents; **Resume** brings it back exactly where it stopped. For a
   parked *thought*, **Promote** asks Kimi to break it into concrete steps (~20–40 s); if Kimi can't be reached the
   note simply stays parked.
 - **Calendar:** Outlook-style Month / Week / Day: events are blocks with their title and time range, the
   all-day/anytime row wraps long titles (+N more expands). Week and Day show the hours of the day; click any hour to add a task or
   reminder at that time. **Drag** a task or reminder to another time or day; **drag a task's top or bottom edge** to
-  change how long it is (snaps to 15 minutes). Click an item to change its date/time, make it "anytime", or delete it.
-  Alarms are edited on the Alarms page.
+  change how long it is (snaps to 15 minutes). The panel **beside the grid** stays on screen while you scroll the
+  hours: click an item (on the grid or in the day's list) and its editor opens at the top of that panel, next to the
+  block — change its date/time, make it "anytime", or delete it; **Esc** or ✕ closes it. Below it are the selected
+  day's items (a long day scrolls inside the list) and *Add on this day*. On a narrow window the panel sits under the
+  grid and the editor floats at the bottom of the screen instead. Alarms are edited on the Alarms page.
 - **Brain Dump:** review and edit a plan before saving it.
-- **Focus:** the cut-in-half preview.
+- **Focus:** the full focus timer — Start/Pause (or **Space**), **Complete step**, **Cut in half** (**S**),
+  **Park for later** — with the cut-in-half preview and every step of the task (Alt+↑/↓ to reorder).
 - **Meetings:** every recorded (or imported) meeting with its date, time, length and speakers. Play the audio and
   click a line's time to jump there. Speakers PIP doesn't know are **Speaker 01, Speaker 02...**: type a name and
   Save — with **Remember this voice** ticked, PIP names that person automatically in later meetings. Fix a line's

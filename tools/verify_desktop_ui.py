@@ -76,7 +76,7 @@ def flows(page: Page, stack: Stack, base: str) -> list[str]:
     page.get_by_role("button", name="Accept all").click()
     stack.wait(lambda: stack.state()["active_task"], 5, "plan committed")
     log.append("desktop->device: brain dump parsed (steps/starter/parked/alarm) and accepted")
-    page.goto(base + "/")
+    page.goto(base + "/focus")  # Focus owns the full timer; Today only has the slim "Now focusing" strip
     page.get_by_role("button", name="Start").click()
     stack.wait(lambda: stack.http.get("/api/v1/device/diagnostics").json()["diag"]["ui_state"] == "RUNNING", 6,
                "device RUNNING")
@@ -95,6 +95,13 @@ def flows(page: Page, stack: Stack, base: str) -> list[str]:
     page.get_by_text("(second half)").first.wait_for(timeout=6000)
     assert len(stack.state()["active_task"]["steps"]) == n + 1
     log.append("device BOOT hold -> rescue split visible on desktop, zero lost duration")
+    page.goto(base + "/")
+    strip = page.get_by_label("Now focusing", exact=True)
+    strip.get_by_label("Time remaining").wait_for()
+    assert strip.get_by_role("link", name="Open Focus").count() == 1
+    assert page.get_by_role("button", name="Complete step").count() == 0  # the full controls live on Focus only
+    assert page.get_by_label("Time remaining").count() == 1
+    log.append("today: one slim Now focusing strip (time left + Open Focus), full timer only on Focus")
     page.fill("#brain-dump-input", "unsaved thought survives")
     rev = stack.state()["revision"]
     step_id = stack.state()["active_step_id"]
@@ -123,6 +130,8 @@ def calendar_drag(page: Page, stack: Stack, base: str) -> list[str]:
     page.goto(base + "/calendar")
     block = page.get_by_role("button", name="Drag me, ", exact=False).first
     block.wait_for()
+    page.wait_for_timeout(300)  # the grid opens scrolled to "now": bring the block into view first
+    block.scroll_into_view_if_needed()
     box = block.bounding_box()
     assert box
     x, y = box["x"] + box["width"] / 2, box["y"] + 12
@@ -135,6 +144,7 @@ def calendar_drag(page: Page, stack: Stack, base: str) -> list[str]:
                5, "task moved to 11:00")
     block = page.get_by_role("button", name="Drag me, ", exact=False).first
     page.wait_for_timeout(400)
+    block.scroll_into_view_if_needed()
     box = block.bounding_box()
     assert box
     bx, by = box["x"] + box["width"] / 2, box["y"] + box["height"] - 2
@@ -146,8 +156,23 @@ def calendar_drag(page: Page, stack: Stack, base: str) -> list[str]:
     stack.wait(lambda: next(i for i in stack.http.get(f"/api/v1/calendar?start={day}&days=1").json()[0]["items"]
                             if i["id"] == t["id"])["duration_min"] == 60, 5, "task resized to 60 min")
     page.screenshot(path=str(OUT / "1440x900/calendar_dragged.png"), full_page=True)
+    # click the block: the editor opens beside the grid, both on screen at once (no scrolling to the bottom)
+    page.get_by_role("button", name="Drag me, ", exact=False).first.scroll_into_view_if_needed()
+    page.get_by_role("button", name="Drag me, ", exact=False).first.click()
+    editor = page.get_by_label("Edit Drag me", exact=True)
+    editor.wait_for()
+    vh = page.viewport_size["height"] if page.viewport_size else 900
+    eb, gb = editor.bounding_box(), page.get_by_role("button", name="Drag me, ", exact=False).first.bounding_box()
+    assert eb and gb and eb["y"] + eb["height"] <= vh and 0 <= gb["y"] < vh, (eb, gb)
+    assert eb["x"] > gb["x"] + gb["width"], "editor should sit beside the grid"
+    page.screenshot(path=str(OUT / "1440x900/calendar_editing.png"))
+    editor.get_by_label("Time").fill("12:30")
+    editor.get_by_role("button", name="Save").click()
+    stack.wait(lambda: stack.http.get(f"/api/v1/tasks?date_from={day}&date_to={day}").json()[0]["start_hhmm"] == "12:30",
+               5, "task moved to 12:30 from the side editor")
     stack.http.delete(f"/api/v1/tasks/{t['id']}")
-    return ["calendar: block dragged 10:00 -> 11:00 and resized 30 -> 60 min by its edge"]
+    return ["calendar: block dragged 10:00 -> 11:00 and resized 30 -> 60 min by its edge",
+            "calendar: clicked block opens the editor beside the grid (both in view), time saved from there"]
 
 
 def today_drag(page: Page, stack: Stack, base: str) -> list[str]:
