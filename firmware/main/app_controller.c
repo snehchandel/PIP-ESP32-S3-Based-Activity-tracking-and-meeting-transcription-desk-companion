@@ -302,10 +302,21 @@ void app_local_error(app_t *a, const char *title, const char *text)
     a->dirty = true;
 }
 
+/* A failed read keeps the last good value on screen; the reading only disappears after APP_INDOOR_HOLD_MS
+ * without a good one (sensor gone), so the header no longer flickers (BUG-017). */
 void app_set_indoor(app_t *a, bool valid, int16_t temp_c10, uint8_t hum)
 {
-    if (valid != a->m.in_valid || temp_c10 / 5 != a->m.in_temp_c10 / 5 || hum != a->m.in_hum) {
-        a->m.in_valid = valid;
+    if (!valid) {
+        if (a->m.in_valid && (!a->indoor_seen || a->now_ms - a->indoor_ok_ms >= APP_INDOOR_HOLD_MS)) {
+            a->m.in_valid = false;
+            a->dirty = true;
+        }
+        return;
+    }
+    a->indoor_seen = true;
+    a->indoor_ok_ms = a->now_ms;
+    if (!a->m.in_valid || temp_c10 / 5 != a->m.in_temp_c10 / 5 || hum != a->m.in_hum) {
+        a->m.in_valid = true;
         a->m.in_temp_c10 = temp_c10;
         a->m.in_hum = hum;
         a->dirty = true;

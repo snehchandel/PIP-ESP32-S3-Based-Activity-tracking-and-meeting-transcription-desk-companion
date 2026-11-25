@@ -597,6 +597,7 @@ static void a_guitar(mascot_pose_t *p, float t, float D, int v, float s, int moo
     float in = win(t, 0.0f, D, 0.8f);
     p->held = PROP_GUITAR;
     p->held_t = t;
+    p->grip = in; /* fretting hand on the neck, strumming hand on the strings */
     p->arm_l = 75.0f * in;
     p->arm_r = (40.0f + 18.0f * fabsf(sinf(t * PI_F * (2.0f + (float)mood)))) * in;
     p->head_dy = 1.5f * fabsf(sinf(t * PI_F * 2.0f));
@@ -717,6 +718,7 @@ static void a_laptop(mascot_pose_t *p, float t, float D, int v, float s, int moo
     p->fp_x = s * 6.0f;
     p->fp_y = 18.0f;
     p->fp_t = t;
+    p->grip = sit; /* hands on the keyboard */
     float typing = sinf(t * 22.0f);
     p->arm_l = (58.0f + 6.0f * typing) * sit;
     p->arm_r = (58.0f - 6.0f * typing) * sit;
@@ -986,6 +988,7 @@ static void f_peek(mascot_pose_t *p, float t, float D, int v, float s, int mood)
     p->fp_t = t;
     float rise = win(t, D * 0.3f, D * 0.8f, 1.5f);
     p->sit = 1.0f - rise;
+    p->grip = 1.0f - seg(rise, 0.0f, 0.4f); /* typing until it pops up */
     p->y = 10.0f * (1.0f - rise);
     p->look_y = mixf(0.9f, 0.0f, rise);
     p->eyes = rise > 0.5f ? EYE_WIDE : EYE_PILL;
@@ -1466,6 +1469,9 @@ static void wear_gear(mascot_pose_t *p, int cat, float s, float in)
         p->arm_r = (g->held ? 35.0f : 8.0f) * in;
         p->arm_l = (g->held_l ? 35.0f : 8.0f) * in;
     }
+    if (g->held == PROP_GUITAR) {
+        p->grip = in; /* hands stay on the strapped-on guitar */
+    }
 }
 
 /* every ~9 s PIP looks up from its work at you for a moment (keeps catching your eye without interrupting) */
@@ -1780,6 +1786,102 @@ pip_activity_t mascot_activity_from_name(const char *name)
     return PIP_ACT_GENERAL;
 }
 
+/* ==== easter eggs: rare (see start_perf), PIP's own family, and a potato for bad days ==================== */
+/* a puff of smoke hides each swap; returns true while PIP is in its other form */
+static bool morph(mascot_pose_t *p, float t, float D)
+{
+    const float in = 1.3f, out = D - 1.7f;
+    p->puff = bump(t, in - 0.4f, in + 0.4f) + bump(t, out - 0.4f, out + 0.4f);
+    return t > in && t < out;
+}
+
+static void x_tin(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* "PIP Mk.0": the wind-up tin ancestor totters about, key turning, then winds down */
+    if (morph(p, t, D)) {
+        p->form = PIP_FORM_TIN;
+        p->form_t = t;
+        float wind = 1.0f - seg(t, D - 3.2f, D - 2.0f); /* the spring runs out */
+        p->x = s * 14.0f * sinf((t - 1.3f) * 0.9f) * wind;
+        p->lean = 2.5f * sinf(t * 9.0f) * wind;
+        if (t > D - 2.6f) emote(p, EMOTE_DOTS, t, D - 2.6f);
+    } else if (t <= 1.3f) { /* a sneaky look around first */
+        p->look_x = sinf(t * 5.0f);
+        p->eyes = EYE_HAPPY;
+        p->mouth = MOUTH_GRIN;
+    } else {
+        p->eyes = EYE_HAPPY;
+        p->mouth = MOUTH_GRIN;
+        emote(p, EMOTE_SPARKLE, t, D - 1.7f);
+    }
+    (void)v;
+    (void)mood;
+}
+
+static void x_mainframe(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* "PIP-1960": a room-sized computer, reels spinning, prints a little "HI!" for you */
+    if (morph(p, t, D)) {
+        p->form = PIP_FORM_MAINFRAME;
+        p->form_t = t - 1.3f;
+    } else if (t <= 1.3f) {
+        p->look_x = 0.0f;
+        p->eyes = EYE_WIDE;
+        p->mouth = MOUTH_O;
+        p->arm_l = p->arm_r = 140.0f * seg(t, 0.2f, 1.0f); /* "behold!" */
+    } else {
+        p->eyes = EYE_HAPPY;
+        p->mouth = MOUTH_GRIN;
+        emote(p, mood_emote(mood, EMOTE_SPARKLE, EMOTE_HEART, EMOTE_MUSIC), t, D - 1.7f);
+    }
+    (void)v;
+    (void)s;
+}
+
+static void e_potato(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* upset: grumbles at the potato in its hand, then hurls it off the screen and dusts off its hands */
+    float in = win(t, 0.0f, D, 0.6f);
+    const float wind0 = 2.4f, rel = 3.1f, land = 4.4f;
+    p->eyes = EYE_ANGLED;
+    p->mouth = MOUTH_WAVY;
+    if (t < rel) {
+        p->held = PROP_POTATO;
+        p->held_t = t;
+        float wind = seg(t, wind0, rel - 0.1f);
+        p->arm_r = mixf(40.0f * in, 165.0f, wind);
+        p->yaw = mixf(10.0f, -40.0f, wind);
+        p->lean = -4.0f * wind;
+        p->look_x = -0.6f * wind;
+        emote(p, t < wind0 ? EMOTE_SWEAT : EMOTE_EXCLAIM, t, t < wind0 ? 0.3f : wind0);
+    } else {
+        float u = seg(t, rel, land);
+        p->obj = t < land ? PROP_POTATO : PROP_NONE;
+        p->obj_t = t * 9.0f; /* tumbling */
+        p->obj_x = mixf(18.0f, -190.0f, (t - rel) / (land - rel));
+        p->obj_y = -70.0f - 70.0f * sinf(PI_F * fminf2(1.0f, (t - rel) / (land - rel)) * 0.8f);
+        p->arm_r = mixf(165.0f, 30.0f, seg(t, rel, rel + 0.5f));
+        p->yaw = mixf(-40.0f, 0.0f, seg(t, rel + 0.3f, rel + 1.2f));
+        p->look_x = -1.0f + u;
+        float dust = bump(t, land + 0.3f, land + 2.0f); /* claps the dust off */
+        p->arm_l = 70.0f * dust;
+        p->arm_r = mixf(p->arm_r, 70.0f + 12.0f * sinf(t * 22.0f), dust);
+        if (t > land + 0.3f) {
+            p->eyes = EYE_CLOSED;
+            p->mouth = MOUTH_FLAT;
+            emote(p, EMOTE_DOTS, t, land + 0.3f);
+        }
+        if (t > D - 2.0f) {
+            p->eyes = EYE_PILL;
+            p->mouth = MOUTH_SMILE; /* better now */
+            p->emote = EMOTE_NONE;
+        }
+    }
+    (void)v;
+    (void)s;
+    (void)mood;
+}
+
 /* ==== tables ================================================================================
  * tags: 0 = always eligible in that screen's library; otherwise eligible only while the scene tags (the task's
  * activity, the picked voice activity, the thinking stage) intersect them. */
@@ -1816,6 +1918,8 @@ static const act_t IDLE[] = {
     ACT("behind the board", a_behind, 22, 2), ACT("lean on the board", a_lean, 20, 2),
     ACT("present the board", a_present, 14, 2), ACT("kick across the room", a_kick, 14, 2),
     ACT("lap of the room", a_lap, 16, 2),
+    /* easter eggs: PIP's relatives drop by (rare roll, never twice within 2 h) */
+    ACT_T("tin-toy ancestor", x_tin, 14, 1, PIP_TAG_EGG), ACT_T("mainframe", x_mainframe, 14, 1, PIP_TAG_EGG),
     /* a step is lined up: every third act shows what's next */
     KITS("next up", k_ready, 14, 2),
 };
@@ -1864,7 +1968,7 @@ static const act_t AGENDA[] = {ACT("calendar", c_point, 16, 2), ACT("clock", a_c
 static const act_t ALARM[] = {ACT("alarm ringing", al_ring, 8, 1), ACT("wake up!", al_wake, 6, 1)};
 static const act_t CONFIRM[] = {ACT("head tilt", q_tilt, 10, 2)};
 static const act_t SLEEP[] = {ACT("dozing", z_sit, 30, 3)};
-static const act_t ERROR_[] = {ACT("fixing", e_fix, 10, 2)};
+static const act_t ERROR_[] = {ACT("fixing", e_fix, 10, 2), ACT_T("tosses a potato", e_potato, 10, 1, PIP_TAG_EGG)};
 static const act_t PICK[] = {ACT("points at option", NULL, 30, 1)};
 
 typedef struct {

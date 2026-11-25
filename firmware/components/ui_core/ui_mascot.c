@@ -373,6 +373,125 @@ static void glass(rlcd_fb_t *fb, float g)
     }
 }
 
+/* ---- easter eggs: PIP's relatives (original designs) and the smoke puff that swaps them in ---------------- */
+static uint32_t hash_u(uint32_t x)
+{
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    return x;
+}
+
+/* "PIP Mk.0": a boxy wind-up tin toy - blocky shoes, riveted body with a dial, accordion arms, grille mouth,
+ * and a turning key on its side */
+static void form_tin(rlcd_fb_t *fb, float x, float y, float t, float lean)
+{
+    float hx = x + lean;
+    fb_fill_rect(fb, ri(x - 18.0f), ri(y - 6.0f), 14, 6, INK_BLACK);
+    fb_fill_rect(fb, ri(x + 4.0f), ri(y - 6.0f), 14, 6, INK_BLACK);
+    fb_box_f(fb, x - 13.0f, y - 15.0f, x - 6.0f, y - 5.0f, 1.0f, 2.0f, INK_WHITE);
+    fb_box_f(fb, x + 6.0f, y - 15.0f, x + 13.0f, y - 5.0f, 1.0f, 2.0f, INK_WHITE);
+    for (int sd = -1; sd <= 1; sd += 2) { /* accordion arms, swinging stiffly */
+        float swing = 4.0f * sinf(t * 6.0f + (float)sd);
+        float ax = x + (float)sd * 21.0f, ay = y - 46.0f;
+        for (int k = 0; k < 4; k++) {
+            float x0 = ax + (float)sd * (2.5f * (float)k), y0 = ay + 6.0f * (float)k + swing * (float)k / 4.0f;
+            float x1 = ax + (float)sd * (2.5f * (float)(k + 1)) + (float)sd * ((k & 1) ? -3.0f : 3.0f);
+            fb_line_f(fb, x0, y0, x1, y0 + 6.0f + swing / 4.0f, 2.0f, INK_BLACK);
+        }
+        float cx = ax + (float)sd * 11.0f, cy = ay + 27.0f + swing;
+        fb_arc(fb, ri(cx), ri(cy), 4, sd > 0 ? 300 : 120, sd > 0 ? 420 : 240, 2, INK_BLACK); /* claw */
+    }
+    fb_box_f(fb, x - 21.0f, y - 52.0f, x + 21.0f, y - 14.0f, 3.0f, 3.0f, INK_WHITE);
+    for (int k = 0; k < 4; k++) { /* rivets */
+        fb_fill_rect(fb, ri(x + ((k & 1) ? 15.0f : -17.0f)), ri(y + ((k & 2) ? -20.0f : -48.0f)), 2, 2, INK_BLACK);
+    }
+    fb_ellipse(fb, ri(x), ri(y - 38.0f), 7, 7, 2, INK_BLACK); /* dial */
+    float na = t * 2.0f;
+    fb_line_f(fb, x, y - 38.0f, x + 5.0f * cosf(na), y - 38.0f + 5.0f * sinf(na), 1.5f, INK_BLACK);
+    for (int k = 0; k < 3; k++) {
+        fb_fill_rect(fb, ri(x - 9.0f + (float)k * 7.0f), ri(y - 26.0f), 4, 4, INK_BLACK);
+    }
+    float kw = 7.0f * fabsf(cosf(t * 5.0f)) + 1.0f; /* the wind-up key turns */
+    fb_line_f(fb, x + 21.0f, y - 34.0f, x + 29.0f, y - 34.0f, 3.0f, INK_BLACK);
+    fb_fill_triangle(fb, ri(x + 29.0f), ri(y - 34.0f), ri(x + 36.0f), ri(y - 34.0f - kw), ri(x + 36.0f), ri(y - 34.0f + kw),
+                     INK_BLACK);
+    fb_fill_rect(fb, ri(hx - 5.0f), ri(y - 57.0f), 10, 6, INK_BLACK); /* neck */
+    fb_box_f(fb, hx - 19.0f, y - 89.0f, hx + 19.0f, y - 56.0f, 2.0f, 3.0f, INK_WHITE);
+    for (int sd = -1; sd <= 1; sd += 2) {
+        float ex = hx + (float)sd * 8.0f, ey = y - 77.0f;
+        fb_ellipse(fb, ri(ex), ri(ey), 6, 6, 2, INK_BLACK);
+        fb_disc_f(fb, ex + 1.5f * sinf(t * 3.0f), ey, 2.2f, INK_BLACK);
+    }
+    fb_rect(fb, ri(hx - 10.0f), ri(y - 67.0f), 21, 7, 1, INK_BLACK); /* grille */
+    for (int k = 1; k < 5; k++) {
+        fb_vline(fb, ri(hx - 10.0f + (float)k * 4.0f), ri(y - 67.0f), 7, 1, INK_BLACK);
+    }
+    fb_line_f(fb, hx, y - 89.0f, hx, y - 99.0f, 2.0f, INK_BLACK);
+    fb_disc_f(fb, hx, y - 101.0f, 3.5f, INK_BLACK);
+}
+
+/* "PIP-1960": a cabinet computer - tape reels, a field of status lamps, and a printer slot */
+static void form_mainframe(rlcd_fb_t *fb, float x, float y, float t)
+{
+    fb_fill_rect(fb, ri(x - 38.0f), ri(y - 4.0f), 77, 4, INK_BLACK); /* plinth */
+    fb_box_f(fb, x - 34.0f, y - 106.0f, x + 34.0f, y - 3.0f, 2.0f, 2.0f, INK_WHITE);
+    fb_fill_rect(fb, ri(x - 34.0f), ri(y - 106.0f), 69, 8, INK_BLACK);
+    for (int k = 0; k < 4; k++) {
+        fb_fill_rect(fb, ri(x - 28.0f + (float)k * 6.0f), ri(y - 103.0f), 2, 2, INK_WHITE);
+    }
+    for (int sd = -1; sd <= 1; sd += 2) { /* tape reels */
+        float rx = x + (float)sd * 16.0f, ry = y - 80.0f, ang = t * (sd < 0 ? 3.0f : 3.6f);
+        fb_ellipse(fb, ri(rx), ri(ry), 13, 13, 2, INK_BLACK);
+        for (int k = 0; k < 3; k++) {
+            float a = ang + (float)k * 2.0944f;
+            fb_line_f(fb, rx, ry, rx + 10.0f * cosf(a), ry + 10.0f * sinf(a), 2.0f, INK_BLACK);
+        }
+        fb_disc_f(fb, rx, ry, 3.0f, INK_BLACK);
+    }
+    fb_hline(fb, ri(x - 16.0f), ri(y - 66.0f), 33, 1, INK_BLACK);
+    for (int row = 0; row < 2; row++) { /* status lamps */
+        for (int k = 0; k < 7; k++) {
+            int lx = ri(x - 28.0f + (float)k * 8.5f), ly = ri(y - 58.0f + (float)row * 7.0f);
+            if (hash_u((uint32_t)(row * 7 + k) * 2654435761u + (uint32_t)(t * 4.0f)) & 1u) {
+                fb_fill_rect(fb, lx, ly, 4, 4, INK_BLACK);
+            } else {
+                fb_rect(fb, lx, ly, 4, 4, 1, INK_BLACK);
+            }
+        }
+    }
+    fb_fill_rect(fb, ri(x - 14.0f), ri(y - 40.0f), 29, 3, INK_BLACK); /* printer slot */
+    float len = fminf(30.0f, fmaxf(0.0f, (t - 2.0f) * 14.0f));
+    if (len > 1.0f) {
+        fb_fill_rect(fb, ri(x - 12.0f), ri(y - 37.0f), 25, ri(len), INK_WHITE);
+        fb_rect(fb, ri(x - 12.0f), ri(y - 37.0f), 25, ri(len), 1, INK_BLACK);
+        if (len > 18.0f) {
+            int tw = text_width(&FONT_12B, "HI!");
+            text_draw(fb, &FONT_12B, ri(x) - tw / 2, ri(y - 37.0f + len - 16.0f), "HI!", INK_BLACK);
+        }
+    }
+}
+
+/* a round cloud of smoke that hides the swap */
+static void puff(rlcd_fb_t *fb, float cx, float cy, float a)
+{
+    if (a < 0.05f) {
+        return;
+    }
+    a = a > 1.0f ? 1.0f : a;
+    for (int k = 0; k < 8; k++) {
+        float ang = (float)k * 0.785f + 0.3f, rr = 14.0f + 18.0f * a;
+        float px = cx + cosf(ang) * rr, py = cy + sinf(ang) * rr * 1.3f, rad = 6.0f + 11.0f * a;
+        fb_disc_f(fb, px, py, rad + 2.0f, INK_BLACK);
+        fb_disc_f(fb, px, py, rad, INK_WHITE);
+    }
+    fb_disc_f(fb, cx, cy, 16.0f + 18.0f * a, INK_WHITE);
+    for (int k = 0; k < 4; k++) { /* sparkle specks */
+        float ang = (float)k * 1.57f + a * 3.0f;
+        fb_fill_rect(fb, ri(cx + cosf(ang) * 10.0f * a), ri(cy + sinf(ang) * 12.0f * a), 2, 2, INK_BLACK);
+    }
+}
+
 void ui_draw_mascot_on(rlcd_fb_t *fb, const mascot_pose_t *p, const ui_stage_t *st)
 {
     if (g_hidden) {
@@ -388,7 +507,23 @@ void ui_draw_mascot_on(rlcd_fb_t *fb, const mascot_pose_t *p, const ui_stage_t *
     if (p->y < 26.0f) {
         fb_fill_ellipse_pat(fb, ri(SX(p->x)), ri(SY(p->y > 0.0f ? p->y : 0.0f) + 2.0f), ri(25.0f * r.s * sh), ri(5.0f * r.s * sh), 1);
     }
+    if (p->form == PIP_FORM_TIN || p->form == PIP_FORM_MAINFRAME) {
+        if (p->form == PIP_FORM_TIN) {
+            form_tin(fb, SX(p->x), SY(p->y), p->form_t, p->lean);
+        } else {
+            form_mainframe(fb, SX(p->x), SY(p->y), p->form_t);
+        }
+        if (p->emote) {
+            emote(fb, &r, p);
+        }
+        puff(fb, SX(p->x), SY(p->y) - 55.0f, p->puff);
+        fb_clip_reset();
+        g_stage = &UI_STAGE_COLUMN;
+        return;
+    }
     bool fp_behind = p->floor_prop && p->fp_y < p->y;
+    /* hands on the keyboard: the laptop goes under the arms, not over them */
+    bool fp_under_hands = p->floor_prop == PROP_LAPTOP && p->grip > 0.5f && !fp_behind;
     if (fp_behind) {
         ui_prop_floor(fb, p, SX(p->fp_x), SY(p->fp_y) - p->fp_lift);
     }
@@ -408,11 +543,14 @@ void ui_draw_mascot_on(rlcd_fb_t *fb, const mascot_pose_t *p, const ui_stage_t *
         if (r.ear_z[i] >= 0.0f) ear(fb, &r, i, phones);
     }
     ui_prop_held(fb, p, &r, st->cx, st->fy, true); /* props that sit behind the near arm */
+    if (fp_under_hands) {
+        ui_prop_floor(fb, p, SX(p->fp_x), SY(p->fp_y) - p->fp_lift);
+    }
     for (int i = 0; i < 2; i++) {
         if (r.arm_z[i] >= 0.0f) arm(fb, &r, i);
     }
     ui_prop_held(fb, p, &r, st->cx, st->fy, false);
-    if (p->floor_prop && !fp_behind) {
+    if (p->floor_prop && !fp_behind && !fp_under_hands) {
         ui_prop_floor(fb, p, SX(p->fp_x), SY(p->fp_y) - p->fp_lift);
     }
     if (p->obj) {
@@ -422,6 +560,7 @@ void ui_draw_mascot_on(rlcd_fb_t *fb, const mascot_pose_t *p, const ui_stage_t *
         emote(fb, &r, p);
     }
     glass(fb, p->glass);
+    puff(fb, SX(p->x), SY(p->y) - 55.0f, p->puff);
     fb_clip_reset();
     g_stage = &UI_STAGE_COLUMN;
 }

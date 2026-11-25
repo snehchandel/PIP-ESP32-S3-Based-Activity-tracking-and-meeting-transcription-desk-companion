@@ -43,23 +43,19 @@ esp_err_t shtc3_init(i2c_master_bus_handle_t bus)
     return err;
 }
 
-bool shtc3_read(int16_t *temp_c10, uint8_t *hum)
+static uint32_t s_ok, s_fail;
+
+/* one measurement: wake (harmless when already awake), measure T-first without clock stretching, read 6 bytes */
+static bool read_once(int16_t *temp_c10, uint8_t *hum)
 {
-    if (!s_dev) {
-        return false;
-    }
     uint8_t d[6];
-    if (cmd(0x3517) != ESP_OK) {
-        return false;
-    }
+    (void)cmd(0x3517);
     vTaskDelay(pdMS_TO_TICKS(1));
     if (cmd(0x7866) != ESP_OK) {
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(15)); /* normal-mode conversion <= 12.1 ms */
-    esp_err_t err = i2c_master_receive(s_dev, d, 6, 50);
-    cmd(0xB098);
-    if (err != ESP_OK || crc8(d, 2) != d[2] || crc8(d + 3, 2) != d[5]) {
+    if (i2c_master_receive(s_dev, d, 6, 50) != ESP_OK || crc8(d, 2) != d[2] || crc8(d + 3, 2) != d[5]) {
         return false;
     }
     uint32_t rt = ((uint32_t)d[0] << 8) | d[1], rh = ((uint32_t)d[3] << 8) | d[4];
@@ -67,4 +63,29 @@ bool shtc3_read(int16_t *temp_c10, uint8_t *hum)
     uint32_t h = 100u * rh / 65536u;
     *hum = (uint8_t)(h > 100u ? 100u : h);
     return true;
+}
+
+/* Field fix (BUG-017): the wake/measure/sleep cycle failed about every other read on the shared bus and the
+ * header lost the indoor reading for 30 s each time. The sensor now stays awake (idle draw is negligible next to
+ * the ESP32) and a failed read is retried. */
+bool shtc3_read(int16_t *temp_c10, uint8_t *hum)
+{
+    if (!s_dev) {
+        return false;
+    }
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (read_once(temp_c10, hum)) {
+            s_ok++;
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    s_fail++;
+    return false;
+}
+
+void shtc3_stats(uint32_t *ok, uint32_t *fail)
+{
+    *ok = s_ok;
+    *fail = s_fail;
 }

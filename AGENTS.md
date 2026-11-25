@@ -123,6 +123,12 @@ screen + activity into *scene tags* (`app_scene_tags` → `mascot_set_scene`); e
 one "kit" act per activity (`GEAR[]` props), listening = the picked voice activity, thinking = transcribing then
 planning, break = its cue in order (stretch, sip water, look far away). Idle stays free play; with a step lined up
 every third act previews it. A tag change mid-screen restarts the performance (props via a trip).
+**Hands on objects:** `pose.grip` makes the rig put the hands where the object needs them (laptop keyboard deck,
+guitar neck + strings; the guitar is strapped to the body) and draws the arms in front; a gripped laptop is drawn
+under the arms. **Easter eggs** (ADR-025): acts tagged `PIP_TAG_EGG` only come from a rare roll in `start_perf`
+(idle ~1 in 24, error screen 1 in 3, never twice in 2 h, never while focusing): PIP's relatives "PIP Mk.0" (tin toy)
+and "PIP-1960" (mainframe) swap in behind a smoke `puff` via `pose.form`, and an upset PIP hurls a potato. All
+original designs - do not draw film/game characters.
 Idle acts may roam the world (`PIP_BOARD_DX`, `PIP_WORLD_L/R`, `PIP_OFFSCREEN` in `mascot.h`): they may only flip
 `behind` while PIP is clear of the board or off-screen, and must start and end at home — `test_ui` checks both.
 To add an act: write `static void a_xxx(mascot_pose_t *p, float t, float D, int v, float s, int mood)`, start and
@@ -263,6 +269,9 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
 - **A rebooted PIP is blank until the host re-sends everything** (UTC clock, no weather/alarm/agenda). USB reconnects
   inside the link grace period, so there is no link-down/up after an OTA or watchdog reset. `DeviceLink` resyncs when
   the heartbeat uptime goes backwards or the device's `state_rev` lags the host's for 3 s (BUG-016).
+- **The SHTC3 failed about every other read** in its wake/measure/sleep cycle on the shared I2C bus, and one miss
+  hid the header's indoor reading for 30 s (BUG-017). The sensor now stays awake, reads retry 3x, a miss is retried
+  after 2 s, and the app keeps the last good value for 5 min. `env.ok`/`env.fail` in DIAG count reads since boot.
 - **Windows occasionally drops PIP's COM port for a moment** ("ClearCommError ... device does not recognize the
   command", seen even before Wi-Fi existed). Never treat that as "unplugged": `AutoTransport` re-opens USB while
   the port is enumerated, uses Wi-Fi only when the cable is gone (or the port is unusable for 10 s), and moves back
@@ -291,6 +300,8 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
 - Firmware 1.4.0 (task-specific acts) on hardware: with the step "Put the tools or files…" (→ computer) PIP
   played free acts and, every third act, fetched the laptop and pointed at "Next: …" on the board
   (`artifacts/rlcd/hardware/hw_next_up_v140.png`).
+- Firmware 1.5.0: indoor reading steady (48/48 samples over 4 min, `env` 9 ok / 0 fail; before: 24/46 missing),
+  hands on laptop keys and guitar, easter eggs; 254 s uptime, heap 36 KB.
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
   end-of-speech timing in a real room, a slide transition and a full prop trip watched on the panel (needs a
   real button press / a minute of idle play; `simulate-button` is simulator-only).

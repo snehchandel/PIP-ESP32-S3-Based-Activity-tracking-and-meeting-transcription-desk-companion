@@ -113,6 +113,36 @@ void mascot_rig(const mascot_pose_t *p, pip_rig_t *r)
         r->hand[i].x = r->shoulder[i].x + out * dirx * len;
         r->hand[i].y = r->shoulder[i].y + cosf(a) * len;
     }
+    /* grip: the hands go where the object needs them, reaching in front of the body */
+    float g = clamp01(p->grip);
+    if (g > 0.0f) {
+        pip_pt_t tgt[2];
+        bool have = false;
+        float cy = (r->b_top + r->b_bot) * 0.5f;
+        if (p->held == PROP_GUITAR) { /* left hand on the neck, right hand strumming over the sound hole */
+            tgt[0].x = r->bx - 23.0f * s;
+            tgt[0].y = cy - 8.0f * s;
+            tgt[1].x = r->bx + 5.0f * s;
+            tgt[1].y = cy + 3.0f * s + 3.5f * s * sinf(p->held_t * 14.0f);
+            have = true;
+        } else if (p->floor_prop == PROP_LAPTOP) { /* both hands on the keyboard deck, tapping in turn */
+            float k = sinf(p->fp_t * 22.0f);
+            tgt[0].x = p->fp_x - 8.0f;
+            tgt[0].y = p->fp_y - p->fp_lift - 4.0f - 2.0f * fmaxf(0.0f, k);
+            tgt[1].x = p->fp_x + 8.0f;
+            tgt[1].y = p->fp_y - p->fp_lift - 4.0f - 2.0f * fmaxf(0.0f, -k);
+            have = true;
+        }
+        if (have) {
+            for (int i = 0; i < 2; i++) {
+                r->hand[i].x += (tgt[i].x - r->hand[i].x) * g;
+                r->hand[i].y += (tgt[i].y - r->hand[i].y) * g;
+                if (g > 0.5f) {
+                    r->arm_z[i] = 1.0f;
+                }
+            }
+        }
+    }
 }
 
 /* ---- engine --------------------------------------------------------------------------------- */
@@ -175,6 +205,17 @@ static void remember(mascot_anim_t *a, uint32_t now)
 
 /* Which acts fit the scene: tagged acts follow the task at hand. On the idle screen untagged free play runs and,
  * while a step is lined up, every third act previews it. Falls back to the "general" acts, then to everything. */
+static int egg_pool(pip_mode_t m, uint8_t *pool)
+{
+    int np = 0;
+    for (int i = 0; i < mascot_act_count(m) && np < 96; i++) {
+        if (mascot_act_tags(m, i) & PIP_TAG_EGG) {
+            pool[np++] = (uint8_t)i;
+        }
+    }
+    return np;
+}
+
 static int eligible_pool(const mascot_anim_t *a, pip_mode_t m, uint8_t *pool)
 {
     int n = mascot_act_count(m), np = 0;
@@ -185,7 +226,9 @@ static int eligible_pool(const mascot_anim_t *a, pip_mode_t m, uint8_t *pool)
         for (int i = 0; i < n && np < 96; i++) {
             uint32_t at = mascot_act_tags(m, i);
             bool ok;
-            if (pass == 2) {
+            if (at & PIP_TAG_EGG) {
+                ok = false; /* easter eggs only come from the rare roll */
+            } else if (pass == 2) {
                 ok = true;
             } else if (idle) {
                 ok = preview ? (at & want) != 0u : at == 0u;
@@ -204,7 +247,22 @@ static void start_perf(mascot_anim_t *a, uint32_t now)
 {
     pip_mode_t m = a->mode;
     uint8_t pool[96];
-    int np = eligible_pool(a, m, pool);
+    int np = 0;
+    /* easter eggs: about 1 in 24 idle acts, 1 in 3 when upset on the error screen; never twice within 2 h */
+    uint32_t roll = rnd(a);
+    if ((m == PIP_MODE_IDLE && roll % 24u == 0u) || (m == PIP_MODE_ERROR && roll % 3u == 0u)) {
+        uint8_t eggs[8];
+        int ne = egg_pool(m, eggs);
+        if (ne > 0) {
+            pip_perf_t c = {(uint8_t)m, eggs[rnd(a) % (uint32_t)ne], 0, (uint8_t)(rnd(a) & 1u), (uint8_t)(rnd(a) % 3u)};
+            if (m != PIP_MODE_IDLE || seen_ago(a, mascot_perf_key(&c), now) >= MASCOT_NO_REPEAT_MS) {
+                pool[np++] = c.act;
+            }
+        }
+    }
+    if (np == 0) {
+        np = eligible_pool(a, m, pool);
+    }
     int gap = np / 2 < MASCOT_RECENT ? np / 2 : MASCOT_RECENT; /* an activity type sits out at least n/2 turns */
     pip_perf_t best = {0};
     uint32_t best_ago = 0;
@@ -344,6 +402,7 @@ static void blend(mascot_pose_t *out, const mascot_pose_t *from, float w)
         t.fp_lift = lerpf(from->fp_lift, out->fp_lift, w);
     }
     t.glass = lerpf(from->glass, out->glass, w);
+    t.grip = lerpf(from->grip, out->grip, w);
     *out = t;
 }
 

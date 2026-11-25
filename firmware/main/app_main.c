@@ -127,7 +127,11 @@ static void io_diag(void *ctx, app_diag_t *d)
     d->dropped_audio_chunks = s_voice_dropped;
     snprintf(d->i2c_addrs, sizeof d->i2c_addrs, "%s", s_i2c_found);
     snprintf(d->reset_reason, sizeof d->reset_reason, "%s", reset_reason());
-    int n = net_link_status_json(d->extra, sizeof d->extra);
+    uint32_t env_ok = 0, env_fail = 0;
+    shtc3_stats(&env_ok, &env_fail);
+    int n = snprintf(d->extra, sizeof d->extra, "\"env\":{\"ok\":%lu,\"fail\":%lu},", (unsigned long)env_ok,
+                     (unsigned long)env_fail);
+    n += net_link_status_json(d->extra + n, sizeof d->extra - (size_t)n);
     if (n > 0 && (size_t)n + 2 < sizeof d->extra) {
         d->extra[n++] = ',';
         n += dev_ota_status_json(d->extra + n, sizeof d->extra - (size_t)n);
@@ -237,15 +241,16 @@ static void on_wake(int source, void *ctx)
 
 static void ui_task(void *arg)
 {
-    uint32_t last_batt = 0, last_rtc_sync = 0, last_env = 0;
+    uint32_t last_batt = 0, last_rtc_sync = 0, last_env = 0, env_every = 30000u;
     for (;;) {
         uint32_t t = now_ms();
         int16_t temp_c10 = 0;
         uint8_t hum = 0;
-        bool env_due = t - last_env >= 30000u || last_env == 0, env_ok = false;
+        bool env_due = t - last_env >= env_every || last_env == 0, env_ok = false;
         if (env_due) { /* ~15 ms I2C conversion: done outside the app lock */
             last_env = t;
             env_ok = shtc3_read(&temp_c10, &hum);
+            env_every = env_ok ? 30000u : 2000u; /* a miss is retried soon */
         }
         lock();
         if (env_due) {

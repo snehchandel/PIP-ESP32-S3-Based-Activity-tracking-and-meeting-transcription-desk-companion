@@ -75,6 +75,7 @@ typedef enum {
     PROP_PHONE,
     PROP_PAN,
     PROP_BAG,
+    PROP_POTATO,
     PROP_COUNT
 } prop_t;
 
@@ -103,6 +104,10 @@ typedef enum {
 #define PIP_TAG_VOICE(choice) (1u << (unsigned)(choice)) /* 0 Calendar, 1 Brain dump, 2 Focus, 3 Alarms */
 #define PIP_TAG_TRANSCRIBE 1u
 #define PIP_TAG_PLANNING 2u
+#define PIP_TAG_EGG (1u << 31) /* easter eggs: only ever picked by the rare roll in start_perf */
+
+/* PIP's family, for the easter eggs (original designs) */
+typedef enum { PIP_FORM_PIP = 0, PIP_FORM_TIN, PIP_FORM_MAINFRAME, PIP_FORM_COUNT } pip_form_t;
 
 /* Everything the renderer needs for one frame. Units: stage pixels, degrees, seconds. */
 typedef struct {
@@ -131,6 +136,10 @@ typedef struct {
     float glass;      /* 0..1: glare streaks of the screen glass (PIP pressed against it) */
     int sign;         /* sign text index when holding PROP_SIGN */
     int behind;       /* idle world: 1 = PIP is behind the message board (the board hides it) */
+    float grip;       /* 0..1: hands go onto what PIP works with (laptop keys, guitar neck + strings) */
+    int form;         /* pip_form_t: easter eggs swap PIP for a relative */
+    float form_t;     /* that form's own animation clock */
+    float puff;       /* 0..1 smoke cloud hiding a form swap */
 } mascot_pose_t;
 
 /* Idle world geometry (stage px relative to PIP's home spot; must match ui_layout.h). */

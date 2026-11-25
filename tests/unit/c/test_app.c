@@ -319,6 +319,26 @@ int main(void)
     CHECK(A.m.today[0].done);
     CHECK_EQ(A.alarm_count, 1);
     CHECK(strcmp(A.m.date_label, "Mon, Nov 23") == 0);
+    /* indoor sensor (BUG-017): a failed read keeps the last good value on screen; only a sensor that stays silent
+     * for APP_INDOOR_HOLD_MS disappears from the header */
+    uint32_t t_env = A.now_ms;
+    app_set_indoor(&A, true, 215, 40);
+    CHECK(A.m.in_valid && A.m.in_temp_c10 == 215);
+    A.now_ms = t_env + 30000u;
+    app_set_indoor(&A, false, 0, 0);
+    CHECK(A.m.in_valid && A.m.in_temp_c10 == 215 && A.m.in_hum == 40);
+    A.now_ms = t_env + 32000u;
+    app_set_indoor(&A, true, 221, 41);
+    CHECK(A.m.in_valid && A.m.in_temp_c10 == 221);
+    A.now_ms = t_env + 32000u + APP_INDOOR_HOLD_MS - 1000u;
+    app_set_indoor(&A, false, 0, 0);
+    CHECK(A.m.in_valid);
+    A.now_ms = t_env + 32000u + APP_INDOOR_HOLD_MS + 1000u;
+    app_set_indoor(&A, false, 0, 0);
+    CHECK(!A.m.in_valid);
+    app_set_indoor(&A, true, 220, 41);
+    CHECK(A.m.in_valid);
+
     frame(&A, PIP_UI_UPDATE, 0, 54, "{\"rev\":99,\"activity\":\"no-such-thing\"}");
     CHECK_EQ(A.m.activity, PIP_ACT_GENERAL); /* unknown activity names fall back safely */
     CHECK_EQ(A.m.upcoming_count, 2); /* the board's "Coming up" list, separate from upcoming_alarms */

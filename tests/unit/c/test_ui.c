@@ -378,12 +378,94 @@ int main(void)
         mascot_anim_step(&an, t);
         if (an.perf_count != before || t == 0) {
             uint32_t at = mascot_act_tags(PIP_MODE_IDLE, an.perf.act);
-            CHECK(at == 0u || at == PIP_TAG(PIP_ACT_COOK));
-            previews += at != 0u;
+            CHECK(at == 0u || at == PIP_TAG(PIP_ACT_COOK) || at == PIP_TAG_EGG);
+            previews += at == PIP_TAG(PIP_ACT_COOK);
             plays++;
         }
     }
     CHECK(previews * 4 >= plays && previews * 2 <= plays); /* about one in three */
+
+    /* ---- easter eggs: rare on idle, never on the focus screen, a potato now and then when upset ---- */
+    {
+        int eggs = 0, perfs = 0, focus_eggs = 0, potatoes = 0, errors = 0;
+        mascot_anim_init(&an, 2024, 0);
+        mascot_set_scene(&an, PIP_MODE_IDLE, 0, 0);
+        uint32_t seen = an.perf_count;
+        for (uint32_t t = 0; t < 4u * 3600u * 1000u; t += 50) {
+            mascot_anim_step(&an, t);
+            if (an.perf_count != seen) {
+                seen = an.perf_count;
+                perfs++;
+                eggs += (mascot_act_tags(PIP_MODE_IDLE, an.perf.act) & PIP_TAG_EGG) != 0u;
+            }
+        }
+        printf("eggs: %d of %d idle performances in 4 h\n", eggs, perfs);
+        CHECK(eggs >= 3 && eggs * 12 <= perfs); /* "sometimes": a handful an afternoon, well under 1 in 12 */
+        mascot_anim_init(&an, 7, 0);
+        mascot_set_scene(&an, PIP_MODE_FOCUS, PIP_TAG(PIP_ACT_WRITE), 0);
+        seen = an.perf_count;
+        for (uint32_t t = 0; t < 3600u * 1000u; t += 50) {
+            mascot_anim_step(&an, t);
+            if (an.perf_count != seen) {
+                seen = an.perf_count;
+                focus_eggs += (mascot_act_tags(PIP_MODE_FOCUS, an.perf.act) & PIP_TAG_EGG) != 0u;
+            }
+        }
+        CHECK_EQ(focus_eggs, 0);
+        mascot_anim_init(&an, 8, 0);
+        mascot_set_scene(&an, PIP_MODE_ERROR, 0, 0);
+        seen = an.perf_count;
+        for (uint32_t t = 0; t < 30u * 60u * 1000u; t += 50) {
+            mascot_anim_step(&an, t);
+            if (an.perf_count != seen) {
+                seen = an.perf_count;
+                errors++;
+                potatoes += (mascot_act_tags(PIP_MODE_ERROR, an.perf.act) & PIP_TAG_EGG) != 0u;
+            }
+        }
+        CHECK(potatoes > 0 && potatoes < errors);
+        /* a relative only appears behind the smoke: the form flips while the puff is thick */
+        for (int ea = 0; ea < mascot_act_count(PIP_MODE_IDLE); ea++) {
+            if (!(mascot_act_tags(PIP_MODE_IDLE, ea) & PIP_TAG_EGG)) continue;
+            pip_perf_t pf = {PIP_MODE_IDLE, (uint8_t)ea, 0, 1, 1};
+            float D = mascot_perf_seconds(&pf);
+            mascot_pose_t prev, cur;
+            mascot_perf_pose(&pf, 0.0f, D, &prev);
+            CHECK_EQ(prev.form, PIP_FORM_PIP);
+            for (float t = 0.05f; t <= D; t += 0.05f) {
+                mascot_perf_pose(&pf, t, D, &cur);
+                if (cur.form != prev.form) CHECK(cur.puff > 0.8f || prev.puff > 0.8f);
+                prev = cur;
+            }
+            CHECK_EQ(prev.form, PIP_FORM_PIP);
+        }
+    }
+
+    /* ---- hands on the object: typing on the keys, fretting + strumming the guitar ---- */
+    {
+        pip_perf_t typing = {PIP_MODE_FOCUS, 1, 0, 1, 1}; /* "typing" */
+        CHECK(strcmp(mascot_act_name(PIP_MODE_FOCUS, 1), "typing") == 0);
+        mascot_pose_t ps;
+        pip_rig_t rg;
+        mascot_perf_pose(&typing, 6.0f, mascot_perf_seconds(&typing), &ps);
+        mascot_rig(&ps, &rg);
+        for (int i = 0; i < 2; i++) { /* both hands on the keyboard deck, in front of the body */
+            CHECK(fabsf(rg.hand[i].x - (ps.fp_x + (i ? 8.0f : -8.0f))) < 1.5f);
+            CHECK(fabsf(rg.hand[i].y - (ps.fp_y - 4.0f)) < 3.0f);
+            CHECK(rg.arm_z[i] > 0.5f);
+        }
+        int gi = -1;
+        for (int k = 0; k < mascot_act_count(PIP_MODE_FOCUS); k++) {
+            if (strcmp(mascot_act_name(PIP_MODE_FOCUS, k), "plays guitar") == 0) gi = k;
+        }
+        CHECK(gi >= 0);
+        pip_perf_t gtr = {PIP_MODE_FOCUS, (uint8_t)gi, 0, 1, 1};
+        mascot_perf_pose(&gtr, 6.0f, mascot_perf_seconds(&gtr), &ps);
+        mascot_rig(&ps, &rg);
+        float cyb = (rg.b_top + rg.b_bot) * 0.5f;
+        CHECK(rg.hand[0].x < rg.bx - 18.0f && fabsf(rg.hand[0].y - (cyb - 8.0f)) < 2.0f); /* on the neck */
+        CHECK(fabsf(rg.hand[1].x - (rg.bx + 5.0f)) < 2.0f && fabsf(rg.hand[1].y - cyb) < 8.0f); /* strings */
+    }
 
     /* ---- reactions: a double press spins PIP all the way round ---- */
     mascot_anim_init(&an, 99, 0);

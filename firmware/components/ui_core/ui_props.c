@@ -21,6 +21,19 @@ static void ring_disc(rlcd_fb_t *fb, float x, float y, float r, float t)
     }
 }
 
+/* a lumpy spud with a few eyes that roll round as it tumbles */
+static void potato(rlcd_fb_t *fb, float x, float y, float s, float spin)
+{
+    fb_fill_ellipse(fb, ri(x), ri(y), ri(8.0f * s), ri(5.5f * s), INK_BLACK);
+    fb_fill_ellipse(fb, ri(x + 2.0f * s), ri(y - 3.0f * s), ri(3.0f * s), ri(2.5f * s), INK_BLACK); /* lump */
+    fb_fill_ellipse(fb, ri(x), ri(y), ri(6.5f * s), ri(4.0f * s), INK_WHITE);
+    fb_fill_ellipse_pat(fb, ri(x), ri(y), ri(6.5f * s), ri(4.0f * s), 2);
+    for (int k = 0; k < 3; k++) {
+        float a = spin + (float)k * 2.1f;
+        fb_fill_rect(fb, ri(x + cosf(a) * 4.0f * s), ri(y + sinf(a) * 2.5f * s), 2, 1, INK_BLACK);
+    }
+}
+
 static void ball(rlcd_fb_t *fb, float x, float y, float r, float spin)
 {
     ring_disc(fb, x, y, r, 2.0f);
@@ -224,6 +237,7 @@ static void held_one(rlcd_fb_t *fb, int prop, const mascot_pose_t *p, const pip_
         }
         break;
     }
+    case PROP_POTATO: potato(fb, hx, hy - 3.0f * s, s, t); break;
     case PROP_PHONE: { /* held to the ear: a little handset with a lit screen */
         fb_fill_rrect(fb, ri(hx - 3.5f * s), ri(hy - 13.0f * s), ri(8.0f * s), ri(15.0f * s), ri(2.0f * s), INK_BLACK);
         fb_fill_rect(fb, ri(hx - 1.5f * s), ri(hy - 11.0f * s), ri(4.0f * s), ri(8.0f * s), INK_WHITE);
@@ -384,9 +398,14 @@ void ui_prop_held(rlcd_fb_t *fb, const mascot_pose_t *p, const pip_rig_t *r, int
         switch (p->held) {
         case PROP_BOOK: book(fb, mx, my - 2.0f * s, s, p->held_t); break;
         case PROP_CALENDAR: calendar(fb, mx, my + 2.0f * s, s, p->held_t); break;
-        case PROP_GUITAR: {
-            float gx = mx + 4.0f * s, gy = my + 4.0f * s;
-            fb_line_f(fb, gx, gy, lx - 8.0f * s, ly - 6.0f * s, 3.0f, INK_BLACK);
+        case PROP_GUITAR: { /* strapped on: body at the belly, neck up to the left */
+            float cyb = (float)fy + (r->b_top + r->b_bot) * 0.5f;
+            float gx = (float)cx + r->bx + 1.0f * s, gy = cyb + 4.0f * s;
+            float nx = (float)cx + r->bx - 30.0f * s, ny = cyb - 11.0f * s;
+            fb_line_f(fb, gx, gy, nx, ny, 3.0f, INK_BLACK);
+            fb_line_f(fb, nx, ny, nx - 4.0f * s, ny - 2.0f * s, 5.0f, INK_BLACK); /* headstock */
+            (void)lx;
+            (void)ly;
             ring_disc(fb, gx + 4.0f * s, gy + 3.0f * s, 9.0f * s, 2.0f);
             ring_disc(fb, gx - 3.0f * s, gy - 2.0f * s, 6.5f * s, 2.0f);
             fb_disc_f(fb, gx, gy, 2.5f * s, INK_BLACK);
@@ -418,6 +437,7 @@ void ui_prop_flying(rlcd_fb_t *fb, const mascot_pose_t *p, const pip_rig_t *r, i
     float rx = (float)cx + r->hand[1].x, ry = (float)fy + r->hand[1].y;
     switch (p->obj) {
     case PROP_BALL: ball(fb, x, y, 7.0f, t); break;
+    case PROP_POTATO: potato(fb, x, y, 1.0f, t); break;
     case PROP_PLANE: {
         float dirx = cosf(fabsf(t)) * (t < 0.0f ? -1.0f : 1.0f), diry = -sinf(fabsf(t)) * 0.8f;
         float n = sqrtf(dirx * dirx + diry * diry);

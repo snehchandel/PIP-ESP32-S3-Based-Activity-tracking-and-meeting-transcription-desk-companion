@@ -209,3 +209,16 @@ random picks from a library.
   mirror side differs PIP keeps its props where they are (the engine flips the act's direction instead of moving them).
 - **Tests:** every activity gets only its own acts for 30 min on focus, pause and done; switching activity switches
   at once; listen/think/break/idle-preview rules; UI_UPDATE parsing; classifier table (pytest). Firmware 1.4.0.
+
+## ADR-025 — Easter eggs, hands that touch what they use
+- **Easter eggs:** the user asked for homages to well-known film/game robots and a game's potato. We do not draw
+  other works' characters, even simplified, so the eggs are PIP's own family instead: "PIP Mk.0" (a wind-up tin toy
+  with a turning key, accordion arms and a grille mouth) and "PIP-1960" (a cabinet computer with tape reels, status
+  lamps and a printer that hands you "HI!"), swapped in behind a smoke puff (`pose.form`, `pose.puff`); and when PIP
+  is upset on the error screen it sometimes hurls a plain potato off the screen and dusts off its hands. Rarity: a
+  roll in `start_perf` (idle ~1 in 24, error 1 in 3), never twice within 2 h, never on the focus screen. The potato is
+  fetched from the edge by a prop trip like every other prop.
+- **Grip:** the rig used to swing arms only outward, so the hands floated beside the laptop and the guitar.
+  `pose.grip` now pulls the hands onto the object (keyboard deck with alternating taps, guitar neck + strings with a
+  strum), arms drawn in front, a gripped laptop drawn under the arms; the guitar is strapped to the body instead of
+  hanging between the hands. Tests check the hand positions. Firmware 1.5.0.

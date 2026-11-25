@@ -21,7 +21,8 @@
 #define APP_RING_CHIME_MS 2500u     /* offline ringing: repeat the alarm chime... */
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
-#define APP_FW_VERSION "1.4.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_INDOOR_HOLD_MS (5u * 60u * 1000u) /* keep showing the last good indoor reading this long */
+#define APP_FW_VERSION "1.5.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum { CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM } chime_id_t;
 
@@ -104,6 +105,8 @@ typedef struct {
     uint32_t error_since_ms;
     bool error_local; /* raised by the device itself (vs. pushed by the host) */
     bool hands_free;  /* recording started by the wake word: the device ends it on silence */
+    uint32_t indoor_ok_ms; /* last good SHTC3 reading */
+    bool indoor_seen;
 
     /* screen slide transitions: the pages slide, PIP stays put on top (buffers are heap: PSRAM on the device) */
     ui_screen_t shown_screen;

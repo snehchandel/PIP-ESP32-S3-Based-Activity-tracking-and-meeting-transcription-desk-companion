@@ -23,6 +23,7 @@ void rtc_epoch_to_civil(uint32_t epoch, int *year, int *month, int *day, int *hh
 /* SHTC3 on-board temperature / humidity sensor */
 esp_err_t shtc3_init(i2c_master_bus_handle_t bus);
 bool shtc3_read(int16_t *temp_c10, uint8_t *hum);
+void shtc3_stats(uint32_t *ok, uint32_t *fail); /* reads since boot (diagnostics) */
 
 int i2c_probe_known(i2c_master_bus_handle_t bus, char *out, size_t cap, uint8_t *es7210_addr);
 
