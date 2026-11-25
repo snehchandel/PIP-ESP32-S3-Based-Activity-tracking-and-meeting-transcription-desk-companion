@@ -303,7 +303,7 @@ class DeviceLink:
             self.voice.data(sid, pcm, seq)
         elif t == FrameType.AUDIO_END:
             e = AudioEnd.unpack(f.payload)
-            self.voice.end(e.stream_id, e.total_samples)
+            self.voice.end(e.stream_id, e.total_samples, e.reason)
         elif t == FrameType.ACK:
             a = Ack.unpack(f.payload[:6])
             w = self._ack_waiters.get(a.ref_seq)

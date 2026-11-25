@@ -295,7 +295,7 @@ static void audio_task(void *arg)
     static uint8_t pkt[6 + AUDIO_CHUNK_BYTES];
     bool was = false, speaking = false;
     uint16_t chunk = 0;
-    uint32_t samples = 0, stream = 0, quiet_since = 0;
+    uint32_t samples = 0, stream = 0, quiet_since = 0, total_ms = 0;
     /* hands-free recordings end on silence: WebRTC VAD on 20 ms frames */
     vad_handle_t vad = vad_create(VAD_MODE_1);
     uint32_t speech_ms = 0, silence_ms = 0, rec_ms = 0;
@@ -306,7 +306,7 @@ static void audio_task(void *arg)
                 chunk = 0;
                 samples = 0;
                 stream = s_stream;
-                speech_ms = silence_ms = rec_ms = 0;
+                speech_ms = silence_ms = rec_ms = total_ms = 0;
             }
             if (audio_read_chunk(mono) == ESP_OK) {
                 memcpy(pkt, &stream, 4); /* little-endian target */
@@ -317,9 +317,33 @@ static void audio_task(void *arg)
                 lock();
                 app_set_audio_level(&s_app, audio_level_bars(mono, AUDIO_CHUNK_SAMPLES));
                 app_send(&s_app, PIP_AUDIO_DATA, false, pkt, sizeof pkt);
-                bool hands_free = s_app.hands_free;
+                bool hands_free = s_app.hands_free, autom = s_app.voice_auto;
+                if (s_app.vad_reset) { /* the activity was just decided: the message proper starts now */
+                    s_app.vad_reset = false;
+                    speech_ms = silence_ms = rec_ms = 0;
+                }
                 unlock();
-                if (hands_free && vad) {
+                total_ms += 20;
+                if (hands_free && vad && autom) {
+                    /* after the wake word: silence -> the picker; else wait for the PC to name the activity */
+                    rec_ms += 20;
+                    if (vad_process(vad, mono, AUDIO_RATE_HZ, 20) == VAD_SPEECH) {
+                        speech_ms += 20;
+                        silence_ms = 0;
+                    } else {
+                        silence_ms += 20;
+                    }
+                    if (speech_ms < 300 && rec_ms >= APP_AUTO_NO_SPEECH_MS) {
+                        lock();
+                        app_voice_auto_timeout(&s_app);
+                        unlock();
+                    } else if ((speech_ms >= 300 && silence_ms >= APP_AUTO_WAIT_MS) ||
+                               total_ms >= APP_VOICE_MAX_S * 1000u) {
+                        lock();
+                        app_voice_end(&s_app);
+                        unlock();
+                    }
+                } else if (hands_free && vad) {
                     rec_ms += 20;
                     if (vad_process(vad, mono, AUDIO_RATE_HZ, 20) == VAD_SPEECH) {
                         speech_ms += 20;
@@ -331,7 +355,7 @@ static void audio_task(void *arg)
                      * dumps have thinking pauses), nothing said for 6 s, or the 10 minute limit */
                     uint32_t quiet_end = speech_ms >= 20000u ? 2500u : 1200u;
                     if ((speech_ms >= 300 && silence_ms >= quiet_end) || (speech_ms < 300 && rec_ms >= 6000) ||
-                        rec_ms >= APP_VOICE_MAX_S * 1000u) {
+                        total_ms >= APP_VOICE_MAX_S * 1000u) {
                         lock();
                         app_voice_end(&s_app);
                         unlock();
@@ -342,9 +366,10 @@ static void audio_task(void *arg)
         }
         if (was) {
             was = false;
-            pip_audio_end_t e = {stream, 0, 0, 0, samples};
             uint8_t b[12];
             lock();
+            pip_audio_end_t e = {stream, (uint8_t)(s_app.voice_cancel ? APP_AUDIO_END_CANCELLED : 0u), 0, 0, samples};
+            s_app.voice_cancel = false;
             app_send(&s_app, PIP_AUDIO_END, true, b, (uint16_t)pip_pack_audio_end(&e, b));
             unlock();
         }

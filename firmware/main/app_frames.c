@@ -82,6 +82,11 @@ void app_apply_ui_update(app_t *a, const char *j, size_t n)
         a->toast_id = (uint32_t)tid;
         app_toast_for(a, tt, APP_ACK_TOAST_MS);
     }
+    long vs = 0; /* the PC heard which activity was said after the wake word */
+    char va[16];
+    if (a->voice_auto && jm_get_long(j, n, "voice_stream", &vs) && jm_get_str(j, n, "voice_activity", va, sizeof va)) {
+        app_voice_auto_decided(a, (uint32_t)vs, va);
+    }
     char et[sizeof m->error_title];
     bool host_error = jm_get_str(j, n, "error_title", et, sizeof et) && et[0];
     if (jm_get_str(j, n, "ui_state", s, sizeof s) && m->state != UI_STATE_ALARM_RINGING &&

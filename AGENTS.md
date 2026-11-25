@@ -141,6 +141,10 @@ and look at it: `build/host/sim_rlcd --render-acts artifacts/rlcd_acts && python
 Meeting) → KEY hold records (release ends, 10 min max) **or** saying the wake word again records hands-free (WebRTC
 VAD ends it after ~1.2 s of quiet - 2.5 s once 20 s were spoken -, 6 s with no speech, 10 min max). **Meeting**
 (ADR-026) records in `UI_STATE_MEETING` until KEY is held again, with no limit; the host stores and transcribes it.
+The first wake word now listens at once (AUDIO_START activity 5 = AUTO, `voice_auto`): the host transcribes the first
+seconds, `speech/spoken_activity.py` finds a leading activity name, and UI_UPDATE `voice_stream`/`voice_activity`
+tells PIP (a MEETING stream is handed to the recorder in place). 3 s of silence -> AUDIO_END reason 2 (cancelled) +
+the picker (ADR-028).
 BOOT double-click parks the task in progress (ADR-027). Audio: 16 kHz mono PCM16 in 20 ms frames
 (AUDIO_START/DATA/END); the activity id rides in AUDIO_START's former reserved u16.
 
@@ -169,7 +173,7 @@ on 20 ms idle with a partial frame.
 | Type | Dir | Payload / meaning |
 |---|---|---|
 | 0x00 HEARTBEAT | ⇄ | proto, link mode, flags, uptime, epoch, revision |
-| 0x01–0x03 AUDIO_START/DATA/END | dev→host | mic stream (activity in START: 0 brain dump, 1 calendar, 2 focus, 3 alarms, 4 meeting; max_sec 600, 0 = meeting/no limit) |
+| 0x01–0x03 AUDIO_START/DATA/END | dev→host | mic stream (activity in START: 0 brain dump, 1 calendar, 2 focus, 3 alarms, 4 meeting, 5 auto = named after the wake word; max_sec 600, 0 = meeting/no limit; END reason 2 = cancelled) |
 | 0x04 BTN_EVENT | dev→host | gesture (idempotent by boot id + seq) |
 | 0x05 OFFLINE_EVENTS | dev→host | JSON list of offline actions to reconcile |
 | 0x06 AUTH_CHALLENGE | dev→host | Wi-Fi only: nonce(16) + MAC(6) |
@@ -315,8 +319,8 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   (`artifacts/rlcd/hardware/hw_next_up_v140.png`).
 - Firmware 1.5.1 (1.5.0 + potato battery): indoor reading steady (48/48 samples over 4 min, `env` 9 ok / 0 fail; before: 24/46 missing),
   hands on laptop keys and guitar, easter eggs; 254 s uptime, heap 36 KB.
-- Firmware 1.6.0 (meeting recording, 10-min messages, time pie + cues, BOOT 2x park): built, simulator and C tests
-  green, **not yet on hardware**. Host: meetings verified end-to-end with real faster-whisper on synthetic voices
+- Firmware 1.7.0 (1.6.0 meeting recording, 10-min messages, time pie + cues, BOOT 2x park; 1.7.0 activity named
+  after the wake word): see the hardware notes below. Host: meetings verified end-to-end with real faster-whisper on synthetic voices
   (12/12 lines attributed) and in the Playwright flow; a real-room meeting with real people is not yet tested.
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
   end-of-speech timing in a real room, a slide transition and a full prop trip watched on the panel (needs a

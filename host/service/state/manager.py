@@ -46,6 +46,7 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
         self.error: dict[str, Any] | None = None    # user-visible error screen (dismissed by any button)
         self.weather: dict[str, Any] = {}            # outdoor conditions pushed to the device
         self.ack: dict[str, Any] | None = None       # "Alarm set · Wed 05:00" confirmation toast
+        self.voice_detect: dict[str, Any] | None = None  # activity heard after the wake word {stream, activity}
         self._ack_seq = int(time.time()) % 1_000_000_000  # unique across host restarts: the device shows each id once
         # chooses the Piper voice for a voice alarm ("female"/"male"); Services wires this to user prefs
         self.voice_for_style: Callable[[str], str | None] = lambda style: None
@@ -196,6 +197,8 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
                 "tz_offset_min": self.tz_offset_min(), "alarm_ringing": bool(self.ringing),
                 "error_title": (self.error or {}).get("title", ""), "error_text": (self.error or {}).get("text", ""),
                 "toast": (self.ack or {}).get("text", ""), "toast_id": (self.ack or {}).get("id", 0),
+                **({"voice_stream": self.voice_detect["stream"], "voice_activity": self.voice_detect["activity"]}
+                   if self.voice_detect else {}),
                 **{k: v for k, v in self.weather.items() if k in ("out_temp_c10", "out_hum", "out_code")},
             }
 

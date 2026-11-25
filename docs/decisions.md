@@ -266,3 +266,19 @@ random picks from a library.
   keyword classifier for what PIP acts out). Generic filler steps fail validation (one repair retry).
 - **Calendar:** tasks and reminders drag to another time/day; tasks resize from either edge (15-min snap,
   `tasks.block_min` overrides the steps' total). Firmware 1.6.0.
+
+## ADR-028 — Name the activity after the wake word (recognised on the laptop)
+- **Ask:** "Hi ESP… Meeting" should start a meeting without touching a button. Options: ESP-SR MultiNet on the
+  device (instant, offline, but another model in flash and RAM we don't have: ~36 KB internal free) or Whisper on
+  the PC. The user chose the PC: only the seconds after the wake word go there, which already receives every voice
+  message, so privacy is unchanged.
+- **Flow:** the first wake word starts a hands-free stream at once with activity 5 (AUTO). The host transcribes the
+  first <= 4 s at 1.6 s and every 0.5 s after; `spoken_activity.parse` accepts a name only at the start and standing
+  alone (followed by punctuation = a pause, or end of text with a quiet tail) so "Meeting with Bob at 3" stays a
+  brain dump. Talking 3+ words / 3.5 s without a name = brain dump. The decision goes to PIP in UI_UPDATE
+  (`voice_stream`, `voice_activity`); PIP shows the activity, restarts its end-of-speech clock, and for MEETING
+  turns the same stream into the meeting (the host moves the audio heard so far into the recording, so nothing is
+  lost). The name is stripped from the message before Kimi sees it.
+- **Silence:** no speech for 3 s after the wake word -> PIP cancels the stream (AUDIO_END reason 2, host discards
+  it) and shows the picker, where the wake word again works as before. While undecided PIP waits 4 s of silence
+  before sending (the decision normally arrives ~1 s after the name). No new frame types. Firmware 1.7.0.

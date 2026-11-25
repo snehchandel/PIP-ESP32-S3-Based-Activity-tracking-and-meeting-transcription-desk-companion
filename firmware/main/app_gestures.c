@@ -143,34 +143,44 @@ static void park_task(app_t *a)
     chime(a, CHIME_PAUSE);
 }
 
-static void start_listening(app_t *a)
+static void begin_meeting(app_t *a)
+{
+    /* a meeting records until KEY is held again; a running focus timer waits (the PC pauses it too) */
+    a->state_before_meeting = a->state_before_pick == UI_STATE_RUNNING ? UI_STATE_PAUSED : a->state_before_pick;
+    if (a->timer.state == LT_RUNNING) {
+        lt_pause(&a->timer, a->now_ms);
+        app_sync_timer_to_model(a);
+    }
+    a->meeting_link_lost_ms = 0;
+    a->hands_free = false;
+    a->voice_auto = false;
+    a->m.state = UI_STATE_MEETING;
+}
+
+static void start_capture(app_t *a, bool auto_pick)
 {
     if (a->m.link != LINK_TETHERED) {
         app_toast(a, "Connect PC for Voice");
         return;
     }
-    bool meeting = a->m.voice_choice == UI_VOICE_MEETING;
+    bool meeting = !auto_pick && a->m.voice_choice == UI_VOICE_MEETING;
+    a->voice_auto = auto_pick;
+    a->voice_cancel = false;
+    a->vad_reset = true;
     a->stream_id++;
     a->listen_start_ms = a->now_ms;
     a->m.listen_elapsed_s = 0;
     a->m.listen_max_s = (uint16_t)APP_VOICE_MAX_S;
     a->m.audio_level = 0;
     if (meeting) {
-        /* a meeting records until KEY is held again; a running focus timer waits (the PC pauses it too) */
-        a->state_before_meeting = a->state_before_pick == UI_STATE_RUNNING ? UI_STATE_PAUSED : a->state_before_pick;
-        if (a->timer.state == LT_RUNNING) {
-            lt_pause(&a->timer, a->now_ms);
-            app_sync_timer_to_model(a);
-        }
-        a->meeting_link_lost_ms = 0;
-        a->m.state = UI_STATE_MEETING;
+        begin_meeting(a);
     } else {
         a->m.state = UI_STATE_LISTENING;
     }
-    /* the former reserved u16 carries the picked activity (0 brain dump, 1 calendar, 2 focus, 3 alarms, 4 meeting);
-     * max_sec 0 = no limit (meeting) */
+    /* the former reserved u16 carries the activity (0 brain dump, 1 calendar, 2 focus, 3 alarms, 4 meeting,
+     * 5 = said after the wake word: the PC decides); max_sec 0 = no limit (meeting) */
     pip_audio_start_t s = {a->stream_id, 16000, 1, 16, (uint16_t)(meeting ? 0u : APP_VOICE_MAX_S),
-                           ui_voice_choice_activity(a->m.voice_choice)};
+                           auto_pick ? (uint16_t)APP_VOICE_AUTO : ui_voice_choice_activity(a->m.voice_choice)};
     uint8_t b[12];
     app_send(a, PIP_AUDIO_START, true, b, (uint16_t)pip_pack_audio_start(&s, b));
     if (a->io.capture) {
@@ -188,6 +198,7 @@ static void stop_listening(app_t *a, bool timeout)
     }
     (void)timeout;
     a->hands_free = false;
+    a->voice_auto = false;
     a->m.state = UI_STATE_TRANSCRIBING;
 }
 
@@ -205,14 +216,16 @@ bool app_voice_wake(app_t *a)
     }
     a->idle_since_ms = a->now_ms;
     if (st != UI_STATE_VOICE_PICK) {
-        /* first wake word: open "What's it about?" exactly like holding KEY does */
+        /* first wake word: listen right away - "Meeting", "Alarms, wake me at 7"... The PC hears which activity
+         * was said and tells us; silence opens the "What's it about?" picker instead (app_voice_auto_timeout). */
         a->state_before_pick = st == UI_STATE_SLEEP ? UI_STATE_IDLE_READY : st;
         a->pick_since_ms = a->now_ms;
-        a->m.state = UI_STATE_VOICE_PICK;
-        mascot_react(&a->anim, PIP_REACT_PRESS, a->now_ms);
+        mascot_react(&a->anim, PIP_REACT_HOLD, a->now_ms);
         if (a->io.chime) {
             a->io.chime(a->io.ctx, CHIME_CONFIRM);
         }
+        start_capture(a, true);
+        a->hands_free = a->m.state == UI_STATE_LISTENING;
         a->dirty = true;
         return true;
     }
@@ -221,10 +234,58 @@ bool app_voice_wake(app_t *a)
     if (a->io.chime) {
         a->io.chime(a->io.ctx, CHIME_START);
     }
-    start_listening(a);
+    start_capture(a, false);
     a->hands_free = a->m.state == UI_STATE_LISTENING;
     a->dirty = true;
     return true;
+}
+
+void app_voice_auto_timeout(app_t *a)
+{
+    if (a->m.state != UI_STATE_LISTENING || !a->voice_auto) {
+        return;
+    }
+    a->voice_cancel = true; /* AUDIO_END tells the PC there is nothing to transcribe */
+    if (a->io.capture) {
+        a->io.capture(a->io.ctx, false, a->stream_id);
+    }
+    a->voice_auto = false;
+    a->hands_free = false;
+    a->m.audio_level = 0;
+    a->pick_since_ms = a->now_ms;
+    a->m.state = UI_STATE_VOICE_PICK;
+    a->dirty = true;
+}
+
+static int choice_for(const char *activity)
+{
+    static const char *const names[UI_VOICE_CHOICES] = {"CALENDAR", "BRAIN_DUMP", "FOCUS", "ALARMS", "MEETING"};
+    for (int i = 0; i < UI_VOICE_CHOICES; i++) {
+        if (strcmp(activity, names[i]) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void app_voice_auto_decided(app_t *a, uint32_t stream, const char *activity)
+{
+    int c = choice_for(activity);
+    if (!a->voice_auto || a->m.state != UI_STATE_LISTENING || stream != a->stream_id || c < 0) {
+        return;
+    }
+    a->voice_auto = false;
+    a->vad_reset = true; /* the message itself starts now: a fresh 6 s to begin, 1.2 s quiet to end */
+    a->m.voice_choice = (uint8_t)c;
+    mascot_react(&a->anim, PIP_REACT_NEXT, a->now_ms);
+    if (c == UI_VOICE_MEETING) {
+        begin_meeting(a); /* the stream keeps going; the PC already records it as a meeting */
+        app_toast_for(a, "Recording meeting", 3000);
+    }
+    if (a->io.chime) {
+        a->io.chime(a->io.ctx, CHIME_CONFIRM);
+    }
+    a->dirty = true;
 }
 
 void app_meeting_end(app_t *a, const char *toast)
@@ -308,7 +369,7 @@ void app_on_gesture(app_t *a, const gesture_event_t *e)
             a->m.voice_choice = (uint8_t)((a->m.voice_choice + 1u) % UI_VOICE_CHOICES);
             a->pick_since_ms = a->now_ms;
         } else if (e->btn == BTN_KEY && e->gesture == GEST_HOLD_START) {
-            start_listening(a);
+            start_capture(a, false);
         } else if (e->btn == BTN_BOOT && e->gesture == GEST_SHORT) {
             a->m.state = a->state_before_pick; /* back */
         }

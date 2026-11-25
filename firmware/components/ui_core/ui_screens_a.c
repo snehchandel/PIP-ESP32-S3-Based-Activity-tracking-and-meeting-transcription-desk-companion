@@ -411,7 +411,8 @@ void ui_screen_listening(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     char t1[8], t2[8], buf[48];
     ui_fmt_mmss(t1, (uint32_t)m->listen_elapsed_s * 1000u);
     ui_fmt_mmss(t2, (uint32_t)(m->listen_max_s ? m->listen_max_s : 60) * 1000u);
-    snprintf(buf, sizeof buf, "%s \xC2\xB7 %s / %s", ui_voice_choice_label(m->voice_choice), t1, t2);
+    snprintf(buf, sizeof buf, "%s \xC2\xB7 %s / %s", m->voice_auto ? "What's it about?" : ui_voice_choice_label(m->voice_choice),
+             t1, t2);
     text_draw(fb, &FONT_14B, CONTENT_X, 80, buf, INK_BLACK);
     ui_meta_add(meta, "secondary_text", CONTENT_X, 80, text_width(&FONT_14B, buf), FONT_14B.line_h, -1);
     /* 10 discrete level bars, graded heights, filled up to the live level */
@@ -426,10 +427,11 @@ void ui_screen_listening(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
         }
     }
     ui_meta_add(meta, "level_meter", CONTENT_X, base - 86, 10 * bw + 9 * gap, 86, -1);
-    const char *tip = "Say it the way you'd tell a friend.";
+    const char *tip = m->voice_auto ? "Say \"Meeting\", \"Alarms\", \"Calendar\"... then talk."
+                                    : "Say it the way you'd tell a friend.";
     text_draw_fit(fb, &FONT_12, CONTENT_X, 214, CONTENT_W, tip, INK_BLACK);
     ui_meta_add(meta, "calm_text", CONTENT_X, 214, CONTENT_W, FONT_12.line_h, -1);
-    ui_hint_t h[] = {{ICON_MIC, "Release KEY to send"}};
+    ui_hint_t h[] = {{ICON_MIC, m->voice_auto ? "Stay quiet for the menu" : "Release KEY to send"}};
     ui_chrome_bar(fb, m, h, 1, meta);
 }
 

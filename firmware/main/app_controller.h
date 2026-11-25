@@ -22,7 +22,7 @@
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
 #define APP_INDOOR_HOLD_MS (5u * 60u * 1000u) /* keep showing the last good indoor reading this long */
-#define APP_FW_VERSION "1.6.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_FW_VERSION "1.7.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum {
     CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM,
@@ -36,6 +36,10 @@ typedef enum {
 #define APP_CUE_WRAP_S 60u   /* focus cue: "time to wrap up" */
 #define APP_CUE_WRAP_MIN_TOTAL_MS (3u * 60u * 1000u)
 #define APP_MEETING_LINK_GRACE_MS 120000u /* a meeting survives a PC link drop this long */
+#define APP_VOICE_AUTO 5u               /* AUDIO_START activity: "say what it's about" - the PC decides */
+#define APP_AUTO_NO_SPEECH_MS 3000u     /* wake word, then silence this long: open the picker instead */
+#define APP_AUTO_WAIT_MS 4000u          /* speech, then silence this long before the PC decided: send anyway */
+#define APP_AUDIO_END_CANCELLED 2u      /* AUDIO_END reason: nothing to transcribe (auto-listen timed out) */
 
 typedef struct {
     uint32_t free_heap_b, free_psram_b;
@@ -117,6 +121,9 @@ typedef struct {
     bool error_local; /* raised by the device itself (vs. pushed by the host) */
     bool hands_free;  /* recording started by the wake word: the device ends it on silence */
     uint32_t meeting_link_lost_ms; /* 0 = link fine (meeting recording only) */
+    bool voice_auto;   /* listening after the wake word, waiting for the PC to hear which activity was said */
+    bool vad_reset;    /* audio task: restart the end-of-speech clock (the activity was just decided) */
+    bool voice_cancel; /* audio task: the next AUDIO_END says "cancelled" */
     ui_state_t state_before_meeting;
     uint32_t indoor_ok_ms; /* last good SHTC3 reading */
     bool indoor_seen;
@@ -152,6 +159,10 @@ uint32_t app_scene_tags(const app_t *a);
 bool app_voice_wake(app_t *a);
 /* End a hands-free recording (silence detected / time limit). */
 void app_voice_end(app_t *a);
+/* Wake word, then no speech: stop listening (nothing is transcribed) and open the activity picker. */
+void app_voice_auto_timeout(app_t *a);
+/* The PC heard which activity was said after the wake word (UI_UPDATE voice_stream/voice_activity). */
+void app_voice_auto_decided(app_t *a, uint32_t stream, const char *activity);
 /* Stop a meeting recording (KEY hold, or the PC link stayed down too long). */
 void app_meeting_end(app_t *a, const char *toast);
 /* Re-render into a->fb if anything changed (or a slide transition is running); returns true when the panel

@@ -61,7 +61,12 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 ## 4. A typical session
 1. **Voice message.** Hold **KEY** — PIP asks **"What's it about?"**:
    **Calendar** · **Brain dump** · **Focus** · **Alarms** · **Meeting**. Click KEY to move the highlight, then
-   **hold KEY** and speak; release to send (up to **10 minutes**). BOOT goes back. Hands-free (wake word) messages
+   **hold KEY** and speak; release to send (up to **10 minutes**). BOOT goes back.
+   **Hands-free:** say the wake word, then the activity's name and (after a short pause or a comma) your
+   message — *"Hi ESP… Meeting"* starts a meeting recording, *"Hi ESP, alarms, wake me at 7"* sets an alarm,
+   *"Hi ESP, calendar, dentist Thursday at 2"*. The laptop hears the name (about a second) and PIP switches to it.
+   Just start talking without a name and it's a brain dump. Say nothing for 3 s and you get the menu instead; from
+   the menu, the wake word again talks about the highlighted option. Hands-free (wake word) messages
    end after a pause; once you've talked for 20 s PIP waits 2.5 s, so thinking pauses don't cut you off. (You can also type it in the app's **Brain Dump** page and
    pick the same four topics there.)
    - *Brain dump:* everything on your mind — PIP picks one task to do now and parks the rest.

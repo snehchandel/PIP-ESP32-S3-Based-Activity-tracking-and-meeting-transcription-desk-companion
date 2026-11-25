@@ -284,6 +284,13 @@ void app_tick(app_t *a, uint32_t now_ms)
         now_ms - a->meeting_link_lost_ms >= APP_MEETING_LINK_GRACE_MS) {
         app_meeting_end(a, "Meeting stopped: PC link lost");
     }
+    if (a->m.state != UI_STATE_LISTENING) {
+        a->voice_auto = false; /* any way out of listening (error, link loss, END) ends the "which activity" wait */
+    }
+    if (a->m.voice_auto != a->voice_auto) {
+        a->m.voice_auto = a->voice_auto;
+        a->dirty = true;
+    }
     if (a->m.state == UI_STATE_LISTENING || a->m.state == UI_STATE_MEETING) {
         uint32_t el32 = (now_ms - a->listen_start_ms) / 1000u;
         uint16_t el = (uint16_t)(el32 > 65535u ? 65535u : el32);

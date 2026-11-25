@@ -258,12 +258,24 @@ int main(void)
     gesture(&A, BTN_KEY, GEST_HOLD_START);
     gesture(&A, BTN_BOOT, GEST_SHORT);
     CHECK_EQ(A.m.state, prior);
-    /* wake word: first time opens the activity picker (no recording yet); again records hands-free */
+    /* wake word: PIP listens right away for "what it's about" (activity 5, the PC decides). Saying nothing
+     * opens the picker - the stream is cancelled, nothing is transcribed */
     starts = C.count[PIP_AUDIO_START];
+    int offs = C.captures_off;
     CHECK(app_voice_wake(&A));
+    CHECK_EQ(A.m.state, UI_STATE_LISTENING);
+    CHECK(A.voice_auto && A.hands_free);
+    CHECK_EQ(C.count[PIP_AUDIO_START], starts + 1);
+    CHECK_EQ(C.last_payload[10], APP_VOICE_AUTO);
+    app_tick(&A, A.now_ms + 1);
+    CHECK(A.m.voice_auto); /* the listening screen asks "What's it about?" */
+    app_voice_auto_timeout(&A); /* the audio task heard no speech for 3 s */
     CHECK_EQ(A.m.state, UI_STATE_VOICE_PICK);
-    CHECK_EQ(C.count[PIP_AUDIO_START], starts);
-    gesture(&A, BTN_KEY, GEST_SHORT); /* move the highlight */
+    CHECK(A.voice_cancel && !A.voice_auto && !A.hands_free);
+    CHECK_EQ(C.captures_off, offs + 1);
+    A.voice_cancel = false;
+    /* ...and from the picker the wake word again records hands-free about the highlighted option, as before */
+    starts = C.count[PIP_AUDIO_START];
     CHECK(app_voice_wake(&A));
     CHECK_EQ(A.m.state, UI_STATE_LISTENING);
     CHECK(A.hands_free);
@@ -274,6 +286,37 @@ int main(void)
     CHECK(!A.hands_free);
     CHECK(!app_voice_wake(&A)); /* busy transcribing: the wake word is ignored */
     A.m.state = prior;
+
+    /* wake word + "Alarms, wake me at 7": the PC names the activity; PIP follows and keeps listening */
+    CHECK(app_voice_wake(&A));
+    uint32_t sid = A.stream_id;
+    A.vad_reset = false;
+    frame(&A, PIP_UI_UPDATE, 0, 74, "{\"rev\":13,\"ui_state\":\"LISTENING\",\"voice_stream\":999,\"voice_activity\":\"ALARMS\"}");
+    CHECK(A.voice_auto); /* another stream's decision is ignored */
+    char js[160];
+    snprintf(js, sizeof js, "{\"rev\":14,\"ui_state\":\"LISTENING\",\"voice_stream\":%u,\"voice_activity\":\"ALARMS\"}",
+             (unsigned)sid);
+    frame(&A, PIP_UI_UPDATE, 0, 75, js);
+    CHECK(!A.voice_auto && A.vad_reset && A.hands_free);
+    CHECK_EQ(A.m.state, UI_STATE_LISTENING);
+    CHECK_EQ(A.m.voice_choice, 3);
+    app_voice_end(&A);
+    CHECK_EQ(A.m.state, UI_STATE_TRANSCRIBING);
+    A.m.state = prior;
+    /* wake word + "Meeting": the same stream becomes a meeting recording (no silence end, KEY hold stops it) */
+    CHECK(app_voice_wake(&A));
+    snprintf(js, sizeof js, "{\"rev\":15,\"ui_state\":\"LISTENING\",\"voice_stream\":%u,\"voice_activity\":\"MEETING\"}",
+             (unsigned)A.stream_id);
+    offs = C.captures_off;
+    frame(&A, PIP_UI_UPDATE, 0, 76, js);
+    CHECK_EQ(A.m.state, UI_STATE_MEETING);
+    CHECK(!A.hands_free && !A.voice_auto);
+    CHECK_EQ(C.captures_off, offs); /* capture never stopped */
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    CHECK(A.m.state != UI_STATE_MEETING);
+    CHECK_EQ(C.captures_off, offs + 1);
+    A.m.state = prior;
+    A.m.voice_choice = 1;
 
     /* meeting: picked like any voice activity, records with no time limit, survives host UI updates and
      * stray clicks, and only a KEY hold ends it (AUDIO_END goes to the PC) */
