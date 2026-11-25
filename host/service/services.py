@@ -12,6 +12,7 @@ import httpx
 from . import errors
 from .ai_cost import CostMeter
 from .alarms.audio import AlarmAudio
+from .alarms.nudges import NudgeScheduler
 from .alarms.scheduler import AlarmScheduler
 from .api.ws import WsHub
 from .config import Settings
@@ -64,6 +65,8 @@ class Services:
         self.meetings = MeetingService(self.manager, data_dir, settings.pip_meeting_model, self.hub.publish,
                                        summarizer=self.planner)
         self.voice.meetings = self.meetings
+        self.stt.vocabulary = self.meetings.stt.vocabulary = self.vocabulary()
+        self.nudges = NudgeScheduler(self.manager)
         self._ticker: asyncio.Task[None] | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self._model_cache: tuple[object, str] = (None, "")
@@ -90,7 +93,25 @@ class Services:
         """Kimi planner that meters every call; raises BudgetExceeded once the monthly cap is spent."""
         s = self.settings
         self.cost.check_budget()
-        return make_planner(s.api_key(), s.moonshot_base_url, self.kimi_model(), s.pip_timezone, on_usage=self.cost.record)
+        p = make_planner(s.api_key(), s.moonshot_base_url, self.kimi_model(), s.pip_timezone, on_usage=self.cost.record)
+        p.vocabulary = self.vocabulary()
+        return p
+
+    def vocabulary(self) -> list[str]:
+        v = self.settings.prefs().get("vocabulary") or []
+        return [str(w) for w in v if str(w).strip()] if isinstance(v, list) else []
+
+    def set_vocabulary(self, words: list[str]) -> list[str]:
+        seen: dict[str, str] = {}
+        for w in words:
+            w = " ".join(str(w).split())[:40]
+            if w and w.lower() not in seen:
+                seen[w.lower()] = w
+        out = list(seen.values())[:80]
+        self.settings.save_prefs(vocabulary=out)
+        self.stt.vocabulary = out
+        self.meetings.stt.vocabulary = out
+        return out
 
     # ---- device settings pushed over the link ------------------------------------------------
     WAKE_WORDS = {"hiesp": "Hi ESP", "jarvis": "Jarvis", "computer": "Computer", "hijoy": "Hi Joy"}
@@ -128,12 +149,15 @@ class Services:
                 return str(name)
         return None
 
-    def plan_steps(self, text: str) -> tuple[str, str | None, list[dict[str, Any]]]:
-        """Kimi breaks one chosen task into concrete steps: (title, short_title, steps). Raises PlannerError."""
+    def plan_task(self, text: str) -> Any:
+        """Kimi breaks one chosen task into concrete steps (ActiveTask, incl. start_local). Raises PlannerError."""
         plan = self.planner().plan(text, activity="TASK")  # type: ignore[call-arg]
         if plan.active_task is None:
             raise PlannerError(plan.clarification_question or "Kimi did not return steps for this")
-        t = plan.active_task
+        return plan.active_task
+
+    def plan_steps(self, text: str) -> tuple[str, str | None, list[dict[str, Any]]]:
+        t = self.plan_task(text)
         return t.title, t.short_title, [s.model_dump() for s in t.steps]
 
     def refine_task_steps(self, tid: str, text: str) -> None:
@@ -187,6 +211,16 @@ class Services:
             ids, ack = list(payload.get("ids", [])), dict(payload.get("ack") or {})
             self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._after_scheduled(ids, ack)))
 
+    async def _nudge(self, text: str) -> None:
+        try:
+            if self.link.linked:
+                self.link.play_chime(6)  # CONFIRM
+                if self.tts.enabled:
+                    await asyncio.sleep(0.7)
+                    await self.speak(text)
+        except Exception as e:
+            errors.report(self.db, "nudge", "Nudge failed", str(e), e)
+
     async def _after_scheduled(self, ids: list[str], ack: dict[str, str]) -> None:
         """Confirm out loud on PIP and pre-render any voice alarm so it plays instantly (even offline)."""
         try:
@@ -214,6 +248,8 @@ class Services:
             try:
                 self.alarm_scheduler.check()
                 self.meetings.tick()
+                for text in self.nudges.check():  # reminders due, tasks whose start time came: chime + say it
+                    asyncio.ensure_future(self._nudge(text))
             except Exception:
                 log.exception("alarm check failed")
             await asyncio.sleep(1.0)

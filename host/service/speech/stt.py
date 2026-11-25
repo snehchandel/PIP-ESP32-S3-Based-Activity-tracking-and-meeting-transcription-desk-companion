@@ -20,6 +20,7 @@ class SpeechToText:
         self.device = ""
         self.loading = False
         self.error = ""
+        self.vocabulary: list[str] = []  # names/acronyms the user says (Settings): passed to Whisper as hotwords
         try:
             import faster_whisper  # noqa: F401
             self.installed = True
@@ -96,8 +97,12 @@ class SpeechToText:
             audio = np.frombuffer(pcm16le, dtype=np.int16).astype(np.float32) / 32768.0
             if sample_rate != 16000 or audio.size < 1600:
                 return ""
-            segments, _ = self._model.transcribe(audio, language="en", beam_size=1, vad_filter=True)
+            segments, _ = self._model.transcribe(audio, language="en", beam_size=1, vad_filter=True,
+                                                 hotwords=self.hotwords())
             return " ".join(s.text.strip() for s in segments).strip()
+
+    def hotwords(self) -> str | None:
+        return ", ".join(self.vocabulary)[:400] or None
 
     def transcribe_segments(self, audio: Any, on_segment: Any = None, beam_size: int = 1) -> list[tuple[float, float, str]]:
         """Timed segments of a long recording (float32 mono 16 kHz numpy array). VAD splits at pauses of 0.5 s so
@@ -112,7 +117,7 @@ class SpeechToText:
                 return []
             segments, _ = self._model.transcribe(audio, language="en", beam_size=beam_size, vad_filter=True,
                                                  vad_parameters={"min_silence_duration_ms": 500},
-                                                 condition_on_previous_text=False)
+                                                 condition_on_previous_text=False, hotwords=self.hotwords())
             out = []
             for seg in segments:
                 text = seg.text.strip()

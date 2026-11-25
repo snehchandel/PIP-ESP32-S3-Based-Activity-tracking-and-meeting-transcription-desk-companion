@@ -135,6 +135,8 @@ export const api = {
     return (await res.json()) as { id: string };
   },
   voices: () => req<VoiceProfile[]>("GET", "/voices"),
+  vocabulary: () => req<{ words: string[] }>("GET", "/settings/vocabulary"),
+  setVocabulary: (words: string[]) => req<{ words: string[] }>("PUT", "/settings/vocabulary", { words }),
   forgetVoice: (id: string) => req<unknown>("DELETE", `/voices/${id}`),
   exportDiagnostics: () => req<Record<string, unknown>>("GET", "/diagnostics/export"),
 };

@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { useLive } from "../api/live";
 import type { Settings } from "../api/types";
 import { Button } from "./ui/button";
-import { Badge, Card, CardTitle, Input, Label, Select } from "./ui/primitives";
+import { Badge, Card, CardTitle, Input, Label, Select, Textarea } from "./ui/primitives";
 
 function ModelPicker() {
   const { run } = useLive();
@@ -74,6 +74,33 @@ export function ApiKeyCard({ s, onChange }: { s: Settings; onChange: (s: Setting
         <p role="status" className={`mt-2 flex items-center gap-2 text-sm ${result.ok ? "text-sage" : "text-[#8a3b2e]"}`}>
           {result.ok ? <CheckCircle2 size={15} aria-hidden /> : <XCircle size={15} aria-hidden />} {result.detail}</p>
       )}
+    </Card>
+  );
+}
+
+/** Names and acronyms the user says: Whisper gets them as hints, Kimi fixes near-misses ("castle" -> "CASL"). */
+export function VocabularyCard() {
+  const { run } = useLive();
+  const [text, setText] = useState("");
+  const [saved, setSaved] = useState("");
+  useEffect(() => {
+    void api.vocabulary().then((v) => { const t = v.words.join(", "); setText(t); setSaved(t); }).catch(() => undefined);
+  }, []);
+  const save = async () => {
+    const r = await run(() => api.setVocabulary(text.split(/[,\n]/).map((w) => w.trim()).filter(Boolean)));
+    if (r) { const t = r.words.join(", "); setText(t); setSaved(t); }
+  };
+  return (
+    <Card aria-label="Words PIP should know">
+      <CardTitle>Words PIP should know</CardTitle>
+      <p className="mb-2 text-sm text-muted">Names, acronyms and jargon you say — e.g. <i>CASL, CST, Priya, Salesforce
+        Marketing Cloud</i>. Speech-to-text hears them better and Kimi corrects near-misses.</p>
+      <Textarea aria-label="Your words, separated by commas" value={text} placeholder="CASL, CST, Priya"
+        onChange={(e) => setText(e.target.value)} className="min-h-20" />
+      <div className="mt-2 flex justify-end">
+        <Button size="sm" variant={text !== saved ? "primary" : "outline"} disabled={text === saved}
+          onClick={() => void save()}>Save words</Button>
+      </div>
     </Card>
   );
 }

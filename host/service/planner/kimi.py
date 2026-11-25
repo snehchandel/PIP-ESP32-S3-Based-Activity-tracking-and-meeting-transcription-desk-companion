@@ -30,12 +30,15 @@ ACTIVITY_RULES = {
                   "parked; anything with a time goes to scheduled.",
     "CALENDAR": "The user is talking about their calendar. Prefer scheduled items (kind TASK or REMINDER) with due_local. "
                 "Only create an active_task if they explicitly want to start something now.",
-    "FOCUS": "The user is in a focus session. Prefer intent CONTROL_COMMAND (START, PAUSE, RESUME, BREAK, COMPLETE_STEP, "
-             "SPLIT_STEP) when they ask to control the timer/step; otherwise park the thought so focus isn't broken.",
+    "FOCUS": "The user wants to focus. If they name something to work on now or soon, intent CREATE_TASK: that is "
+             "the active_task (set start_local if they say when they'll start). If they ask to control the timer or "
+             "step, intent CONTROL_COMMAND (START, PAUSE, RESUME, BREAK, COMPLETE_STEP, SPLIT_STEP). Only an unrelated "
+             "side thought is parked, so focus isn't broken.",
     "ALARMS": "The user wants alarms. Use scheduled items with kind ALARM and due_local; for repeating alarms set "
               "repeat_days like MO,WE,FR. intent ADD_ALARM.",
     "TASK": "The user has picked ONE task to start (from their parked notes or calendar). Return intent CREATE_TASK "
-            "with active_task broken into steps. Do not add scheduled or parked items.",
+            "with active_task broken into steps. Do not add scheduled or parked items. A start time in the note "
+            "('in 10 minutes') counts from now.",
 }
 
 ALARM_RULES = """Alarm rules (kind ALARM):
@@ -77,6 +80,11 @@ How to break a task into steps (hard rules):
 - active_task.title: the goal in a few plain words (max 40 chars), e.g. "Buy winter pants for my son" -
   never the first words of what they said. active_task.short_title max 18 chars for a tiny screen
   (e.g. "Kids' winter pants").
+- When they'll start: "in the next 10 minutes", "at 2", "after lunch" is when they START, never a time limit - size
+  the steps for the work itself. Set active_task.start_local "YYYY-MM-DDTHH:MM" (local) when they say a start time;
+  leave it null for "now".
+- What I said is a speech-to-text transcript: a word that makes no sense may be a mis-hearing. If it sounds like one
+  of my words (listed below) or an obvious term from the context, use the intended word in titles and steps.
 - If too vague for concrete steps: intent NEEDS_CLARIFICATION with a short clarification_question.
 - Times: due_local "YYYY-MM-DDTHH:MM" in the user's local zone. Vague times ("afternoon", "later", "Friday")
   set needs_confirmation=true.
@@ -144,6 +152,7 @@ class KimiPlanner:
         self.tz = ZoneInfo(tz)
         self.client = client or httpx.Client(timeout=timeout)
         self.on_usage = on_usage
+        self.vocabulary: list[str] = []  # the user's own words (names, acronyms) - Whisper often mishears them
 
     def _post(self, messages: list[dict[str, str]], purpose: str, json_mode: bool) -> httpx.Response:
         body: dict[str, Any] = {"model": self.model, "messages": messages}
@@ -216,7 +225,8 @@ class KimiPlanner:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT.format(activity=rules, schema=schema, alarm_rules=ALARM_RULES)},
             {"role": "user", "content": f"Now: {now.strftime('%A %Y-%m-%d %H:%M')} ({self.tz.key}).\n"
-                                        f"Activity: {activity}\nWhat I said: {text}"},
+                                        + (f"My words: {', '.join(self.vocabulary)}\n" if self.vocabulary else "")
+                                        + f"Activity: {activity}\nWhat I said: {text}"},
         ]
         content = self._call(messages)
         try:

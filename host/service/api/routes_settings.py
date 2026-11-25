@@ -114,6 +114,21 @@ def set_prefs(body: PrefsIn, req: Request) -> dict[str, Any]:
     return settings(req)
 
 
+class VocabularyIn(BaseModel):
+    words: list[str] = Field(max_length=200)
+
+
+@router.get("/settings/vocabulary")
+def get_vocabulary(req: Request) -> dict[str, list[str]]:
+    return {"words": svc(req).vocabulary()}
+
+
+@router.put("/settings/vocabulary")
+def put_vocabulary(body: VocabularyIn, req: Request) -> dict[str, list[str]]:
+    """Names and acronyms you use (CASL, CST, Priya...): Whisper hears them better, Kimi fixes near-misses."""
+    return {"words": svc(req).set_vocabulary(body.words)}
+
+
 @router.post("/speech/preload")
 def preload(req: Request) -> dict[str, Any]:
     svc(req).stt.preload()

@@ -78,13 +78,14 @@ def promote(pid: str, req: Request) -> dict[str, Any]:
         return {"task_id": resumed, "resumed": True}
     s.voice._set_overlay("THINKING", "Breaking into steps...")
     try:
-        title, short, steps = s.plan_steps(p["source_text"] or p["title"])
+        t = s.plan_task(p["source_text"] or p["title"])
     except PlannerError as e:
         raise HTTPException(502, f"Kimi couldn't plan this: {e}") from e
     finally:
         s.voice._set_overlay(None)
-    tid = s.manager.tasks.create_task(title or p["title"], steps, datetime.now(s.manager.tz).date().isoformat(),
-                                      s.manager.tz.key, short_title=short)
+    day = t.start_local[:10] if t.start_local else datetime.now(s.manager.tz).date().isoformat()
+    tid = s.manager.tasks.create_task(t.title or p["title"], [x.model_dump() for x in t.steps], day, s.manager.tz.key,
+                                      short_title=t.short_title, start_hhmm=t.start_local[11:16] if t.start_local else None)
     s.manager.tasks.set_parked_status(pid, "PROMOTED")
     if s.manager.active_step() is None:
         s.manager.activate_task(tid)

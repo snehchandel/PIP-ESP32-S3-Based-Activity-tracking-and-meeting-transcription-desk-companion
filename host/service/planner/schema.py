@@ -53,21 +53,23 @@ class ActiveTask(BaseModel):
     short_title: str | None = Field(default=None, max_length=24)  # fits the 400x300 device header
     steps: list[Step]
     if_then_cue: str | None = None
+    # when the user said they'll start ("in 10 minutes", "at 2"): local "YYYY-MM-DDTHH:MM"; PIP nudges then
+    start_local: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 
     @model_validator(mode="after")
     def adhd_invariants(self) -> ActiveTask:
+        """Structure is checked strictly; step lengths and the starter flag are repaired instead of rejecting a
+        good plan (a 4-minute step once made PIP say "AI has left the device")."""
         if not 3 <= len(self.steps) <= 6:
             raise ValueError(f"active task needs 3-6 micro-steps, got {len(self.steps)}")
         first = self.steps[0]
-        if not first.is_starter or not 2 <= first.duration_min <= 5:
-            raise ValueError("step 1 must be a 2-5 minute starter (is_starter=true)")
         if ABSTRACT_STARTERS.match(first.title):
             raise ValueError(f"starter must be a concrete physical action, not '{first.title}'")
+        first.is_starter = True
+        first.duration_min = min(5, max(2, first.duration_min))
         for s in self.steps[1:]:
-            if s.is_starter:
-                raise ValueError("only step 1 may be a starter")
-            if not 5 <= s.duration_min <= 25:
-                raise ValueError(f"step '{s.title}' must be 5-25 minutes")
+            s.is_starter = False
+            s.duration_min = min(25, max(5, s.duration_min))
         return self
 
 

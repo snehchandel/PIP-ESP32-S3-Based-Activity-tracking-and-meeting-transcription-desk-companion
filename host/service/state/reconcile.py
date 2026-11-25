@@ -57,9 +57,12 @@ class ReconcileMixin:
                 return out
             today = datetime.now(self.tz).date().isoformat()
             if plan.active_task:
+                day, hhmm = today, None
+                if plan.active_task.start_local:  # "starting in 10 minutes": on the calendar, PIP nudges then
+                    day, hhmm = plan.active_task.start_local[:10], plan.active_task.start_local[11:16]
                 tid = self.tasks.create_task(plan.active_task.title, [s.model_dump() for s in plan.active_task.steps],
-                                             today, self.tz.key, if_then_cue=plan.active_task.if_then_cue,
-                                             short_title=plan.active_task.short_title)
+                                             day, self.tz.key, if_then_cue=plan.active_task.if_then_cue,
+                                             short_title=plan.active_task.short_title, start_hhmm=hhmm)
                 out["task_id"] = tid
             for p in plan.parked:
                 out["parked_ids"].append(self.tasks.park(p.title, p.source_text))

@@ -208,6 +208,8 @@ on 20 ms idle with a partial frame.
 - **Meetings** (ADR-026): activity-4 streams go to `MeetingService` (WAV on disk, gap fill, crash recovery, own
   faster-whisper instance `pip_meeting_model`, 10-min windows, numpy speaker detection, remembered voices, optional
   Kimi summary). API under `/meetings` + `/voices`; WebSocket event `meeting_updated` (status, progress).
+- **Nudges** (`alarms/nudges.py`, ADR-029): due reminders and task start times -> toast + chime + speech.
+  Personal vocabulary (prefs `vocabulary`) feeds Whisper `hotwords` and the Kimi request.
 - **Speech:** faster-whisper `small.en` (CPU int8; CUDA falls back), Piper voices in `data/voices`. Spoken alarms
   are pre-rendered to `data/alarm_audio/` at creation; ring sequence = device chime → script → chimes every
   2.5 s for 60 s, aborted the moment the alarm is dismissed.

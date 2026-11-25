@@ -282,3 +282,18 @@ random picks from a library.
 - **Silence:** no speech for 3 s after the wake word -> PIP cancels the stream (AUDIO_END reason 2, host discards
   it) and shows the picker, where the wake word again works as before. While undecided PIP waits 4 s of silence
   before sending (the decision normally arrives ~1 s after the name). No new frame types. Firmware 1.7.0.
+
+## ADR-029 — Repair step lengths, start times with nudges, reminders that ping, personal vocabulary
+- **Seen on hardware:** "Hi ESP, focus… in the next 10 minutes, the CASL consent metrics for Priya" failed twice in
+  validation: Kimi treated "next 10 minutes" as a time budget and made 4-minute steps, which the 5-25 min rule
+  rejected -> "AI has left the device" for a good plan. Whisper also heard "CASL" as "castle".
+- **Repair, don't reject:** `ActiveTask` keeps the strict structural checks (3-6 steps, concrete starter, no
+  headings/filler) but clamps durations (starter 2-5, others 5-25) and fixes the starter flag.
+- **Start time:** `ActiveTask.start_local`; the prompt says "in 10 minutes"/"at 2" is when the user starts, never a
+  limit. The task gets that date + `start_hhmm` (still the active task, timer waits for KEY). The FOCUS rule now
+  creates the named task instead of preferring to park it. Promoting a parked note keeps a start time.
+- **Nudges:** reminders never notified before (calendar only). `alarms/nudges.py` checks each second for reminders
+  due and tasks whose start time came (within 2 min, so a restart doesn't replay old ones) -> toast
+  "Reminder: ..." / "Time to start: ...", confirm chime and Piper speech on PIP.
+- **Vocabulary:** Settings "Words PIP should know" (prefs `vocabulary`) -> faster-whisper `hotwords` for voice and
+  meetings, and "My words:" in the Kimi request with an instruction to fix mis-hearings from context.
