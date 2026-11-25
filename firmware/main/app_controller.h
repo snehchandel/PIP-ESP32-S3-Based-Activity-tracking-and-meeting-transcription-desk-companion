@@ -22,7 +22,7 @@
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
 #define APP_INDOOR_HOLD_MS (5u * 60u * 1000u) /* keep showing the last good indoor reading this long */
-#define APP_FW_VERSION "1.7.1" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_FW_VERSION "1.7.2" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum {
     CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM,
@@ -38,7 +38,14 @@ typedef enum {
 #define APP_MEETING_LINK_GRACE_MS 120000u /* a meeting survives a PC link drop this long */
 #define APP_VOICE_AUTO 5u               /* AUDIO_START activity: "say what it's about" - the PC decides */
 #define APP_AUTO_NO_SPEECH_MS 3000u     /* wake word, then silence this long: open the picker instead */
-#define APP_AUTO_WAIT_MS 4000u          /* speech, then silence this long before the PC decided: send anyway */
+#define APP_AUTO_WAIT_MS 5000u          /* speech, then silence this long before the PC decided: send anyway */
+/* hands-free recordings end on a pause this long after real speech (longer once they've talked 20 s: long brain
+ * dumps have thinking pauses); a KEY press sends at once. 1.2 s / 2.5 s cut people off mid-thought. */
+#define APP_QUIET_END_MS 3500u
+#define APP_QUIET_END_LONG_MS 5000u
+#define APP_QUIET_LONG_AFTER_MS 20000u
+#define APP_NO_SPEECH_END_MS 6000u      /* hands-free, nothing said this long: give up */
+#define APP_DUPLEX_CHIME_VOL 60u        /* a chime played while the mic records (wake / activity heard) */
 #define APP_AUDIO_END_CANCELLED 2u      /* AUDIO_END reason: nothing to transcribe (auto-listen timed out) */
 
 typedef struct {

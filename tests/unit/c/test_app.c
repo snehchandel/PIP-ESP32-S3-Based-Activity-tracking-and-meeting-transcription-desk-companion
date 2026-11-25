@@ -300,7 +300,26 @@ int main(void)
     CHECK(!A.voice_auto && A.vad_reset && A.hands_free);
     CHECK_EQ(A.m.state, UI_STATE_LISTENING);
     CHECK_EQ(A.m.voice_choice, 3);
+    /* acknowledged: a "go ahead" chime and a toast naming the activity */
+    CHECK_EQ(C.last_chime, CHIME_START);
+    CHECK(strstr(A.m.toast, "Alarms") != NULL);
+    app_tick(&A, A.now_ms + 1);
+    CHECK(A.m.voice_hands_free); /* the bar says "Pause or press KEY to send" */
     app_voice_end(&A);
+    CHECK_EQ(A.m.state, UI_STATE_TRANSCRIBING);
+    app_tick(&A, A.now_ms + 1);
+    CHECK(!A.m.voice_hands_free);
+    A.m.state = prior;
+    /* hands-free: a KEY press sends at once instead of waiting for the pause (and opens no picker) */
+    CHECK(app_voice_wake(&A));
+    gesture(&A, BTN_KEY, GEST_SHORT);
+    CHECK_EQ(A.m.state, UI_STATE_TRANSCRIBING);
+    CHECK(!A.hands_free);
+    A.m.state = prior;
+    CHECK(app_voice_wake(&A));
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    CHECK_EQ(A.m.state, UI_STATE_TRANSCRIBING);
+    gesture(&A, BTN_KEY, GEST_HOLD_END);
     CHECK_EQ(A.m.state, UI_STATE_TRANSCRIBING);
     A.m.state = prior;
     /* wake word + "Meeting": the same stream becomes a meeting recording (no silence end, KEY hold stops it) */

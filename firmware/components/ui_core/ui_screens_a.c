@@ -431,7 +431,9 @@ void ui_screen_listening(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
                                     : "Say it the way you'd tell a friend.";
     text_draw_fit(fb, &FONT_12, CONTENT_X, 214, CONTENT_W, tip, INK_BLACK);
     ui_meta_add(meta, "calm_text", CONTENT_X, 214, CONTENT_W, FONT_12.line_h, -1);
-    ui_hint_t h[] = {{ICON_MIC, m->voice_auto ? "Stay quiet for the menu" : "Release KEY to send"}};
+    ui_hint_t h[] = {{ICON_MIC, m->voice_auto            ? "Stay quiet for the menu"
+                                : m->voice_hands_free ? "Pause or press KEY to send"
+                                                      : "Release KEY to send"}};
     ui_chrome_bar(fb, m, h, 1, meta);
 }
 

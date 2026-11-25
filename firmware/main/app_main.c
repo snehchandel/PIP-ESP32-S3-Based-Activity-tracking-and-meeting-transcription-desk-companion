@@ -292,6 +292,7 @@ static void ui_task(void *arg)
 static void audio_task(void *arg)
 {
     static int16_t mono[AUDIO_CHUNK_SAMPLES];
+    static int16_t tone[AUDIO_CHUNK_SAMPLES];
     static uint8_t pkt[6 + AUDIO_CHUNK_BYTES];
     bool was = false, speaking = false;
     uint16_t chunk = 0;
@@ -299,6 +300,9 @@ static void audio_task(void *arg)
     /* hands-free recordings end on silence: WebRTC VAD on 20 ms frames */
     vad_handle_t vad = vad_create(VAD_MODE_1);
     uint32_t speech_ms = 0, silence_ms = 0, rec_ms = 0;
+    /* acknowledgement chime over the live mic: played 20 ms per mic chunk so no speech is lost */
+    uint8_t duplex_id = 0, amp_hold = 0, vad_skip = 0;
+    uint32_t duplex_pos = 0;
     for (;;) {
         if (s_capture && audio_ok()) {
             if (!was) {
@@ -307,6 +311,26 @@ static void audio_task(void *arg)
                 samples = 0;
                 stream = s_stream;
                 speech_ms = silence_ms = rec_ms = total_ms = 0;
+            }
+            uint8_t cid;
+            if (!duplex_id && xQueuePeek(s_chime_q, &cid, 0) == pdTRUE && (cid == CHIME_CONFIRM || cid == CHIME_START)) {
+                (void)xQueueReceive(s_chime_q, &cid, 0); /* "heard you" / "go ahead"; other chimes wait as before */
+                duplex_id = cid;
+                duplex_pos = 0;
+            }
+            if (duplex_id) {
+                size_t k = audio_chime_fill(duplex_id, APP_DUPLEX_CHIME_VOL, duplex_pos, tone, AUDIO_CHUNK_SAMPLES);
+                if (k > 0) {
+                    memset(tone + k, 0, (AUDIO_CHUNK_SAMPLES - k) * sizeof tone[0]);
+                    (void)audio_write_mono_duplex(tone, AUDIO_CHUNK_SAMPLES);
+                    duplex_pos += (uint32_t)k;
+                    amp_hold = 6; /* the I2S DMA still holds ~90 ms of tone: keep the amp on for it */
+                    vad_skip = 12; /* the mic hears the chime (and ~200 ms of echo in its DMA): not speech */
+                } else {
+                    duplex_id = 0;
+                }
+            } else if (amp_hold && --amp_hold == 0) {
+                audio_amp_off();
             }
             if (audio_read_chunk(mono) == ESP_OK) {
                 memcpy(pkt, &stream, 4); /* little-endian target */
@@ -324,15 +348,22 @@ static void audio_task(void *arg)
                 }
                 unlock();
                 total_ms += 20;
-                if (hands_free && vad && autom) {
-                    /* after the wake word: silence -> the picker; else wait for the PC to name the activity */
+                bool heard = false; /* while our own chime is in the mic, neither speech nor silence counts */
+                if (hands_free && vad) {
                     rec_ms += 20;
-                    if (vad_process(vad, mono, AUDIO_RATE_HZ, 20) == VAD_SPEECH) {
+                    heard = vad_skip == 0;
+                    if (heard && vad_process(vad, mono, AUDIO_RATE_HZ, 20) == VAD_SPEECH) {
                         speech_ms += 20;
                         silence_ms = 0;
-                    } else {
+                    } else if (heard) {
                         silence_ms += 20;
                     }
+                }
+                if (vad_skip) {
+                    vad_skip--;
+                }
+                if (hands_free && vad && autom) {
+                    /* after the wake word: silence -> the picker; else wait for the PC to name the activity */
                     if (speech_ms < 300 && rec_ms >= APP_AUTO_NO_SPEECH_MS) {
                         lock();
                         app_voice_auto_timeout(&s_app);
@@ -344,18 +375,11 @@ static void audio_task(void *arg)
                         unlock();
                     }
                 } else if (hands_free && vad) {
-                    rec_ms += 20;
-                    if (vad_process(vad, mono, AUDIO_RATE_HZ, 20) == VAD_SPEECH) {
-                        speech_ms += 20;
-                        silence_ms = 0;
-                    } else {
-                        silence_ms += 20;
-                    }
-                    /* done: 1.2 s quiet after real speech (2.5 s once they've talked for 20 s - long brain
+                    /* done: a 3.5 s pause after real speech (5 s once they've talked for 20 s - long brain
                      * dumps have thinking pauses), nothing said for 6 s, or the 10 minute limit */
-                    uint32_t quiet_end = speech_ms >= 20000u ? 2500u : 1200u;
-                    if ((speech_ms >= 300 && silence_ms >= quiet_end) || (speech_ms < 300 && rec_ms >= 6000) ||
-                        total_ms >= APP_VOICE_MAX_S * 1000u) {
+                    uint32_t quiet_end = speech_ms >= APP_QUIET_LONG_AFTER_MS ? APP_QUIET_END_LONG_MS : APP_QUIET_END_MS;
+                    if ((speech_ms >= 300 && silence_ms >= quiet_end) ||
+                        (speech_ms < 300 && rec_ms >= APP_NO_SPEECH_END_MS) || total_ms >= APP_VOICE_MAX_S * 1000u) {
                         lock();
                         app_voice_end(&s_app);
                         unlock();
@@ -366,6 +390,10 @@ static void audio_task(void *arg)
         }
         if (was) {
             was = false;
+            if (duplex_id || amp_hold) { /* recording ended mid-chime */
+                duplex_id = amp_hold = vad_skip = 0;
+                audio_amp_off();
+            }
             uint8_t b[12];
             lock();
             pip_audio_end_t e = {stream, (uint8_t)(s_app.voice_cancel ? APP_AUDIO_END_CANCELLED : 0u), 0, 0, samples};

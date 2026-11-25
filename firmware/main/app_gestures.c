@@ -275,15 +275,21 @@ void app_voice_auto_decided(app_t *a, uint32_t stream, const char *activity)
         return;
     }
     a->voice_auto = false;
-    a->vad_reset = true; /* the message itself starts now: a fresh 6 s to begin, 1.2 s quiet to end */
+    a->vad_reset = true; /* the message itself starts now: a fresh 6 s to begin, APP_QUIET_END_MS quiet to end */
     a->m.voice_choice = (uint8_t)c;
     mascot_react(&a->anim, PIP_REACT_NEXT, a->now_ms);
+    /* acknowledge out loud and on screen that the activity was heard and is now recording: a rising "go" chime
+     * (played over the live mic, see audio_task) and a toast naming the activity */
     if (c == UI_VOICE_MEETING) {
         begin_meeting(a); /* the stream keeps going; the PC already records it as a meeting */
-        app_toast_for(a, "Recording meeting", 3000);
+        app_toast_for(a, "Got it: recording meeting", 4000);
+    } else {
+        char msg[40];
+        snprintf(msg, sizeof msg, "Got it: %s - go ahead", ui_voice_choice_label((uint8_t)c));
+        app_toast_for(a, msg, 4000);
     }
     if (a->io.chime) {
-        a->io.chime(a->io.ctx, CHIME_CONFIRM);
+        a->io.chime(a->io.ctx, CHIME_START);
     }
     a->dirty = true;
 }
@@ -372,6 +378,13 @@ void app_on_gesture(app_t *a, const gesture_event_t *e)
             start_capture(a, false);
         } else if (e->btn == BTN_BOOT && e->gesture == GEST_SHORT) {
             a->m.state = a->state_before_pick; /* back */
+        }
+        return;
+    }
+    if (st == UI_STATE_LISTENING && a->hands_free && e->btn == BTN_KEY) {
+        /* hands-free recording (wake word): a KEY press sends it now instead of waiting for the pause */
+        if (e->gesture == GEST_SHORT || e->gesture == GEST_HOLD_START) {
+            app_voice_end(a);
         }
         return;
     }

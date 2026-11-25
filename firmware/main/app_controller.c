@@ -291,6 +291,11 @@ void app_tick(app_t *a, uint32_t now_ms)
         a->m.voice_auto = a->voice_auto;
         a->dirty = true;
     }
+    bool hf = a->hands_free && a->m.state == UI_STATE_LISTENING;
+    if (a->m.voice_hands_free != hf) {
+        a->m.voice_hands_free = hf;
+        a->dirty = true;
+    }
     if (a->m.state == UI_STATE_LISTENING || a->m.state == UI_STATE_MEETING) {
         uint32_t el32 = (now_ms - a->listen_start_ms) / 1000u;
         uint16_t el = (uint16_t)(el32 > 65535u ? 65535u : el32);

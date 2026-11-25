@@ -67,10 +67,13 @@ host**.
    **hold KEY** and speak; release to send (up to **10 minutes**). BOOT goes back.
    **Hands-free:** say the wake word, then the activity's name and (after a short pause or a comma) your
    message — *"Hi ESP… Meeting"* starts a meeting recording, *"Hi ESP, alarms, wake me at 7"* sets an alarm,
-   *"Hi ESP, calendar, dentist Thursday at 2"*. The laptop hears the name (about a second) and PIP switches to it.
-   Just start talking without a name and it's a brain dump. Say nothing for 3 s and you get the menu instead; from
-   the menu, the wake word again talks about the highlighted option. Hands-free (wake word) messages
-   end after a pause; once you've talked for 20 s PIP waits 2.5 s, so thinking pauses don't cut you off. (You can also type it in the app's **Brain Dump** page and
+   *"Hi ESP, calendar, dentist Thursday at 2"*. PIP chimes softly the moment it hears the wake word; when the
+   laptop has recognised the name (about a second) PIP plays a rising "go ahead" chime and shows
+   **"Got it: Alarms - go ahead"** (or *recording meeting*), and keeps recording. Just start talking without a name
+   and it's a brain dump. Say nothing for 3 s and you get the menu instead; from the menu, the wake word again
+   talks about the highlighted option. Hands-free (wake word) messages end after a **3.5 s pause** (5 s once
+   you've talked for 20 s), so thinking pauses don't cut you off; **click KEY** to send straight away.
+   (You can also type it in the app's **Brain Dump** page and
    pick the same four topics there.)
    - *Brain dump:* everything on your mind — PIP picks one task to do now and parks the rest.
    - *Calendar:* "Dentist Thursday at 2", "move gym to Friday morning".
@@ -162,7 +165,7 @@ words are not lost: they're saved as a parked note you can promote later.
   fails to start properly, PIP goes back to the previous one automatically.
 - **Wake word:** **Settings → Wake word**. Say **"Hi ESP"** (or Jarvis / Computer / Hi Joy) and PIP opens
   *What's it about?* — the same screen as holding KEY. Click KEY to pick, then either hold KEY and talk, or simply
-  say the wake word **again** and talk hands-free; PIP stops listening when you've been quiet for about a second.
+  say the wake word **again** and talk hands-free; PIP stops listening after a 3.5 s pause (or when you click KEY).
   The microphone audio stays on PIP until it hears the word. *Test* checks the detector with a synthetic voice.
 - **AI costs:** **Settings → AI usage & budget** shows Kimi tokens and dollars per day and this month. Set a
   monthly cap: at 80 % you get a warning, at 100 % PIP stops planning (screen: *AI budget reached*) and parks your

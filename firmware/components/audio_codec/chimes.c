@@ -50,21 +50,57 @@ static void play_note(uint16_t hz, uint16_t ms, float amp)
     }
 }
 
+static size_t chime_notes(uint8_t chime_id, const note_t **seq)
+{
+#define PICK(arr) do { *seq = arr; return sizeof arr / sizeof arr[0]; } while (0)
+    switch (chime_id) {
+    case 1: PICK(CHIME_START_N);
+    case 2: PICK(CHIME_DONE_N);
+    case 3: PICK(CHIME_PAUSE_N);
+    case 4: PICK(CHIME_ALARM_N);
+    case 5: PICK(CHIME_OFFLINE_N);
+    case 6: PICK(CHIME_CONFIRM_N);
+    case 7: PICK(CHIME_NUDGE_N);
+    case 8: PICK(CHIME_WRAP_N);
+    default: *seq = NULL; return 0;
+    }
+#undef PICK
+}
+
+size_t audio_chime_fill(uint8_t chime_id, uint8_t volume_pct, uint32_t pos, int16_t *mono, size_t n)
+{
+    const note_t *seq = NULL;
+    size_t notes = chime_notes(chime_id, &seq);
+    const float tau = 6.2831853f;
+    const uint32_t fade = AUDIO_RATE_HZ / 200u; /* 5 ms attack/release: no clicks */
+    float amp = 0.25f * (float)(volume_pct > 100 ? 100 : volume_pct) / 100.0f;
+    size_t out = 0;
+    uint32_t start = 0;
+    for (size_t i = 0; i < notes && out < n; i++) {
+        uint32_t total = (uint32_t)AUDIO_RATE_HZ * seq[i].ms / 1000u;
+        while (out < n && pos < start + total) {
+            uint32_t k = pos - start;
+            float env = 1.0f;
+            if (k < fade) {
+                env = (float)k / (float)fade;
+            } else if (total - k < fade) {
+                env = (float)(total - k) / (float)fade;
+            }
+            float s = seq[i].hz ? sinf(tau * (float)seq[i].hz * (float)k / (float)AUDIO_RATE_HZ) * amp * env : 0.0f;
+            mono[out++] = (int16_t)(s * 32767.0f);
+            pos++;
+        }
+        start += total;
+    }
+    return out;
+}
+
 void audio_play_chime(uint8_t chime_id, uint8_t volume_pct)
 {
     const note_t *seq = NULL;
-    size_t n = 0;
-#define PICK(arr) do { seq = arr; n = sizeof arr / sizeof arr[0]; } while (0)
-    switch (chime_id) {
-    case 1: PICK(CHIME_START_N); break;
-    case 2: PICK(CHIME_DONE_N); break;
-    case 3: PICK(CHIME_PAUSE_N); break;
-    case 4: PICK(CHIME_ALARM_N); break;
-    case 5: PICK(CHIME_OFFLINE_N); break;
-    case 6: PICK(CHIME_CONFIRM_N); break;
-    case 7: PICK(CHIME_NUDGE_N); break;
-    case 8: PICK(CHIME_WRAP_N); break;
-    default: return;
+    size_t n = chime_notes(chime_id, &seq);
+    if (n == 0) {
+        return;
     }
     float amp = 0.25f * (float)(volume_pct > 100 ? 100 : volume_pct) / 100.0f;
     for (size_t i = 0; i < n; i++) {

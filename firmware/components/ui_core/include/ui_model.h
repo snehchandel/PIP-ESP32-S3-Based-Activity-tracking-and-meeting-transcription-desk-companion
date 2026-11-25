@@ -82,6 +82,7 @@ typedef struct {
     char thinking_stage[32];
     uint8_t voice_choice; /* picker index 0..4 */
     bool voice_auto;      /* listening after the wake word: the activity is still being heard */
+    bool voice_hands_free; /* recording ends on a pause (wake word), not on releasing KEY */
     char wake_label[16];  /* e.g. "Hi ESP" when the on-device wake word is on, "" otherwise */
 
     char alarm_title[64];

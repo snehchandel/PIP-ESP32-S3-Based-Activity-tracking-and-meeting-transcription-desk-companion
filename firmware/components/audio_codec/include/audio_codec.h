@@ -23,6 +23,12 @@ uint8_t audio_level_bars(const int16_t *mono, size_t n);
 /* Play a short synthesized chime (1 START .. 6 CONFIRM). Blocks ~0.2-0.6 s. */
 void audio_play_chime(uint8_t chime_id, uint8_t volume_pct);
 void audio_set_capture(bool on);
+/* Render a chime into mono samples, `n` samples starting at sample `pos` of the chime. Returns how many were
+ * written (0 = the chime is over). Lets the audio task play an acknowledgement 20 ms at a time between mic reads. */
+size_t audio_chime_fill(uint8_t chime_id, uint8_t volume_pct, uint32_t pos, int16_t *mono, size_t n);
+/* The one exception to half-duplex: write mono PCM even while capturing (short acknowledgement chimes only;
+ * the mic hears them). Turns the amp on; call audio_amp_off() when done. */
+esp_err_t audio_write_mono_duplex(const int16_t *mono, size_t n);
 /* Play mono 16 kHz PCM16 (host Piper voice) through ES8311; blocks for its real-time duration. */
 esp_err_t audio_play_mono(const int16_t *mono, size_t n);
 void audio_amp_off(void);

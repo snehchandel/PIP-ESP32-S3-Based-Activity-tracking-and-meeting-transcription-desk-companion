@@ -284,6 +284,14 @@ random picks from a library.
 - **Silence:** no speech for 3 s after the wake word -> PIP cancels the stream (AUDIO_END reason 2, host discards
   it) and shows the picker, where the wake word again works as before. While undecided PIP waits 4 s of silence
   before sending (the decision normally arrives ~1 s after the name). No new frame types. Firmware 1.7.0.
+- **Acknowledgement + longer pause (1.7.2, BUG-019):** the user got no sign the activity was heard or that PIP was
+  recording, and a short pause ended the message. Chimes queued during capture used to wait until the mic closed;
+  now the audio task plays the "heard you" (CONFIRM, on the wake word) and "go ahead" (START, when the activity is
+  decided) chimes *over the live mic*, 20 ms at a time between mic reads (`audio_chime_fill` +
+  `audio_write_mono_duplex`), so no speech is lost; the VAD ignores those frames plus ~200 ms of echo. Other chimes
+  still wait. The decision also shows "Got it: <Activity> - go ahead" for 4 s. Hands-free messages now end after a
+  3.5 s pause (5 s once 20 s were spoken; undecided 5 s), and a KEY click sends at once (bar: "Pause or press KEY
+  to send"). Configurable pause length was left for later.
 
 ## ADR-029 — Repair step lengths, start times with nudges, reminders that ping, personal vocabulary
 - **Seen on hardware:** "Hi ESP, focus… in the next 10 minutes, the CASL consent metrics for Priya" failed twice in
