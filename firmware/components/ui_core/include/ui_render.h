@@ -38,6 +38,8 @@ extern const ui_stage_t UI_STAGE_WORLD;  /* the whole area between header and ba
 const ui_stage_t *ui_stage_current(void);
 void ui_draw_mascot(rlcd_fb_t *fb, const mascot_pose_t *pose); /* column stage */
 void ui_draw_mascot_on(rlcd_fb_t *fb, const mascot_pose_t *pose, const ui_stage_t *st);
+/* While hidden, screens render without PIP (slides compose the pages, then draw the one PIP on top). */
+void ui_mascot_hide(bool hidden);
 /* Compose one frame of a slide between two full screens: rows [y0, y1) move, the rest show `to`.
  * dir: 1 = new screen enters from the right, -1 = from the left, 2 = drops in from the top, -2 = old
  * screen lifts away upward. u = eased progress 0..1. `out` may alias neither input. */

@@ -332,26 +332,36 @@ static void supervise_states(app_t *a, uint32_t now_ms)
     }
 }
 
-/* A screen change starts a slide from what is on the panel right now (even mid-slide). */
+/* Slides move whole pages while PIP - one character, not one per page - stays where it is, drawn on top.
+ * The model behind the panel is kept so the old page can be re-rendered without PIP. */
+struct app_slide_s {
+    rlcd_fb_t from, to, pages;
+    ui_model_t shown; /* the model of what the panel shows */
+    bool shown_ok;
+};
+
+static void render_pages(rlcd_fb_t *out, const ui_model_t *m)
+{
+    ui_mascot_hide(true);
+    ui_render(out, m, NULL);
+    ui_mascot_hide(false);
+}
+
 static void slide_begin(app_t *a, ui_screen_t from, ui_screen_t to)
 {
     int dir = ui_slide_dir(from, to);
-    if (dir == 0) {
+    if (dir == 0 || !a->slide) { /* same layout, or no memory: switch instantly */
         a->sliding = false;
         return;
     }
-    if (!a->slide_from) {
-        a->slide_from = malloc(sizeof(rlcd_fb_t));
-        a->slide_to = malloc(sizeof(rlcd_fb_t));
-        if (!a->slide_from || !a->slide_to) { /* no memory: switch instantly */
-            free(a->slide_from);
-            free(a->slide_to);
-            a->slide_from = a->slide_to = NULL;
-            a->sliding = false;
-            return;
-        }
+    struct app_slide_s *sl = a->slide;
+    if (a->sliding) {
+        sl->from = sl->pages; /* interrupted mid-slide: carry on from where the pages are */
+    } else if (sl->shown_ok) {
+        render_pages(&sl->from, &sl->shown);
+    } else {
+        sl->from = a->fb;
     }
-    memcpy(a->slide_from, &a->fb, sizeof a->fb);
     a->sliding = true;
     a->slide_dir = (int8_t)dir;
     a->slide_start_ms = a->now_ms;
@@ -361,6 +371,9 @@ static void slide_begin(app_t *a, ui_screen_t from, ui_screen_t to)
 
 bool app_render_if_dirty(app_t *a)
 {
+    if (!a->slide) {
+        a->slide = calloc(1, sizeof *a->slide); /* NULL: slides are off, screens switch instantly */
+    }
     ui_screen_t s = ui_screen_for(&a->m);
     if (a->shown_valid && s != a->shown_screen) {
         slide_begin(a, a->shown_screen, s);
@@ -375,10 +388,13 @@ bool app_render_if_dirty(app_t *a)
             }
             a->slide_last_ms = a->now_ms;
             a->dirty = false;
+            struct app_slide_s *sl = a->slide;
             float u = (float)el / (float)a->slide_dur_ms;
             float k = 1.0f - u;
-            ui_render(a->slide_to, &a->m, NULL);
-            ui_slide_compose(&a->fb, a->slide_from, a->slide_to, a->slide_dir, 1.0f - k * k * k, ZONE_TOP - 1, BAR_Y);
+            render_pages(&sl->to, &a->m);
+            ui_slide_compose(&sl->pages, &sl->from, &sl->to, a->slide_dir, 1.0f - k * k * k, ZONE_TOP - 1, BAR_Y);
+            a->fb = sl->pages;
+            ui_draw_mascot_on(&a->fb, &a->m.pose, s == SCREEN_IDLE_READY ? &UI_STAGE_WORLD : &UI_STAGE_COLUMN);
             return true;
         }
         a->sliding = false;
@@ -389,5 +405,9 @@ bool app_render_if_dirty(app_t *a)
     }
     a->dirty = false;
     ui_render(&a->fb, &a->m, NULL);
+    if (a->slide) {
+        a->slide->shown = a->m;
+        a->slide->shown_ok = true;
+    }
     return true;
 }

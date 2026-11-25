@@ -252,8 +252,9 @@ static void board_stand(rlcd_fb_t *fb)
 typedef struct {
     char msg[128];
     int msg_lines;
-    int agenda_rows;
-    bool footer; /* date line at the bottom of the board */
+    int today_rows; /* open items today */
+    int up_rows;    /* coming up: the next days */
+    bool footer;    /* date line at the bottom of the board */
 } board_t;
 
 static int agenda_open(const ui_model_t *m)
@@ -269,9 +270,12 @@ static int agenda_open(const ui_model_t *m)
 #define BOARD_TW (BOARD_R - BOARD_PAD - BOARD_TX)
 #define BOARD_HEAD_Y (BOARD_Y + 7)
 #define BOARD_ROW_H (FONT_12.line_h + 1)
+#define BOARD_SEC_H (FONT_11.line_h + 1)
 #define BOARD_FOOT_Y (BOARD_B - 7 - FONT_11.line_h)
+#define BOARD_LIST_B (BOARD_B - 5)
 
-/* lay the board out: the agenda gets the rows that fit; the date shows when there is room for it */
+/* lay the board out: today's open items, then what's coming up (at least one row of it when there is any),
+ * then the date if there is room left */
 static void board_layout(const ui_model_t *m, board_t *b)
 {
     if (m->has_active_step) {
@@ -283,17 +287,40 @@ static void board_layout(const ui_model_t *m, board_t *b)
     }
     b->msg_lines = text_draw_wrap(NULL, &FONT_12B, 0, 0, BOARD_TW, 3, 2, b->msg, INK_BLACK);
     int y = BOARD_HEAD_Y + FONT_24B.line_h + 3 + b->msg_lines * (FONT_12B.line_h + 2);
-    int open = agenda_open(m);
-    b->agenda_rows = 0;
+    int open = agenda_open(m), up = m->upcoming_count;
+    b->today_rows = b->up_rows = 0;
     if (open > 0) {
-        y += 8 + FONT_11.line_h + 1;
-        int with_foot = (BOARD_FOOT_Y - 3 - y) / BOARD_ROW_H, without = (BOARD_B - 6 - y) / BOARD_ROW_H;
-        b->agenda_rows = open <= with_foot ? open : (open < without ? open : without);
+        y += 6 + BOARD_SEC_H;
+        int reserve = up > 0 ? 4 + BOARD_SEC_H + BOARD_ROW_H : 0;
+        int fit = (BOARD_LIST_B - y - reserve) / BOARD_ROW_H;
+        b->today_rows = open < fit ? open : (fit > 1 ? fit : 1);
+        y += b->today_rows * BOARD_ROW_H;
     }
-    b->footer = m->date_label[0] && y + b->agenda_rows * BOARD_ROW_H + 3 <= BOARD_FOOT_Y;
+    int gap = open > 0 ? 4 : 6;
+    if (up > 0 && y + gap + BOARD_SEC_H + BOARD_ROW_H <= BOARD_LIST_B) {
+        y += gap + BOARD_SEC_H;
+        int fit = (BOARD_LIST_B - y) / BOARD_ROW_H;
+        b->up_rows = up < fit ? up : fit;
+        y += b->up_rows * BOARD_ROW_H;
+    }
+    b->footer = m->date_label[0] && y + 3 <= BOARD_FOOT_Y;
 }
 
-/* free-standing holo-monitor on a pedestal: PIP can walk behind it (legs and feet show underneath) */
+/* "TODAY -------------- +2 more" */
+static void section_head(rlcd_fb_t *fb, int y, const char *label, int more)
+{
+    int lw = text_width(&FONT_11, label), mw = 0;
+    text_draw(fb, &FONT_11, BOARD_TX, y, label, INK_BLACK);
+    if (more > 0) { /* the rest is one double press away */
+        char buf[24];
+        snprintf(buf, sizeof buf, "+%d more", more);
+        mw = text_width(&FONT_11, buf) + 6;
+        text_draw(fb, &FONT_11, BOARD_TX + BOARD_TW - mw + 6, y, buf, INK_BLACK);
+    }
+    fb_hline(fb, BOARD_TX + lw + 6, y + 7, BOARD_TW - lw - 6 - mw, 1, INK_BLACK);
+}
+
+/* free-standing holo-monitor on short legs: PIP can walk behind it (only its feet show underneath) */
 static void board_draw(rlcd_fb_t *fb, const ui_model_t *m, const board_t *b, ui_meta_t *meta)
 {
     const int x = BOARD_X, w = BOARD_R - BOARD_X, h = BOARD_B - BOARD_Y;
@@ -311,32 +338,39 @@ static void board_draw(rlcd_fb_t *fb, const ui_model_t *m, const board_t *b, ui_
     int n = text_draw_wrap(fb, &FONT_12B, BOARD_TX, y, BOARD_TW, 3, 2, b->msg, INK_BLACK);
     ui_meta_add(meta, "secondary_text", BOARD_TX, y, BOARD_TW, n * (FONT_12B.line_h + 2), board);
     y += n * (FONT_12B.line_h + 2);
-    if (b->agenda_rows > 0) {
-        y += 8;
+    if (b->today_rows > 0) {
+        y += 6;
         int y0 = y;
-        int lw = text_width(&FONT_11, "TODAY"), more = agenda_open(m) - b->agenda_rows, mw = 0;
-        text_draw(fb, &FONT_11, BOARD_TX, y, "TODAY", INK_BLACK);
-        if (more > 0) { /* the rest is one double press away */
-            char buf[24];
-            snprintf(buf, sizeof buf, "+%d more", more);
-            mw = text_width(&FONT_11, buf) + 6;
-            text_draw(fb, &FONT_11, BOARD_TX + BOARD_TW - mw + 6, y, buf, INK_BLACK);
-        }
-        fb_hline(fb, BOARD_TX + lw + 6, y + 7, BOARD_TW - lw - 6 - mw, 1, INK_BLACK);
-        y += FONT_11.line_h + 1;
+        section_head(fb, y, "TODAY", agenda_open(m) - b->today_rows);
+        y += BOARD_SEC_H;
         int shown = 0;
-        for (int i = 0; i < m->today_count && shown < b->agenda_rows; i++) {
+        for (int i = 0; i < m->today_count && shown < b->today_rows; i++) {
             const agenda_item_t *it = &m->today[i];
             if (it->done) {
                 continue;
             }
-            const char *hh = it->hhmm[0] ? it->hhmm : "any";
-            text_draw(fb, &FONT_12B, BOARD_TX, y, hh, INK_BLACK);
+            text_draw(fb, &FONT_12B, BOARD_TX, y, it->hhmm[0] ? it->hhmm : "any", INK_BLACK);
             text_draw_fit(fb, &FONT_12, BOARD_TX + 44, y, BOARD_TW - 44, it->title, INK_BLACK);
             y += BOARD_ROW_H;
             shown++;
         }
         ui_meta_add(meta, "agenda_preview", BOARD_TX, y0, BOARD_TW, y - y0, board);
+    }
+    if (b->up_rows > 0) {
+        y += b->today_rows > 0 ? 4 : 6;
+        int y0 = y;
+        section_head(fb, y, "COMING UP", m->upcoming_count - b->up_rows);
+        y += BOARD_SEC_H;
+        for (int i = 0; i < b->up_rows; i++) {
+            const upcoming_item_t *it = &m->upcoming[i];
+            text_draw(fb, &FONT_12B, BOARD_TX, y, it->day, INK_BLACK);
+            int tx = BOARD_TX + 32;
+            text_draw(fb, &FONT_12, tx, y, it->hhmm[0] ? it->hhmm : "any", INK_BLACK);
+            tx += 40;
+            text_draw_fit(fb, &FONT_12, tx, y, BOARD_TX + BOARD_TW - tx, it->title, INK_BLACK);
+            y += BOARD_ROW_H;
+        }
+        ui_meta_add(meta, "upcoming_preview", BOARD_TX, y0, BOARD_TW, y - y0, board);
     }
     if (b->footer) {
         text_draw(fb, &FONT_11, BOARD_TX, BOARD_FOOT_Y, m->date_label, INK_BLACK);

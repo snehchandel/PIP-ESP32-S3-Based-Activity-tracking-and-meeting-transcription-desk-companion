@@ -47,12 +47,28 @@ def day_items(tasks: list[dict[str, Any]], reminders: list[dict[str, Any]], alar
     return sorted(items, key=lambda i: (i["done"], not i["active"], i["hhmm"] or "99:99"))
 
 
+def upcoming_items(tasks: list[dict[str, Any]], reminders: list[dict[str, Any]], alarms: list[dict[str, Any]],
+                   today: date, tz: ZoneInfo, days: int = 7, limit: int = 6) -> list[dict[str, Any]]:
+    """Open items after today (the next week), soonest first, for the device board's "Coming up" list."""
+    out: list[dict[str, Any]] = []
+    for k in range(1, days + 1):
+        day = today + timedelta(days=k)
+        for i in day_items(tasks, reminders, alarms, day, tz):
+            if i["done"]:
+                continue
+            out.append({"day": day.strftime("%a"), "hhmm": i["hhmm"], "title": i["title"][:39], "kind": i["kind"]})
+            if len(out) >= limit:
+                return out
+    return out
+
+
 def calendar_sync(tasks: list[dict[str, Any]], reminders: list[dict[str, Any]], alarms: list[dict[str, Any]],
                   parked_count: int, tz: ZoneInfo, rev: int) -> dict[str, Any]:
     today = datetime.now(tz).date()
     t_items = day_items(tasks, reminders, alarms, today, tz)
     tomorrow = day_items(tasks, reminders, alarms, today + timedelta(days=1), tz)
     return {
+        "upcoming": upcoming_items(tasks, reminders, alarms, today, tz),
         "rev": rev,
         "date_label": today.strftime("%a, %b ") + str(today.day),
         "today": [{"id": i["id"][:23], "title": i["title"][:39], "hhmm": i["hhmm"], "kind": i["kind"],

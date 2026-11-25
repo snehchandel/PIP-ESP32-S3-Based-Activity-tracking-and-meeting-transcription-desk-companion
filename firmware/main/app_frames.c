@@ -133,6 +133,18 @@ void app_apply_calendar(app_t *a, const char *j, size_t n)
         }
     }
     cur = 0;
+    m->upcoming_count = 0;
+    if (jm_find(j, n, "upcoming", &arr)) {
+        while (m->upcoming_count < UI_UPCOMING_MAX && jm_array_next(arr, &cur, &el)) {
+            upcoming_item_t *it = &m->upcoming[m->upcoming_count++];
+            memset(it, 0, sizeof *it);
+            (void)jm_get_str(el.p, el.n, "day", it->day, sizeof it->day);
+            (void)jm_get_str(el.p, el.n, "hhmm", it->hhmm, sizeof it->hhmm);
+            (void)jm_get_str(el.p, el.n, "title", it->title, sizeof it->title);
+            if (jm_get_long(el.p, el.n, "kind", &v)) it->kind = (uint8_t)v;
+        }
+    }
+    cur = 0;
     a->alarm_count = 0;
     if (jm_find(j, n, "upcoming_alarms", &arr)) {
         while (a->alarm_count < APP_ALARMS_MAX && jm_array_next(arr, &cur, &el)) {

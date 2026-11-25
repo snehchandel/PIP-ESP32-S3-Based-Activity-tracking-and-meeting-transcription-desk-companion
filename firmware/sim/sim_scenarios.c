@@ -39,7 +39,23 @@ void sim_scenario(ui_screen_t s, ui_model_t *m)
 {
     base(m);
     switch (s) {
-    case SCREEN_IDLE_READY: break;
+    case SCREEN_IDLE_READY: {
+        snprintf(m->date_label, sizeof m->date_label, "Tue, Nov 24");
+        m->today_count = 2;
+        snprintf(m->today[0].title, sizeof m->today[0].title, "Pick up your son");
+        snprintf(m->today[0].hhmm, sizeof m->today[0].hhmm, "15:43");
+        snprintf(m->today[1].title, sizeof m->today[1].title, "Plan bedtime routine");
+        snprintf(m->today[1].hhmm, sizeof m->today[1].hhmm, "17:00");
+        static const char *const up[][3] = {{"Wed", "05:00", "Gym wake-up"}, {"Wed", "", "Draft Q3 summary"},
+                                            {"Thu", "10:30", "Dentist"}};
+        m->upcoming_count = 3;
+        for (int i = 0; i < 3; i++) {
+            snprintf(m->upcoming[i].day, sizeof m->upcoming[i].day, "%s", up[i][0]);
+            snprintf(m->upcoming[i].hhmm, sizeof m->upcoming[i].hhmm, "%s", up[i][1]);
+            snprintf(m->upcoming[i].title, sizeof m->upcoming[i].title, "%s", up[i][2]);
+        }
+        break;
+    }
     case SCREEN_LISTENING:
         m->state = UI_STATE_LISTENING;
         m->listen_elapsed_s = 14;

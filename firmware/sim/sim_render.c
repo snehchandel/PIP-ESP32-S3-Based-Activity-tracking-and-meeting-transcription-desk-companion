@@ -139,15 +139,18 @@ int sim_render_slides(const char *dir)
     MKDIR(dir);
     int failures = 0;
     for (size_t i = 0; i < sizeof pairs / sizeof pairs[0]; i++) {
-        ui_model_t m;
+        ui_model_t m; /* like the device: the pages slide, the one PIP stays on top */
         sim_scenario(pairs[i][0], &m);
+        ui_mascot_hide(true);
         ui_render(&from, &m, NULL);
         sim_scenario(pairs[i][1], &m);
         ui_render(&to, &m, NULL);
+        ui_mascot_hide(false);
         int dir_ = ui_slide_dir(pairs[i][0], pairs[i][1]);
         for (int k = 0; k <= 4; k++) {
             float u = (float)k / 4.0f, e = 1.0f - (1.0f - u) * (1.0f - u) * (1.0f - u);
             ui_slide_compose(&out, &from, &to, dir_, e, ZONE_TOP - 1, BAR_Y);
+            ui_draw_mascot_on(&out, &m.pose, pairs[i][1] == SCREEN_IDLE_READY ? &UI_STAGE_WORLD : &UI_STAGE_COLUMN);
             snprintf(path, sizeof path, "%s/slide_%s__%s__%d.png", dir, ui_screen_name(pairs[i][0]), ui_screen_name(pairs[i][1]),
                      k);
             failures += png_write_fb(path, &out) != 0;

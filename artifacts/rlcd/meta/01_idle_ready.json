@@ -7,9 +7,11 @@
     {"name": "board", "x": 150, "y": 40, "w": 246, "h": 189, "parent": -1},
     {"name": "primary_text", "x": 159, "y": 47, "w": 160, "h": 29, "parent": 2},
     {"name": "secondary_text", "x": 159, "y": 79, "w": 225, "h": 34, "parent": 2},
+    {"name": "agenda_preview", "x": 159, "y": 119, "w": 225, "h": 47, "parent": 2},
+    {"name": "upcoming_preview", "x": 159, "y": 170, "w": 225, "h": 47, "parent": 2},
     {"name": "mascot_stage", "x": 4, "y": 38, "w": 144, "h": 224, "parent": -1},
     {"name": "bottom_bar", "x": 0, "y": 264, "w": 400, "h": 36, "parent": -1},
-    {"name": "bar_hints", "x": 8, "y": 274, "w": 181, "h": 15, "parent": 6},
-    {"name": "bar_status", "x": 306, "y": 273, "w": 86, "h": 18, "parent": 6}
+    {"name": "bar_hints", "x": 8, "y": 274, "w": 181, "h": 15, "parent": 8},
+    {"name": "bar_status", "x": 306, "y": 273, "w": 86, "h": 18, "parent": 8}
   ]
 }

@@ -168,3 +168,22 @@ have small legs so the text gets the maximum area.
   unchanged. Ball acts now drop the ball beside PIP / leave it where it was trapped, and the next trip picks it up.
 - **Test:** two simulated hours of idle play with a random screen change every 6.7 s: 800+ trips, 0 jumps, 0 prop
   pops. Firmware 1.3.0.
+
+## ADR-023 — Board shows what's coming up; host resyncs a rebooted PIP; one PIP during slides
+User report after 1.3.0: the Let's Focus board was "missing future tasks" and the header was wrong.
+- **Root cause (BUG-016):** after the OTA reboot USB reconnected inside `RECONNECT_GRACE_S`, so the host never saw a
+  link-down/up and never re-sent UI_UPDATE / CALENDAR_SYNC / DEVICE_CONFIG. PIP ran blank: clock in UTC (no
+  `tz_offset_min`), no next alarm, no outdoor weather, empty agenda. Any quick USB-side reboot did the same.
+  Fix: `DeviceLink` resyncs when the heartbeat `uptime_s` goes backwards (restart: also re-sends DEVICE_CONFIG) or
+  the heartbeat `state_rev` lags the host revision for 3 s; at most once per 3 s. Verified live: "device restarted:
+  resyncing state" 3 s after an OTA, screen complete without any manual step.
+- **Future tasks:** CALENDAR_SYNC gains `upcoming` (open items of the next 7 days, soonest first, max 6:
+  `day`/`hhmm`/`title`/`kind`), separate from `upcoming_alarms` (offline ringing). The board shows TODAY's open items,
+  then COMING UP (at least one row whenever there is something), "+N more" per section, the date if room is left.
+  Older firmware ignores the new key.
+- **Seamless slides:** a sliding page used to carry its own PIP, so mid-slide two PIPs could show. Pages now render
+  without PIP and the single animated PIP is drawn on top at its home spot (the same on every screen).
+- **Flying props from the hand:** a kite, a tossed ball or a kicked ball used to appear in the air / on PIP's head at
+  the first frame of an act although the prop trip had delivered it in PIP's hand. They now leave from the real
+  hand position (`from_hand`, via the rig) and return to it; `test_ui` checks every act's first and last frame.
+  Firmware 1.3.2.

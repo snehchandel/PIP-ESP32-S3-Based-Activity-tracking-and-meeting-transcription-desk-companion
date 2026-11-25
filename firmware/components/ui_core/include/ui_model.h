@@ -40,6 +40,15 @@ typedef struct {
     bool done;
 } agenda_item_t;
 
+/* the board's "Coming up" list: open items of the next days */
+#define UI_UPCOMING_MAX 6
+typedef struct {
+    char day[4]; /* "Wed" */
+    char hhmm[6];
+    char title[40];
+    uint8_t kind; /* 0 task, 1 reminder, 2 alarm */
+} upcoming_item_t;
+
 typedef struct {
     ui_state_t state;
     ui_page_t page;
@@ -81,6 +90,8 @@ typedef struct {
     agenda_item_t today[UI_AGENDA_MAX];
     uint8_t today_count;
     uint8_t tomorrow_count;
+    upcoming_item_t upcoming[UI_UPCOMING_MAX];
+    uint8_t upcoming_count;
 
     bool batt_valid;
     uint8_t batt_pct;

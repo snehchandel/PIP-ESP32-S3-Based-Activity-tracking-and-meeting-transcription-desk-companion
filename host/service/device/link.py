@@ -30,6 +30,7 @@ from ..transport import AutoTransport, DeviceTransport, SimTcpTransport, UsbSeri
 log = logging.getLogger("pip.link")
 LINK_TIMEOUT_S = 3.0
 RECONNECT_GRACE_S = 2.5
+STALE_RESYNC_S = 3.0  # device behind on state this long (or restarted): push everything again
 
 
 def make_transport(mode: str, sim_addr: str, serial_port: str,
@@ -58,6 +59,8 @@ class DeviceLink:
         self.last_rx = 0.0
         self.telemetry: dict[str, Any] = {}
         self.last_heartbeat: dict[str, Any] = {}
+        self._stale_since = 0.0
+        self._last_resync = 0.0
         self.btn_seen: set[tuple[int, int]] = set()
         self._fb = FramebufferAssembler()
         self._fb_waiters: list[asyncio.Future[bytes]] = []
@@ -170,6 +173,35 @@ class DeviceLink:
             self.m.tasks.list_tasks(), self.m.tasks.reminders(), self.m.alarms.list(), len(self.m.tasks.parked()),
             self.m.tz, self.m.revision))
 
+    def _check_device_state(self, hb: Heartbeat) -> None:
+        """PIP restarted (uptime went backwards) or is behind on state: send everything again.
+
+        A USB reboot reconnects inside the link's grace period, so no link-down/link-up is ever seen (OTA updates,
+        watchdog resets) and PIP would sit there blank: UTC clock, no weather, no alarms, no agenda."""
+        now = time.monotonic()
+        prev = (self.last_heartbeat or {}).get("uptime_s")
+        restarted = prev is not None and hb.uptime_s + 2 < int(prev)
+        if hb.state_rev < self.m.revision:
+            self._stale_since = self._stale_since or now
+        else:
+            self._stale_since = 0.0
+        stale = bool(self._stale_since) and now - self._stale_since >= STALE_RESYNC_S
+        if not self.linked or not (restarted or stale) or now - self._last_resync < STALE_RESYNC_S:
+            return
+        self._last_resync = now
+        self._stale_since = 0.0
+        log.info("device %s: resyncing state", "restarted" if restarted else f"behind (rev {hb.state_rev})")
+        self._resync(restarted)  # frames are handled on the event loop
+
+    def _resync(self, restarted: bool) -> None:
+        if restarted and self.on_link_up:
+            try:
+                self.on_link_up(self.transport_kind)
+            except Exception:
+                log.exception("link-up hook failed")
+        self.push_all()
+        self.send(FrameType.DIAG_REPORT)
+
     def _on_state_change(self, kind: str, payload: dict[str, Any]) -> None:
         if self.loop:
             self.loop.call_soon_threadsafe(self._after_change, kind, payload)
@@ -234,6 +266,7 @@ class DeviceLink:
         t = f.type
         if t == FrameType.HEARTBEAT:
             hb = Heartbeat.unpack(f.payload)
+            self._check_device_state(hb)
             self.last_heartbeat = {"uptime_s": hb.uptime_s, "utc_epoch_s": hb.utc_epoch_s, "link_mode": hb.link_mode,
                                    "is_sim": bool(hb.flags & 2), "offline_pending": bool(hb.flags & 1)}
         elif t == FrameType.BTN_EVENT:

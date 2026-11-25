@@ -99,7 +99,11 @@ whole width (`UI_STAGE_WORLD`), the text sits on a holo-monitor (`BOARD_*` in `u
 on short legs so the panel gets the most room) and `pose.behind` draws PIP behind the board (only its feet show). Screen
 changes **slide** (`ui_slide.c`, driven by `app_render_if_dirty()`): forward in the flow (idle → voice → plan →
 focus → done, calendar furthest right) pushes left, back pushes right, alarm/error/sleep drop in from the top;
-header and bar switch at once. The two 15 KB slide buffers are heap (PSRAM on the device), allocated on first use. Fonts: DejaVu 11/12/12B/14/14B/16/16B/20B/24B/32B/64 (regenerate with
+header and bar switch at once. **PIP does not slide:** pages render without it (`ui_mascot_hide`) and the one PIP
+is drawn on top, so it never appears twice. Slide buffers + the shown model (~48 KB) are one heap block (PSRAM on the
+device), allocated on first render; without it screens switch instantly.
+The board lists TODAY's open items, then **COMING UP** (open items of the next 7 days, from CALENDAR_SYNC
+`upcoming`: day, hhmm, title, kind), then the date if there is room. Fonts: DejaVu 11/12/12B/14/14B/16/16B/20B/24B/32B/64 (regenerate with
 `tools/generate_fonts.py`; only Latin-1 + `· — … °` are mapped — avoid other UTF-8 in device strings).
 
 **PIP mascot** (ADR-017): `mascot_pose_t` → `mascot_rig()` (cylinder model: yaw reveals profile/back, arms open
@@ -248,6 +252,9 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   mapped Latin-1 glyphs.
 - **Sync FastAPI routes run in a thread pool** — anything that creates asyncio tasks must be `async def`.
 - **USB reconnects in < 1 s** after a reboot: detect device restarts by `boot_id`, not by waiting for a link drop.
+- **A rebooted PIP is blank until the host re-sends everything** (UTC clock, no weather/alarm/agenda). USB reconnects
+  inside the link grace period, so there is no link-down/up after an OTA or watchdog reset. `DeviceLink` resyncs when
+  the heartbeat uptime goes backwards or the device's `state_rev` lags the host's for 3 s (BUG-016).
 - **Windows occasionally drops PIP's COM port for a moment** ("ClearCommError ... device does not recognize the
   command", seen even before Wi-Fi existed). Never treat that as "unplugged": `AutoTransport` re-opens USB while
   the port is enumerated, uses Wi-Fi only when the cable is gone (or the port is unusable for 10 s), and moves back
@@ -270,11 +277,12 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   "Jarvis" via WAKE_TEST; live "Hi ESP" by the user), cost meter against the real Moonshot API.
 - Cable pulled: the host moved to Wi-Fi 0.1 s later without a visible disconnect; PIP kept working on battery
   (screen, speech with 0 dropped chunks, link stable).
-- Firmware 1.2.0 (idle world + slides, ADR-021) on hardware via in-app OTA: the room/board renders
-  (`artifacts/rlcd/hardware/hw_idle_world_v120.png`), uptime > 100 s on one boot, reset SW, 37 KB internal heap.
+- Firmware 1.3.2 (space-station room, prop trips, short-legged board with COMING UP, one PIP during slides) on
+  hardware via in-app OTA; after the reboot the host resynced on its own (header: local time, alarm, weather; board:
+  today + coming up + date; `artifacts/rlcd/hardware/hw_idle_world_v132.png`).
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
-  end-of-speech timing in a real room, a slide transition on the panel (needs a real button press:
-  `simulate-button` is simulator-only; slide buffers come from PSRAM on first use).
+  end-of-speech timing in a real room, a slide transition and a full prop trip watched on the panel (needs a
+  real button press / a minute of idle play; `simulate-button` is simulator-only).
 - To exercise the app over Wi-Fi while the cable stays plugged in, start the host with `PIP_TRANSPORT=wifi`.
 - Wake word: stock Espressif words only; a custom "Hey PIP" needs a trained model (paid service) or a PC-side
   detector (rejected by the user in favour of on-device privacy).

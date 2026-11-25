@@ -74,6 +74,16 @@ static float hop(float t, float a, float b, float h) { return -h * bump(t, a, b)
 
 static int mood_emote(int mood, int e0, int e1, int e2) { return mood == 0 ? e0 : (mood == 1 ? e1 : e2); }
 
+/* A flying prop leaves from (w -> 1) or comes back to (w -> 0) PIP's right hand, where the prop trip delivered it:
+ * nothing jumps into the air or onto PIP's head from nowhere. */
+static void from_hand(mascot_pose_t *p, float w)
+{
+    pip_rig_t r;
+    mascot_rig(p, &r);
+    p->obj_x = mixf(r.hand[1].x, p->obj_x, w);
+    p->obj_y = mixf(r.hand[1].y, p->obj_y, w);
+}
+
 /* ==== IDLE ("Let's Focus") ===================================================================== */
 static void a_ball(mascot_pose_t *p, float t, float D, int v, float s, int mood)
 {
@@ -143,6 +153,10 @@ static void a_ball(mascot_pose_t *p, float t, float D, int v, float s, int mood)
         p->yaw = 15.0f * s + 10.0f * wav(t, 3.0f);
         emote(p, mood_emote(mood, EMOTE_SPARKLE, EMOTE_MUSIC, EMOTE_HEART), t, 1.0f);
     }
+    float w0 = seg(t, 0.0f, 0.9f); /* tossed up out of the hand it was carried in, arms rising with it */
+    p->arm_r = mixf(30.0f, p->arm_r, w0);
+    p->arm_l = mixf(8.0f, p->arm_l, w0);
+    from_hand(p, w0);
     if (t > D - 1.4f) { /* lets it drop beside its feet: the next prop trip picks it up from there */
         float f = seg(t, D - 1.4f, D - 0.9f);
         p->obj_x = mixf(p->obj_x, s * 24.0f, f);
@@ -613,11 +627,12 @@ static void a_kite(mascot_pose_t *p, float t, float D, int v, float s, int mood)
     p->obj = PROP_KITE;
     p->obj_t = t;
     float rise = seg(t, 0.5f, 5.0f);
-    p->obj_x = s * (20.0f + 30.0f * sinf(t * 0.7f + (float)v)) * in;
-    p->obj_y = (-60.0f - 100.0f * rise + 12.0f * sinf(t * 1.3f)) * in;
     p->arm_r = (110.0f + 30.0f * rise + 8.0f * wav(t, 1.7f)) * in;
     walk(p, t, 0.6f, 3.0f, 0.0f, -s * 16.0f);
     walk(p, t, D - 3.0f, D - 0.6f, -s * 16.0f, 0.0f);
+    p->obj_x = s * (20.0f + 30.0f * sinf(t * 0.7f + (float)v));
+    p->obj_y = -60.0f - 100.0f * rise + 12.0f * sinf(t * 1.3f);
+    from_hand(p, win(t, 0.0f, D, 2.5f)); /* launched from the hand, reeled back into it */
     if (t > 3.0f && t < D - 3.0f) p->yaw = 30.0f * s;
     p->look_y = -1.0f;
     p->look_x = 0.4f * s;
@@ -878,6 +893,9 @@ static void a_kick(mascot_pose_t *p, float t, float D, int v, float s, int mood)
     /* PIP: lines up, kicks, watches it go and come back, traps it */
     p->yaw = 60.0f * win(t, 0.3f, D - 1.0f, 0.5f);
     p->x = 4.0f * seg(t, 0.6f, 1.6f) * (1.0f - seg(t, D - 1.6f, D - 0.6f));
+    if (t < 0.6f) {
+        from_hand(p, seg(t, 0.0f, 0.5f)); /* puts the ball down first */
+    }
     p->leg_r = 7.0f * bump(t, k0 - 0.35f, k0 + 0.15f) + 6.0f * bump(t, back - 0.3f, back + 0.4f);
     p->arm_l = 40.0f * bump(t, k0 - 0.4f, k0 + 0.4f);
     p->look_x = fminf2(1.0f, (bx - p->x) / 120.0f);

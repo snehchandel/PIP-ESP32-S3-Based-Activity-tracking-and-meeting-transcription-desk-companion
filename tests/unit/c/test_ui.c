@@ -171,6 +171,37 @@ int main(void)
         }
     }
     CHECK(mascot_act_count(PIP_MODE_IDLE) >= 30);
+
+    /* a flying prop starts (and ends) in PIP's right hand, where the prop trip delivers it */
+    for (int mode = 0; mode < PIP_MODE_COUNT; mode++) {
+        if (mode == PIP_MODE_PICK) {
+            continue;
+        }
+        for (int act = 0; act < mascot_act_count((pip_mode_t)mode); act++) {
+            for (int v = 0; v < 4; v++) {
+                for (int dir = 0; dir < 2; dir++) {
+                    pip_perf_t pf = {(uint8_t)mode, (uint8_t)act, (uint8_t)v, (uint8_t)dir, 1};
+                    float D = mascot_perf_seconds(&pf);
+                    for (int end = 0; end < 2; end++) {
+                        mascot_pose_t ps;
+                        pip_rig_t rg;
+                        mascot_perf_pose(&pf, end ? D : 0.0f, D, &ps);
+                        if (ps.obj == PROP_NONE || ps.obj == PROP_BALLOON) {
+                            continue; /* a balloon always hangs from the hand on its string */
+                        }
+                        mascot_rig(&ps, &rg);
+                        float dx = ps.obj_x - rg.hand[1].x, dy = ps.obj_y - rg.hand[1].y;
+                        if (dx * dx + dy * dy > 18.0f * 18.0f) {
+                            printf("%s/%s v%d: flying prop %.0f px from the hand at the %s\n",
+                                   mascot_mode_name((pip_mode_t)mode), mascot_act_name((pip_mode_t)mode, act), v,
+                                   (double)sqrtf(dx * dx + dy * dy), end ? "end" : "start");
+                            CHECK(0);
+                        }
+                    }
+                }
+            }
+        }
+    }
     CHECK(mascot_act_count(PIP_MODE_FOCUS) >= 8);
     CHECK(libs_checked > 50);
 

@@ -303,12 +303,17 @@ int main(void)
     frame(&A, PIP_CALENDAR_SYNC, 0, 53,
           "{\"rev\":2,\"date_label\":\"Mon, Nov 23\",\"today\":[{\"id\":\"t1\",\"title\":\"Team Sync\","
           "\"hhmm\":\"\",\"kind\":0,\"done\":true}],\"tomorrow_count\":2,\"parked_count\":3,"
+          "\"upcoming\":[{\"day\":\"Wed\",\"hhmm\":\"05:00\",\"title\":\"Gym wake-up\",\"kind\":2},"
+          "{\"day\":\"Thu\",\"hhmm\":\"\",\"title\":\"Dentist\",\"kind\":0}],"
           "\"upcoming_alarms\":[{\"id\":\"al2\",\"epoch_s\":1763928000,\"title\":\"Gym\",\"chime_id\":4,"
           "\"enabled\":true}]}");
     CHECK_EQ(A.m.today_count, 1);
     CHECK(A.m.today[0].done);
     CHECK_EQ(A.alarm_count, 1);
     CHECK(strcmp(A.m.date_label, "Mon, Nov 23") == 0);
+    CHECK_EQ(A.m.upcoming_count, 2); /* the board's "Coming up" list, separate from upcoming_alarms */
+    CHECK(strcmp(A.m.upcoming[0].day, "Wed") == 0 && strcmp(A.m.upcoming[0].hhmm, "05:00") == 0);
+    CHECK(strcmp(A.m.upcoming[1].title, "Dentist") == 0 && A.m.upcoming[1].hhmm[0] == 0);
 
     /* screen changes slide: frames keep coming for SLIDE_MS, then the plain new screen */
     static rlcd_fb_t plain;
@@ -324,10 +329,22 @@ int main(void)
     CHECK(app_render_if_dirty(&A));
     CHECK(A.sliding && A.slide_dir == 1);
     int frames = 1;
+    bool mid_checked = false;
+    ui_render(&plain, &A.m, NULL); /* PIP is one character: it stays put while the pages slide under it */
     for (t += 10u; t < A.slide_start_ms + SLIDE_MS + 100u; t += 10u) {
         A.now_ms = t;
-        frames += app_render_if_dirty(&A);
+        bool drew = app_render_if_dirty(&A);
+        frames += drew;
+        if (drew && A.sliding && !mid_checked && t >= A.slide_start_ms + SLIDE_MS / 3u) {
+            mid_checked = true;
+            for (int y = 146; y < 184; y++) { /* PIP's head at home: identical to the plain new screen */
+                for (int x = 52; x < 100; x++) {
+                    CHECK_EQ(fb_get(&A.fb, x, y), fb_get(&plain, x, y));
+                }
+            }
+        }
     }
+    CHECK(mid_checked);
     CHECK(!A.sliding);
     CHECK(frames >= 8 && frames <= 14); /* ~25 FPS, then one final frame */
     ui_render(&plain, &A.m, NULL);

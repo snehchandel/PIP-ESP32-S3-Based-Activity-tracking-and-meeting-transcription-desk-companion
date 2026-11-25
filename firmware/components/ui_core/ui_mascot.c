@@ -14,6 +14,9 @@ const ui_stage_t UI_STAGE_COLUMN = {STAGE_X, ZONE_TOP + 1, STAGE_W, BAR_Y - ZONE
 const ui_stage_t UI_STAGE_WORLD = {WORLD_X, ZONE_TOP + 1, WORLD_W, BAR_Y - ZONE_TOP - 1, STAGE_CX, STAGE_FY, BOARD_X};
 
 static const ui_stage_t *g_stage = &UI_STAGE_COLUMN;
+static bool g_hidden; /* slides: pages render without PIP, PIP is drawn once on top */
+
+void ui_mascot_hide(bool hidden) { g_hidden = hidden; }
 
 const ui_stage_t *ui_stage_current(void) { return g_stage; }
 
@@ -372,6 +375,9 @@ static void glass(rlcd_fb_t *fb, float g)
 
 void ui_draw_mascot_on(rlcd_fb_t *fb, const mascot_pose_t *p, const ui_stage_t *st)
 {
+    if (g_hidden) {
+        return;
+    }
     g_stage = st;
     fb_clip(st->x, st->y, st->w, st->h);
     pip_rig_t r;

@@ -21,7 +21,7 @@
 #define APP_RING_CHIME_MS 2500u     /* offline ringing: repeat the alarm chime... */
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
-#define APP_FW_VERSION "1.3.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_FW_VERSION "1.3.2" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum { CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM } chime_id_t;
 
@@ -105,13 +105,13 @@ typedef struct {
     bool error_local; /* raised by the device itself (vs. pushed by the host) */
     bool hands_free;  /* recording started by the wake word: the device ends it on silence */
 
-    /* screen slide transitions (buffers are heap: PSRAM on the device) */
+    /* screen slide transitions: the pages slide, PIP stays put on top (buffers are heap: PSRAM on the device) */
     ui_screen_t shown_screen;
     bool shown_valid;
     bool sliding;
     int8_t slide_dir;
     uint32_t slide_start_ms, slide_last_ms, slide_dur_ms;
-    rlcd_fb_t *slide_from, *slide_to;
+    struct app_slide_s *slide;
 } app_t;
 
 #define APP_PICK_TIMEOUT_MS 20000u

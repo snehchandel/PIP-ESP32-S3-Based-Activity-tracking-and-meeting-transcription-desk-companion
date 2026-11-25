@@ -29,10 +29,10 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
   It turns its whole body to look at the option you're about to pick, and reacts to every button press (turns, spins,
   leans in). Its little symbols (focus lines, Zzz, ?, !, hearts, notes, sparkles) are animated too.
 - **Today's calendar:** double-click KEY. A timeline of today (time, task/reminder/alarm mark, title; done items
-  crossed out) with a marker for "now". The Let's Focus board also previews the next few items ("+2 more" when
-  there are more than fit) and today's date when there is room.
-- **Moving between screens:** screens slide like pages — forward (talk → plan → focus → done, calendar) to the
-  left, back to the right. Alarms and messages drop in from the top and lift away when you dismiss them.
+  crossed out) with a marker for "now". The Let's Focus board also lists today's open items, then **Coming up** (the next days:
+  "Wed 05:00 Gym wake-up"), with "+2 more" when there are more than fit, and today's date when there is room.
+- **Moving between screens:** screens slide like pages behind PIP (PIP itself stays where it is) — forward
+  (talk → plan → focus → done, calendar) to the left, back to the right. Alarms and messages drop in from the top and lift away when you dismiss them.
 - **Right:** the important thing right now (timer, step, agenda, alarm or question). On every screen except Let's
   Focus PIP keeps to the left so it never covers this.
 - **Black bar at the bottom:** what the buttons do on this screen, the link icon (plus **OFFLINE** when PIP is on
