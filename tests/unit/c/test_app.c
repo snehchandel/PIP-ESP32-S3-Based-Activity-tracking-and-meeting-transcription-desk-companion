@@ -13,6 +13,8 @@ typedef struct {
     uint8_t last_payload[PIP_MAX_PAYLOAD];
     uint16_t last_len;
     int chimes;
+    uint8_t last_chime;
+    int captures_off;
 } cap_t;
 
 static cap_t C;
@@ -48,8 +50,17 @@ static void cap_play(void *ctx, uint8_t type, const uint8_t *p, uint16_t len)
 static void cap_chime(void *ctx, uint8_t id)
 {
     (void)ctx;
-    (void)id;
     C.chimes++;
+    C.last_chime = id;
+}
+
+static void cap_capture(void *ctx, bool start, uint32_t stream)
+{
+    (void)ctx;
+    (void)stream;
+    if (!start) {
+        C.captures_off++;
+    }
 }
 
 static void frame(app_t *a, uint8_t type, uint8_t flags, uint16_t seq, const char *json)
@@ -68,7 +79,7 @@ static app_t A;
 
 int main(void)
 {
-    app_io_t io = {NULL, cap_send, cap_chime, NULL, NULL, cap_play};
+    app_io_t io = {NULL, cap_send, cap_chime, cap_capture, NULL, cap_play};
     app_init(&A, &io, 1000, 5, false);
     app_tick(&A, 1000);
     CHECK_EQ(A.m.link, LINK_STANDALONE);
@@ -233,11 +244,13 @@ int main(void)
     gesture(&A, BTN_KEY, GEST_SHORT);
     gesture(&A, BTN_KEY, GEST_SHORT);
     gesture(&A, BTN_KEY, GEST_SHORT);
-    CHECK_EQ(A.m.voice_choice, 0); /* -> Focus -> Alarms -> Calendar */
+    gesture(&A, BTN_KEY, GEST_SHORT);
+    CHECK_EQ(A.m.voice_choice, 0); /* -> Focus -> Alarms -> Meeting -> Calendar */
     gesture(&A, BTN_KEY, GEST_HOLD_START);
     CHECK_EQ(A.m.state, UI_STATE_LISTENING);
     CHECK_EQ(C.count[PIP_AUDIO_START], starts + 1);
     CHECK_EQ(C.last_payload[10], 1); /* activity id 1 = calendar in the former reserved field */
+    CHECK_EQ(C.last_payload[8] | (C.last_payload[9] << 8), APP_VOICE_MAX_S); /* a message may run 10 minutes */
     gesture(&A, BTN_KEY, GEST_HOLD_END);
     CHECK_EQ(A.m.state, UI_STATE_TRANSCRIBING);
     CHECK_EQ(C.count[PIP_BTN_EVENT], btn_reports); /* picker + recording never toggled the host timer */
@@ -261,6 +274,58 @@ int main(void)
     CHECK(!A.hands_free);
     CHECK(!app_voice_wake(&A)); /* busy transcribing: the wake word is ignored */
     A.m.state = prior;
+
+    /* meeting: picked like any voice activity, records with no time limit, survives host UI updates and
+     * stray clicks, and only a KEY hold ends it (AUDIO_END goes to the PC) */
+    starts = C.count[PIP_AUDIO_START];
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    CHECK_EQ(A.m.state, UI_STATE_VOICE_PICK);
+    gesture(&A, BTN_KEY, GEST_HOLD_END);
+    while (A.m.voice_choice != UI_VOICE_MEETING) {
+        gesture(&A, BTN_KEY, GEST_SHORT);
+    }
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    CHECK_EQ(A.m.state, UI_STATE_MEETING);
+    CHECK_EQ(ui_screen_for(&A.m), SCREEN_MEETING);
+    CHECK_EQ(C.count[PIP_AUDIO_START], starts + 1);
+    CHECK_EQ(C.last_payload[10], 4);                               /* activity 4 = meeting */
+    CHECK_EQ(C.last_payload[8] | (C.last_payload[9] << 8), 0);     /* max_sec 0 = no limit */
+    CHECK(!A.hands_free);
+    gesture(&A, BTN_KEY, GEST_HOLD_END); /* releasing the hold that started it keeps recording */
+    CHECK_EQ(A.m.state, UI_STATE_MEETING);
+    gesture(&A, BTN_KEY, GEST_SHORT); /* a bumped button only explains how to stop */
+    gesture(&A, BTN_BOOT, GEST_SHORT);
+    CHECK_EQ(A.m.state, UI_STATE_MEETING);
+    frame(&A, PIP_UI_UPDATE, 0, 69, "{\"rev\":12,\"ui_state\":\"IDLE_READY\"}");
+    CHECK_EQ(A.m.state, UI_STATE_MEETING); /* the host never interrupts a meeting */
+    CHECK(!app_voice_wake(&A));            /* nor does the wake word */
+    for (int k = 0; k < 30 * 60; k++) {    /* 30 minutes: no watchdog, no sleep */
+        A.now_ms += 1000;
+        frame(&A, PIP_HEARTBEAT, 0, (uint16_t)(200 + k), NULL);
+        app_tick(&A, A.now_ms);
+    }
+    CHECK_EQ(A.m.state, UI_STATE_MEETING);
+    CHECK(A.m.listen_elapsed_s >= 30 * 60);
+    int caps = C.captures_off;
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    CHECK(A.m.state != UI_STATE_MEETING);
+    CHECK_EQ(C.captures_off, caps + 1);
+    A.m.state = prior;
+    /* a PC link drop during a meeting: keeps recording for the grace period, then stops on its own */
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    gesture(&A, BTN_KEY, GEST_HOLD_START);
+    CHECK_EQ(A.m.state, UI_STATE_MEETING);
+    app_tick(&A, A.now_ms + APP_LINK_TIMEOUT_MS + 100);
+    CHECK_EQ(A.m.link, LINK_STANDALONE);
+    CHECK_EQ(A.m.state, UI_STATE_MEETING);
+    app_tick(&A, A.now_ms + APP_MEETING_LINK_GRACE_MS + 100);
+    CHECK(A.m.state != UI_STATE_MEETING);
+    frame(&A, PIP_HEARTBEAT, 0, 4000, NULL); /* relink */
+    app_tick(&A, A.now_ms + 1);
+    CHECK_EQ(A.m.link, LINK_TETHERED);
+    A.m.state = prior;
+    A.m.voice_choice = 1;
+
     /* host raises "AI has left the device": shown with a flash, any click dismisses and reports */
     frame(&A, PIP_UI_UPDATE, 0, 70, "{\"rev\":20,\"ui_state\":\"ERROR_RECOVERABLE\",\"error_title\":\"AI has left the device\","
                                     "\"error_text\":\"Kimi couldn't be reached.\",\"step_id\":\"s2\",\"remaining_ms\":500000,"
@@ -387,5 +452,43 @@ int main(void)
     A.now_ms += 100u;
     app_render_if_dirty(&A);
     CHECK(A.sliding && A.slide_dir == 2);
+
+    /* time cues: a 10-minute step chimes "5 minutes left" once and "Time to wrap up" once */
+    A.m.state = UI_STATE_RUNNING;
+    A.m.has_active_step = true;
+    lt_load(&A.timer, 10u * 60u * 1000u, 10u * 60u * 1000u, LT_PAUSED, A.now_ms);
+    lt_start(&A.timer, A.now_ms);
+    int nudges = 0, wraps = 0;
+    for (int k = 0; k < 9 * 60 + 30; k++) {
+        A.now_ms += 1000;
+        frame(&A, PIP_HEARTBEAT, 0, (uint16_t)(9000 + k), NULL);
+        int ch = C.chimes;
+        app_tick(&A, A.now_ms);
+        if (C.chimes != ch && C.last_chime == CHIME_NUDGE) {
+            nudges++;
+            CHECK(strcmp(A.m.toast, "5 minutes left") == 0);
+            CHECK(A.timer.remaining_ms <= 300000u && A.timer.remaining_ms > 298000u);
+        }
+        if (C.chimes != ch && C.last_chime == CHIME_WRAP) {
+            wraps++;
+            CHECK(strcmp(A.m.toast, "Time to wrap up") == 0);
+        }
+    }
+    CHECK_EQ(nudges, 1);
+    CHECK_EQ(wraps, 1);
+    /* a 4-minute step is too short for the 5-minute cue but still gets the wrap-up */
+    lt_load(&A.timer, 4u * 60u * 1000u, 4u * 60u * 1000u, LT_PAUSED, A.now_ms);
+    lt_start(&A.timer, A.now_ms);
+    nudges = wraps = 0;
+    for (int k = 0; k < 3 * 60 + 30; k++) {
+        A.now_ms += 1000;
+        frame(&A, PIP_HEARTBEAT, 0, (uint16_t)(12000 + k), NULL);
+        int ch = C.chimes;
+        app_tick(&A, A.now_ms);
+        nudges += C.chimes != ch && C.last_chime == CHIME_NUDGE;
+        wraps += C.chimes != ch && C.last_chime == CHIME_WRAP;
+    }
+    CHECK_EQ(nudges, 0);
+    CHECK_EQ(wraps, 1);
     TT_DONE();
 }

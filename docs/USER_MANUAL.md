@@ -55,11 +55,14 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 | **KEY hold** | Leave a voice message: first pick what it's about, then hold again to talk (see 4). Needs the PC. |
 | **BOOT click** | Mark the current step done. On "Step Done!": take a 5-min break. On a question: confirm. |
 | **BOOT hold 1.2 s** | **Cut the step in half** when it feels too big. Nothing is lost — the rest becomes the next step. |
+| **BOOT double-click** | **Park the task for later.** It moves to Parked tangents with its steps and the time left; Resume it from the app any time. Needs the PC. |
+| **KEY hold (while recording a meeting)** | End the meeting. Clicks do nothing while a meeting records, so a bumped button can't stop it. |
 
 ## 4. A typical session
 1. **Voice message.** Hold **KEY** — PIP asks **"What's it about?"**:
-   **Calendar** · **Brain dump** · **Focus** · **Alarms**. Click KEY to move the highlight, then **hold KEY** and
-   speak; release to send (up to 60 s). BOOT goes back. (You can also type it in the app's **Brain Dump** page and
+   **Calendar** · **Brain dump** · **Focus** · **Alarms** · **Meeting**. Click KEY to move the highlight, then
+   **hold KEY** and speak; release to send (up to **10 minutes**). BOOT goes back. Hands-free (wake word) messages
+   end after a pause; once you've talked for 20 s PIP waits 2.5 s, so thinking pauses don't cut you off. (You can also type it in the app's **Brain Dump** page and
    pick the same four topics there.)
    - *Brain dump:* everything on your mind — PIP picks one task to do now and parks the rest.
    - *Calendar:* "Dentist Thursday at 2", "move gym to Friday morning".
@@ -67,17 +70,39 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
    - *Alarms:* "wake me at 6:30 every weekday".
 2. Kimi breaks the task into 3–6 concrete steps in your own situation (the first is a 2-minute starter), gives it a
    short name that fits PIP's screen, parks side thoughts for later, and sets alarms. Planning takes ~20–40 s.
-3. Click **KEY** to start the 2-minute starter. Click **BOOT** when done. Repeat.
-4. Vague times like "Friday afternoon" are never set silently — PIP asks **Confirm Time**: BOOT to confirm,
+   Steps name the real places and things you mentioned ("Drive to Old Navy", "Find kids' winter pants"), and each
+   step says what you'll be doing (errand, computer, call...) so PIP acts out the right thing.
+3. **Time you can feel.** While a step runs, a disc in the top-left corner shrinks like a kitchen timer, with the
+   minutes left under it. At **5 minutes left** (steps of 8+ min) PIP chimes softly and turns to you; at **1 minute**
+   it says **"Time to wrap up"**. Works offline too.
+4. **Meetings.** Pick **Meeting** in the voice menu and hold KEY: PIP records until you **hold KEY again** — no time
+   limit (the screen shows REC and the running time). The recording is saved on the PC as it goes, then transcribed
+   there (nothing is uploaded). Open **Meetings** in the app to read who said what.
+5. Click **KEY** to start the 2-minute starter. Click **BOOT** when done. Repeat.
+6. Vague times like "Friday afternoon" are never set silently — PIP asks **Confirm Time**: BOOT to confirm,
    KEY to keep it as a parked note instead.
 
 ## 5. The Companion app
-- **Today:** focus timer, steps (Alt+↑/↓ to reorder), today/tomorrow, parked tangents (Promote / let go).
+- **Today:** focus timer, steps (Alt+↑/↓ to reorder), today/tomorrow, parked tangents. **Park for later** on the
+  focus card sends the task in progress to Parked tangents; **Resume** brings it back exactly where it stopped. For a
+  parked *thought*, **Promote** asks Kimi to break it into concrete steps (~20–40 s); if Kimi can't be reached the
+  note simply stays parked.
 - **Calendar:** Outlook-style Month / Week / Day: events are blocks with their title and time range, the
   all-day/anytime row wraps long titles (+N more expands). Week and Day show the hours of the day; click any hour to add a task or
-  reminder at that time. Click an item to move it, change its time, make it "anytime", or delete it.
+  reminder at that time. **Drag** a task or reminder to another time or day; **drag a task's top or bottom edge** to
+  change how long it is (snaps to 15 minutes). Click an item to change its date/time, make it "anytime", or delete it.
+  Alarms are edited on the Alarms page.
 - **Brain Dump:** review and edit a plan before saving it.
 - **Focus:** the cut-in-half preview.
+- **Meetings:** every recorded (or imported) meeting with its date, time, length and speakers. Play the audio and
+  click a line's time to jump there. Speakers PIP doesn't know are **Speaker 01, Speaker 02...**: type a name and
+  Save — with **Remember this voice** ticked, PIP names that person automatically in later meetings. Fix a line's
+  speaker from its drop-down, edit a mis-heard word, merge two speakers who are the same person ("Same person as…"),
+  add a missed speaker, or tell PIP how many people were there and **Detect again**. **Summarize with Kimi** writes
+  a summary, decisions and action items (uses your AI budget); **Park action items** puts them in Parked tangents.
+  **Export** as Markdown, TXT, SRT subtitles or JSON, or download the audio. **Import audio** transcribes a recording
+  from elsewhere (wav, mp3, m4a...). Speaker detection is lightweight: clearly different voices separate well;
+  similar voices may need a fix by hand.
 - **Alarms:** one-time or weekly alarms. Sound is either **Chime** or **Spoken wake-up, then chimes**: pick a voice,
   type a script or press **Write with Kimi** for a ~30-second (70-90 word) wake-up message, and **Preview on this
   PC**. When it rings, PIP speaks the script, then chimes every few seconds for **1 minute** unless you dismiss it.
@@ -89,7 +114,7 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
   screen and in the app, plays a confirm chime and says it out loud.
 - **Device:** a live copy of PIP's screen and battery/health info.
 - **Settings:** Kimi API key (see below), speech status, voice picker and "Play on PIP" voice test.
-- Keyboard: **Space** start/pause · **N** brain dump · **S** cut in half · **1–7** switch views.
+- Keyboard: **Space** start/pause · **N** brain dump · **S** cut in half · **1–8** switch views.
 
 ## 6. Kimi AI (required for planning)
 PIP uses Kimi to break tasks into steps. Set it up once: **Settings → Kimi API key → paste → Test this key →

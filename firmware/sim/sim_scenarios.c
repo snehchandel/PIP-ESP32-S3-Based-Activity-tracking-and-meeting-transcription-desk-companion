@@ -120,6 +120,12 @@ void sim_scenario(ui_screen_t s, ui_model_t *m)
         m->voice_choice = 1;
         snprintf(m->wake_label, sizeof m->wake_label, "Hi ESP");
         break;
+    case SCREEN_MEETING:
+        m->state = UI_STATE_MEETING;
+        m->voice_choice = UI_VOICE_MEETING;
+        m->listen_elapsed_s = 23u * 60u + 7u;
+        m->audio_level = 4;
+        break;
     case SCREEN_ERROR:
         m->state = UI_STATE_ERROR_RECOVERABLE;
         snprintf(m->error_title, sizeof m->error_title, "AI has left the device");

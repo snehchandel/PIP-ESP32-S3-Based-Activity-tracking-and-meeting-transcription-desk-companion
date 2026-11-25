@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from .config import Settings
 from .device.firmware import FirmwareUpdater
 from .device.link import DeviceLink, make_transport
 from .device.voice_out import speak_on_device
+from .meetings.service import MeetingService
 from .planner import PlannerError, TaskPlanner, make_planner, resolve_model
 from .protocol import FrameType
 from .speech.pipeline import VoicePipeline
@@ -59,6 +61,9 @@ class Services:
         self.link.on_diag = self._on_diag
         root = Path(__file__).resolve().parents[2]
         self.firmware = FirmwareUpdater(self.link, data_dir, root / "firmware" / "build" / "pip_firmware.bin")
+        self.meetings = MeetingService(self.manager, data_dir, settings.pip_meeting_model, self.hub.publish,
+                                       summarizer=self.planner)
+        self.voice.meetings = self.meetings
         self._ticker: asyncio.Task[None] | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self._model_cache: tuple[object, str] = (None, "")
@@ -123,6 +128,33 @@ class Services:
                 return str(name)
         return None
 
+    def plan_steps(self, text: str) -> tuple[str, str | None, list[dict[str, Any]]]:
+        """Kimi breaks one chosen task into concrete steps: (title, short_title, steps). Raises PlannerError."""
+        plan = self.planner().plan(text, activity="TASK")  # type: ignore[call-arg]
+        if plan.active_task is None:
+            raise PlannerError(plan.clarification_question or "Kimi did not return steps for this")
+        t = plan.active_task
+        return t.title, t.short_title, [s.model_dump() for s in t.steps]
+
+    def refine_task_steps(self, tid: str, text: str) -> None:
+        """Background: replace a new task's placeholder steps with Kimi's (if it is still untouched)."""
+        if not self.settings.api_key():
+            return
+
+        def run() -> None:
+            try:
+                _, _, steps = self.plan_steps(text)
+            except Exception as e:  # placeholder steps stay; the user can still edit them
+                errors.report(self.db, "planner", "Step refinement failed", str(e), None, task=tid)
+                return
+            with self.manager.lock:
+                if self.manager.device.state().get("active_task_id") == tid:
+                    return  # already being worked on: don't pull the steps from under the user
+                if self.manager.tasks.replace_open_steps(tid, steps):
+                    self.manager.changed("task_refined", task_id=tid)
+
+        threading.Thread(target=run, name="pip-refine", daemon=True).start()
+
     @property
     def planner_mode(self) -> str:
         return "KIMI" if self.settings.api_key() else "AI_NOT_CONFIGURED"
@@ -131,6 +163,7 @@ class Services:
         self.loop = asyncio.get_running_loop()
         self.hub.bind(self.loop)
         await self.link.start()
+        self.meetings.recover()
         self._ticker = asyncio.create_task(self._tick_alarms())
         self.weather.start()
         if self.settings.pip_stt_preload:
@@ -180,6 +213,7 @@ class Services:
         while True:
             try:
                 self.alarm_scheduler.check()
+                self.meetings.tick()
             except Exception:
                 log.exception("alarm check failed")
             await asyncio.sleep(1.0)

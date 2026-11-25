@@ -9,7 +9,7 @@
 #define DEBOUNCE_MS 30u
 #define DOUBLE_CLICK_WINDOW_MS 300u
 #define KEY_HOLD_PTT_MS 450u
-#define PTT_MAX_DURATION_MS 60000u
+#define PTT_MAX_DURATION_MS 600000u /* voice messages may run 10 minutes */
 #define BOOT_HOLD_RESCUE_MS 1200u
 #define BOOT_STARTUP_LOCKOUT_MS 500u
 

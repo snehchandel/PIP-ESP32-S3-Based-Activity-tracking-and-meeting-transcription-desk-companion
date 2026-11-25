@@ -28,7 +28,8 @@ export default function FocusView() {
               <dt className="text-muted">Total preserved</dt><dd className="tabular font-semibold">{fmtMs((cur + nxt) * 1000)}</dd>
             </dl>
           ) : <Empty>No active step to rescue.</Empty>}
-          <p className="mt-4 text-xs text-muted">On PIP: hold BOOT for 1.2 s to cut the current step in half.</p>
+          <p className="mt-4 text-xs text-muted">On PIP: hold BOOT for 1.2 s to cut the current step in half, or
+            double-click BOOT to park the task for later (its steps and time left are kept).</p>
         </Card>
       </div>
       {state?.active_task && (

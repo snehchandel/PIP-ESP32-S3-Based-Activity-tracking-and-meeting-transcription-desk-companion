@@ -22,9 +22,20 @@
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
 #define APP_INDOOR_HOLD_MS (5u * 60u * 1000u) /* keep showing the last good indoor reading this long */
-#define APP_FW_VERSION "1.5.1" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_FW_VERSION "1.6.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
-typedef enum { CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM } chime_id_t;
+typedef enum {
+    CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM,
+    CHIME_NUDGE, /* soft "5 minutes left" */
+    CHIME_WRAP   /* "time to wrap up" (1 minute left) */
+} chime_id_t;
+
+#define APP_VOICE_MAX_S 600u /* a voice message may run 10 minutes */
+#define APP_CUE_5MIN_S 300u  /* focus cue: "5 minutes left"... */
+#define APP_CUE_5MIN_MIN_TOTAL_MS (8u * 60u * 1000u) /* ...only for steps of 8+ minutes */
+#define APP_CUE_WRAP_S 60u   /* focus cue: "time to wrap up" */
+#define APP_CUE_WRAP_MIN_TOTAL_MS (3u * 60u * 1000u)
+#define APP_MEETING_LINK_GRACE_MS 120000u /* a meeting survives a PC link drop this long */
 
 typedef struct {
     uint32_t free_heap_b, free_psram_b;
@@ -105,6 +116,8 @@ typedef struct {
     uint32_t error_since_ms;
     bool error_local; /* raised by the device itself (vs. pushed by the host) */
     bool hands_free;  /* recording started by the wake word: the device ends it on silence */
+    uint32_t meeting_link_lost_ms; /* 0 = link fine (meeting recording only) */
+    ui_state_t state_before_meeting;
     uint32_t indoor_ok_ms; /* last good SHTC3 reading */
     bool indoor_seen;
 
@@ -118,7 +131,8 @@ typedef struct {
 } app_t;
 
 #define APP_PICK_TIMEOUT_MS 20000u
-#define APP_STUCK_MS 180000u /* device-side watchdog for LISTENING / TRANSCRIBING / THINKING */
+#define APP_STUCK_MS 420000u /* device-side watchdog for TRANSCRIBING / THINKING (10 min of audio + Kimi) */
+#define APP_STUCK_LISTEN_MS ((APP_VOICE_MAX_S + 60u) * 1000u) /* LISTENING: the longest message + slack */
 #define APP_ERROR_FLASH_MS 2400u
 
 void app_init(app_t *a, const app_io_t *io, uint32_t now_ms, uint32_t boot_id, bool is_sim);
@@ -138,6 +152,8 @@ uint32_t app_scene_tags(const app_t *a);
 bool app_voice_wake(app_t *a);
 /* End a hands-free recording (silence detected / time limit). */
 void app_voice_end(app_t *a);
+/* Stop a meeting recording (KEY hold, or the PC link stayed down too long). */
+void app_meeting_end(app_t *a, const char *toast);
 /* Re-render into a->fb if anything changed (or a slide transition is running); returns true when the panel
  * needs a flush. */
 bool app_render_if_dirty(app_t *a);

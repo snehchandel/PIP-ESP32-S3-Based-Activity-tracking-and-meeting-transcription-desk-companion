@@ -19,7 +19,7 @@ def day_items(tasks: list[dict[str, Any]], reminders: list[dict[str, Any]], alar
     for t in tasks:
         if t["target_date"] == day.isoformat() and t["status"] != "ARCHIVED":
             steps = t.get("steps") or []
-            minutes = sum(s["duration_min"] for s in steps if s["status"] != "COMPLETED") or \
+            minutes = t.get("block_min") or sum(s["duration_min"] for s in steps if s["status"] != "COMPLETED") or \
                 sum(s["duration_min"] for s in steps) or 30
             items.append({"id": t["id"], "title": t["title"], "hhmm": t.get("start_hhmm") or "", "kind": 0,
                           "done": t["status"] == "COMPLETED", "active": t["status"] == "ACTIVE",

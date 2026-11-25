@@ -327,9 +327,11 @@ static void audio_task(void *arg)
                     } else {
                         silence_ms += 20;
                     }
-                    /* done: 1.2 s quiet after real speech, nothing said for 6 s, or 25 s total */
-                    if ((speech_ms >= 300 && silence_ms >= 1200) || (speech_ms < 300 && rec_ms >= 6000) ||
-                        rec_ms >= 25000) {
+                    /* done: 1.2 s quiet after real speech (2.5 s once they've talked for 20 s - long brain
+                     * dumps have thinking pauses), nothing said for 6 s, or the 10 minute limit */
+                    uint32_t quiet_end = speech_ms >= 20000u ? 2500u : 1200u;
+                    if ((speech_ms >= 300 && silence_ms >= quiet_end) || (speech_ms < 300 && rec_ms >= 6000) ||
+                        rec_ms >= APP_VOICE_MAX_S * 1000u) {
                         lock();
                         app_voice_end(&s_app);
                         unlock();
@@ -340,7 +342,7 @@ static void audio_task(void *arg)
         }
         if (was) {
             was = false;
-            pip_audio_end_t e = {stream, 0, (uint8_t)(samples >= 60u * AUDIO_RATE_HZ), 0, samples};
+            pip_audio_end_t e = {stream, 0, 0, 0, samples};
             uint8_t b[12];
             lock();
             app_send(&s_app, PIP_AUDIO_END, true, b, (uint16_t)pip_pack_audio_end(&e, b));
@@ -360,7 +362,7 @@ static void audio_task(void *arg)
         }
         uint8_t id;
         if (xQueueReceive(s_chime_q, &id, 0) == pdTRUE && audio_ok()) {
-            audio_play_chime(id, 70);
+            audio_play_chime(id, id == CHIME_NUDGE || id == CHIME_WRAP ? 45 : 70); /* time cues stay gentle */
             quiet_since = now_ms();
             continue;
         }

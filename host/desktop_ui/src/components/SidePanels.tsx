@@ -1,4 +1,5 @@
-import { AlarmClock, ArrowUpRight, Bell, Check, ListTodo, X } from "lucide-react";
+import { AlarmClock, ArrowUpRight, Bell, Check, ListTodo, Loader2, X } from "lucide-react";
+import { useState } from "react";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
 import type { FullState } from "../api/types";
@@ -67,7 +68,13 @@ export function DayPanel({ title, offset }: { title: string; offset: number }) {
 
 export function ParkedPanel() {
   const { state, run } = useLive();
+  const [busy, setBusy] = useState<string | null>(null);
   if (!state) return null;
+  const promote = async (id: string) => {
+    setBusy(id);
+    await run(() => api.promoteParked(id)); // a thought is broken into steps by Kimi (~20-40 s)
+    setBusy(null);
+  };
   return (
     <Card aria-label="Parked tangents">
       <CardTitle aside={<span className="text-xs text-muted">safe for later</span>}>Parked tangents</CardTitle>
@@ -79,8 +86,14 @@ export function ParkedPanel() {
                 <p className="truncate text-sm font-medium">{p.title}</p>
                 {p.source_text && <p className="truncate text-xs text-muted">“{p.source_text}”</p>}
               </div>
-              <Button size="sm" onClick={() => run(() => api.promoteParked(p.id))} aria-label={`Promote ${p.title} to active`}>
-                Promote</Button>
+              {p.task_id ? (
+                <Button size="sm" disabled={busy !== null} onClick={() => void promote(p.id)}
+                  title="Carries on where you left off" aria-label={`Resume ${p.title}`}>Resume</Button>
+              ) : (
+                <Button size="sm" disabled={busy !== null} onClick={() => void promote(p.id)}
+                  title="Kimi breaks it into concrete steps" aria-label={`Promote ${p.title} to active`}>
+                  {busy === p.id ? <><Loader2 size={14} className="animate-spin" aria-hidden /> Planning…</> : "Promote"}</Button>
+              )}
               <Button size="sm" variant="ghost" onClick={() => run(() => api.dismissParked(p.id))}
                 aria-label={`Let go of ${p.title}`}><X size={14} aria-hidden /></Button>
             </li>

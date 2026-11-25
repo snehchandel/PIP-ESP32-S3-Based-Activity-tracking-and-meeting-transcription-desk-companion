@@ -70,5 +70,6 @@ void ui_screen_confirm(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta);
 void ui_screen_sleep(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta);
 void ui_screen_voice_pick(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta);
 void ui_screen_error(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta);
+void ui_screen_meeting(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta);
 
 #endif

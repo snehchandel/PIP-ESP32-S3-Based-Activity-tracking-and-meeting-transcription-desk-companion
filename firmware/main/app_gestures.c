@@ -120,19 +120,57 @@ static void rescue_split(app_t *a)
     app_sync_timer_to_model(a);
 }
 
+static void park_task(app_t *a)
+{
+    ui_state_t st = a->m.state;
+    if (!a->m.has_active_step || !(st == UI_STATE_RUNNING || st == UI_STATE_PAUSED || st == UI_STATE_IDLE_READY)) {
+        return;
+    }
+    if (a->m.link != LINK_TETHERED) {
+        app_toast(a, "Connect PC to park it");
+        return;
+    }
+    /* the BTN_EVENT already went to the PC, which parks it and pushes the new state; show it right away */
+    lt_stop(&a->timer);
+    app_sync_timer_to_model(a);
+    a->m.has_active_step = false;
+    a->m.step_id[0] = a->m.step_title[0] = a->m.task_title[0] = 0;
+    a->next_step_id[0] = a->m.next_step_title[0] = 0;
+    a->m.next_step_min = 0;
+    a->m.parked_count++;
+    a->m.state = UI_STATE_IDLE_READY;
+    app_toast_for(a, "Parked for later", 3000);
+    chime(a, CHIME_PAUSE);
+}
+
 static void start_listening(app_t *a)
 {
     if (a->m.link != LINK_TETHERED) {
         app_toast(a, "Connect PC for Voice");
         return;
     }
+    bool meeting = a->m.voice_choice == UI_VOICE_MEETING;
     a->stream_id++;
     a->listen_start_ms = a->now_ms;
     a->m.listen_elapsed_s = 0;
+    a->m.listen_max_s = (uint16_t)APP_VOICE_MAX_S;
     a->m.audio_level = 0;
-    a->m.state = UI_STATE_LISTENING;
-    /* the former reserved u16 carries the picked activity (0 brain dump, 1 calendar, 2 focus, 3 alarms) */
-    pip_audio_start_t s = {a->stream_id, 16000, 1, 16, 60, ui_voice_choice_activity(a->m.voice_choice)};
+    if (meeting) {
+        /* a meeting records until KEY is held again; a running focus timer waits (the PC pauses it too) */
+        a->state_before_meeting = a->state_before_pick == UI_STATE_RUNNING ? UI_STATE_PAUSED : a->state_before_pick;
+        if (a->timer.state == LT_RUNNING) {
+            lt_pause(&a->timer, a->now_ms);
+            app_sync_timer_to_model(a);
+        }
+        a->meeting_link_lost_ms = 0;
+        a->m.state = UI_STATE_MEETING;
+    } else {
+        a->m.state = UI_STATE_LISTENING;
+    }
+    /* the former reserved u16 carries the picked activity (0 brain dump, 1 calendar, 2 focus, 3 alarms, 4 meeting);
+     * max_sec 0 = no limit (meeting) */
+    pip_audio_start_t s = {a->stream_id, 16000, 1, 16, (uint16_t)(meeting ? 0u : APP_VOICE_MAX_S),
+                           ui_voice_choice_activity(a->m.voice_choice)};
     uint8_t b[12];
     app_send(a, PIP_AUDIO_START, true, b, (uint16_t)pip_pack_audio_start(&s, b));
     if (a->io.capture) {
@@ -189,6 +227,28 @@ bool app_voice_wake(app_t *a)
     return true;
 }
 
+void app_meeting_end(app_t *a, const char *toast)
+{
+    if (a->m.state != UI_STATE_MEETING) {
+        return;
+    }
+    if (a->io.capture) {
+        a->io.capture(a->io.ctx, false, a->stream_id); /* adapter sends AUDIO_END: the PC transcribes it */
+    }
+    a->meeting_link_lost_ms = 0;
+    a->m.audio_level = 0;
+    ui_state_t back = a->state_before_meeting;
+    a->m.state = back == UI_STATE_PAUSED && !a->m.has_active_step ? UI_STATE_IDLE_READY : back;
+    if (a->m.state == UI_STATE_LISTENING || a->m.state == UI_STATE_VOICE_PICK || a->m.state == UI_STATE_MEETING) {
+        a->m.state = UI_STATE_IDLE_READY;
+    }
+    app_toast_for(a, toast, 4000);
+    if (a->io.chime) {
+        a->io.chime(a->io.ctx, CHIME_DONE);
+    }
+    a->dirty = true;
+}
+
 void app_voice_end(app_t *a)
 {
     if (a->hands_free) {
@@ -232,6 +292,14 @@ void app_on_gesture(app_t *a, const gesture_event_t *e)
             a->m.state = a->timer.state == LT_RUNNING ? UI_STATE_RUNNING : UI_STATE_IDLE_READY;
             a->m.error_title[0] = a->m.error_text[0] = 0;
             a->error_local = false;
+        }
+        return;
+    }
+    if (st == UI_STATE_MEETING) { /* recording a meeting: only a KEY hold ends it, so a bumped button can't */
+        if (e->btn == BTN_KEY && e->gesture == GEST_HOLD_START) {
+            app_meeting_end(a, "Meeting saved - transcribing");
+        } else if (e->gesture == GEST_SHORT || e->gesture == GEST_DOUBLE) {
+            app_toast(a, "Hold KEY to end the meeting");
         }
         return;
     }
@@ -287,6 +355,10 @@ void app_on_gesture(app_t *a, const gesture_event_t *e)
     }
     if (e->gesture == GEST_RESCUE) {
         rescue_split(a);
+        return;
+    }
+    if (e->gesture == GEST_DOUBLE) { /* BOOT 2x: park the task in progress for later (the PC keeps its steps) */
+        park_task(a);
         return;
     }
     if (e->gesture != GEST_SHORT) {

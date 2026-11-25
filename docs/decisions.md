@@ -225,3 +225,44 @@ random picks from a library.
   `pose.grip` now pulls the hands onto the object (keyboard deck with alternating taps, guitar neck + strings with a
   strum), arms drawn in front, a gripped laptop drawn under the arms; the guitar is strapped to the body instead of
   hanging between the hands. Tests check the hand positions. Firmware 1.5.0.
+
+## ADR-026 — Meeting recordings with speakers, transcribed on the PC
+- **Device:** a 5th voice-picker option "Meeting" (AUDIO_START activity 4, `max_sec` 0 = no limit) puts PIP in
+  `UI_STATE_MEETING` / screen `14_meeting` (REC dot, h:mm:ss, level). Only a KEY hold ends it (clicks just explain
+  how), the host's UI_UPDATE never changes the state, a running focus timer is paused, sleep and the stuck watchdog
+  don't apply, and a PC link drop keeps it recording for 2 min before it stops itself. No new frame types.
+- **Host:** `meetings/service.py` appends every chunk to `data/meetings/<id>.wav` (nothing held in RAM; chunk-seq
+  gaps from link drops are filled with silence so timestamps stay true; a host crash is repaired at startup).
+  A worker thread with its **own** faster-whisper instance (voice commands never queue behind a meeting; unloaded
+  when idle) transcribes in 10-min windows cut at the quietest moment, VAD splitting at 0.5 s pauses so segments
+  follow turns. Date/time/duration are stored; the title comes from the calendar item around the start time.
+- **Speakers:** pyannote/speechbrain need torch, a token and a model download, so `meetings/diarize.py` uses numpy
+  only: per segment MFCC mean/std + delta std + pitch median/IQR, scaled by a fixed per-feature within-speaker
+  spread (floored at 0.1 so noise-driven high cepstra don't dominate), average-linkage clustering stopped at RMS
+  distance 1.75, tiny groups (<2 lines/3 s and <8 s) absorbed. Tuned on synthetic meetings from the 4 Piper voices:
+  1-4 speakers counted right in 29-30 of 30; real faster-whisper on a 3-voice meeting attributed 12/12 lines.
+  Naming a speaker (with "remember") stores the raw feature centroid as a voice profile; later meetings label the
+  closest cluster within distance 1.45. Similar real voices can still merge: the app allows per-line reassignment,
+  merge, add, rename and re-detection with a known speaker count. A neural embedding model could replace the
+  features later behind the same interface.
+- **Kimi:** optional "Summarize" (title, summary, decisions, action items; metered) and "Park action items".
+
+## ADR-027 — Longer voice messages, time cues, parking, sharper steps, calendar drag
+- **10-minute messages:** PTT watchdog 60 s -> 10 min, hands-free limit 25 s -> 10 min with a 2.5 s end pause after
+  20 s of speech, host buffer 600 s; watchdogs: device LISTENING 11 min, TRANSCRIBING/THINKING 7 min; host
+  LISTENING 660 s, TRANSCRIBING 420 s, THINKING 300 s; Kimi HTTP timeout 120 s (a 90 s ReadTimeout had parked a
+  brain dump).
+- **Time cues:** focus/paused screens draw a shrinking pie in the stage corner; device-local chimes 7 (soft, "5
+  minutes left", steps >= 8 min) and 8 ("Time to wrap up" at 1 min, steps >= 3 min), played at lower volume, with a
+  toast and PIP turning to the user. Offline-safe because the device decides.
+- **Parking:** BOOT now has a double-click (its click waits out the 300 ms window like KEY's). BOOT 2x / "Park for
+  later" archives the task, keeps its steps and remaining time, and creates a parked note pointing at it
+  (`parked_tasks.task_id`); promoting that note resumes the same task. A parked *thought* is now broken into steps by
+  Kimi (activity "TASK") instead of the generic templates that produced "Put the tools or files for ..." steps;
+  if Kimi fails the note stays parked (HTTP 502). Calendar quick-adds keep instant placeholder steps that Kimi
+  replaces in the background while the task is untouched.
+- **Sharper steps:** the prompt makes Kimi work out where the task happens and what is involved, include travel for
+  errands, use the user's own nouns, and pick a per-step `activity` (stored in `steps.activity`, preferred over the
+  keyword classifier for what PIP acts out). Generic filler steps fail validation (one repair retry).
+- **Calendar:** tasks and reminders drag to another time/day; tasks resize from either edge (15-min snap,
+  `tasks.block_min` overrides the steps' total). Firmware 1.6.0.

@@ -22,6 +22,7 @@ typedef enum {
     UI_STATE_SLEEP,
     UI_STATE_ERROR_RECOVERABLE,
     UI_STATE_VOICE_PICK, /* device-local: choose what the voice message is about */
+    UI_STATE_MEETING,    /* recording a meeting: streams until KEY is held again, no time limit */
     UI_STATE_COUNT
 } ui_state_t;
 
@@ -30,7 +31,8 @@ typedef enum { LINK_STANDALONE = 0, LINK_TETHERED = 1 } link_state_t;
 typedef enum { TIMER_STOPPED = 0, TIMER_RUNNING = 1, TIMER_PAUSED = 2 } timer_state_t;
 
 #define UI_AGENDA_MAX 8
-#define UI_VOICE_CHOICES 4 /* picker order: Calendar, Brain dump, Focus, Alarms */
+#define UI_VOICE_CHOICES 5 /* picker order: Calendar, Brain dump, Focus, Alarms, Meeting */
+#define UI_VOICE_MEETING 4 /* picker index (and protocol activity id) of "Meeting" */
 
 typedef struct {
     char id[24];
@@ -78,7 +80,7 @@ typedef struct {
     uint16_t listen_max_s;
     uint8_t audio_level; /* 0..8 bars */
     char thinking_stage[32];
-    uint8_t voice_choice; /* picker index 0..3 */
+    uint8_t voice_choice; /* picker index 0..4 */
     char wake_label[16];  /* e.g. "Hi ESP" when the on-device wake word is on, "" otherwise */
 
     char alarm_title[64];
@@ -129,6 +131,7 @@ typedef enum {
     SCREEN_STANDALONE_SLEEP,
     SCREEN_VOICE_PICK,
     SCREEN_ERROR,
+    SCREEN_MEETING,
     SCREEN_COUNT
 } ui_screen_t;
 
@@ -139,7 +142,7 @@ const char *ui_screen_name(ui_screen_t s);
 pip_expr_t ui_expr_for(const ui_model_t *m);
 /* Which PIP act library the current screen uses. */
 pip_mode_t ui_mode_for(const ui_model_t *m);
-/* Picker labels and their protocol activity ids (0 brain dump, 1 calendar, 2 focus, 3 alarms). */
+/* Picker labels and their protocol activity ids (0 brain dump, 1 calendar, 2 focus, 3 alarms, 4 meeting). */
 const char *ui_voice_choice_label(uint8_t choice);
 uint8_t ui_voice_choice_activity(uint8_t choice);
 

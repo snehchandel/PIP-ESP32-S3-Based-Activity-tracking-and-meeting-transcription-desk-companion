@@ -84,7 +84,8 @@ void app_apply_ui_update(app_t *a, const char *j, size_t n)
     }
     char et[sizeof m->error_title];
     bool host_error = jm_get_str(j, n, "error_title", et, sizeof et) && et[0];
-    if (jm_get_str(j, n, "ui_state", s, sizeof s) && m->state != UI_STATE_ALARM_RINGING) {
+    if (jm_get_str(j, n, "ui_state", s, sizeof s) && m->state != UI_STATE_ALARM_RINGING &&
+        m->state != UI_STATE_MEETING) { /* a meeting recording is device-driven: only KEY hold ends it */
         ui_state_t ns = app_state_from_name(s);
         if (ns == UI_STATE_ERROR_RECOVERABLE && host_error) {
             if (m->state != UI_STATE_ERROR_RECOVERABLE || strcmp(et, m->error_title) != 0) {

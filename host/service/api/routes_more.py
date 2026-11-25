@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from ..calendar.agenda import day_items
-from ..planner.step_templates import steps_for
+from ..planner import PlannerError
 from .routes_core import health, svc
 
 router = APIRouter(prefix="/api/v1")
@@ -67,12 +67,24 @@ def delete_reminder(rid: str, req: Request) -> dict[str, bool]:
 
 @router.post("/parked/{pid}/promote")
 def promote(pid: str, req: Request) -> dict[str, Any]:
+    """A parked task resumes with its steps; a parked thought is broken into concrete steps by Kimi
+    (the device shows "Planning..." meanwhile). If Kimi fails the note stays parked."""
     s = svc(req)
     p = s.manager.tasks.get_parked(pid)
     if p is None or p["status"] != "PARKED":
         raise HTTPException(404, "parked item not found")
-    tid = s.manager.tasks.create_task(p["title"], steps_for(p["title"]), datetime.now(s.manager.tz).date().isoformat(),
-                                      s.manager.tz.key)
+    resumed = s.manager.resume_parked_task(pid)
+    if resumed:
+        return {"task_id": resumed, "resumed": True}
+    s.voice._set_overlay("THINKING", "Breaking into steps...")
+    try:
+        title, short, steps = s.plan_steps(p["source_text"] or p["title"])
+    except PlannerError as e:
+        raise HTTPException(502, f"Kimi couldn't plan this: {e}") from e
+    finally:
+        s.voice._set_overlay(None)
+    tid = s.manager.tasks.create_task(title or p["title"], steps, datetime.now(s.manager.tz).date().isoformat(),
+                                      s.manager.tz.key, short_title=short)
     s.manager.tasks.set_parked_status(pid, "PROMOTED")
     if s.manager.active_step() is None:
         s.manager.activate_task(tid)

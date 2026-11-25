@@ -1,4 +1,4 @@
-import { AlarmClock, CalendarDays, Check, Cpu, Crosshair, Mic, Settings, Sun } from "lucide-react";
+import { AlarmClock, CalendarDays, Check, Cpu, Crosshair, Mic, Settings, Sun, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
@@ -14,6 +14,7 @@ export const NAV = [
   { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/voice", label: "Brain Dump", icon: Mic },
   { to: "/focus", label: "Focus", icon: Crosshair },
+  { to: "/meetings", label: "Meetings", icon: Users },
   { to: "/alarms", label: "Alarms", icon: AlarmClock },
   { to: "/device", label: "Device", icon: Cpu },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -76,6 +77,42 @@ function AckBanner() {
   );
 }
 
+function RecordingBanner() {
+  // PIP is recording a meeting: show it everywhere, with the running time (from the meetings status)
+  const { meetingEvt } = useLive();
+  const [rec, setRec] = useState<{ id: string; recorded_s: number; at: number } | null>(null);
+  const [s, setS] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.meetings().then((m) => {
+      if (!alive) return;
+      const r = m.status.recording[0];
+      setRec(r ? { ...r, at: Date.now() } : null);
+      if (r) setS(Math.floor(r.recorded_s));
+    }).catch(() => undefined);
+    void load();
+    const t = window.setInterval(load, 15000);
+    return () => { alive = false; window.clearInterval(t); };
+  }, [meetingEvt.n]);
+  useEffect(() => {
+    if (!rec) return;
+    const t = window.setInterval(() => setS(Math.floor(rec.recorded_s + (Date.now() - rec.at) / 1000)), 1000);
+    return () => window.clearInterval(t);
+  }, [rec]);
+  if (!rec) return null;
+  const hms = `${s >= 3600 ? `${Math.floor(s / 3600)}:` : ""}${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  return (
+    <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e7c2b8]
+      bg-[#fbeee9] px-4 py-3">
+      <p className="flex items-center gap-2 text-sm font-semibold text-[#8a3b2e]">
+        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[#c0392b]" aria-hidden />
+        PIP is recording a meeting · <span className="tabular">{hms}</span>
+        <span className="font-normal text-ink-2">— hold KEY on PIP to stop; the transcript appears in Meetings.</span></p>
+      <NavLink to="/meetings" className="text-sm font-semibold underline">Open Meetings</NavLink>
+    </div>
+  );
+}
+
 function ConfirmBanner() {
   const { state, run } = useLive();
   const p = state?.pending_confirmation;
@@ -123,12 +160,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         <ErrorBanner />
         <AckBanner />
         <ConfirmBanner />
+        <RecordingBanner />
         {error && <p role="alert" className="mb-4 rounded-xl border border-line bg-white px-4 py-2 text-sm text-ink-2">
           {error}</p>}
         {children}
       </main>
       <footer className="border-t border-line px-6 py-3 text-center text-xs text-muted">
-        Shortcuts: <kbd>Space</kbd> timer · <kbd>N</kbd> brain dump · <kbd>S</kbd> split step · <kbd>1–7</kbd> views
+        Shortcuts: <kbd>Space</kbd> timer · <kbd>N</kbd> brain dump · <kbd>S</kbd> split step · <kbd>1–8</kbd> views
       </footer>
     </div>
   );

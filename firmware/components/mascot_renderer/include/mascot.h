@@ -101,7 +101,7 @@ typedef enum {
 /* Scene tags select acts that fit the moment: the task's activity (focus, pause, done, idle preview), the
  * activity picked in the voice picker (listening) or the thinking stage. */
 #define PIP_TAG(act) (1u << (unsigned)(act))
-#define PIP_TAG_VOICE(choice) (1u << (unsigned)(choice)) /* 0 Calendar, 1 Brain dump, 2 Focus, 3 Alarms */
+#define PIP_TAG_VOICE(choice) (1u << (unsigned)(choice)) /* 0 Calendar, 1 Brain dump, 2 Focus, 3 Alarms, 4 Meeting */
 #define PIP_TAG_TRANSCRIBE 1u
 #define PIP_TAG_PLANNING 2u
 #define PIP_TAG_EGG (1u << 31) /* easter eggs: only ever picked by the rare roll in start_perf */

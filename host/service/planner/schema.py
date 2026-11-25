@@ -24,17 +24,27 @@ ABSTRACT_STARTERS = re.compile(r"^\s*(think|consider|reflect|plan|decide|figure|
 
 
 HEADER_LIKE = re.compile(r"^\s*(#|step\s*\d|phase\b|part\s*\d|section\b|stage\b|preparation\s*:|setup\s*:)|:\s*$", re.I)
+# generic filler that fits any task: a step must name the real action, object or place
+GENERIC_STEP = re.compile(r"\b(work on (the|this) (task|first part|next part)|review (your )?progress|"
+                          r"continue working|keep working)\b", re.I)
+
+# What PIP acts out on the device while the step runs (names match firmware mascot_activity_name()).
+Activity = Literal["general", "write", "computer", "read", "call", "clean", "exercise", "cook", "garden", "music",
+                   "fix", "plan", "errand", "rest"]
 
 
 class Step(BaseModel):
     title: str = Field(min_length=3, max_length=96)
     duration_min: int = Field(ge=1, le=60)
     is_starter: bool = False
+    activity: Activity | None = None  # what the body does in this step (Kimi picks it; keyword rules otherwise)
 
     @model_validator(mode="after")
     def not_a_header(self) -> Step:
         if HEADER_LIKE.search(self.title) or (self.title.isupper() and len(self.title) > 4):
             raise ValueError(f"step '{self.title}' looks like a heading, not a concrete action")
+        if GENERIC_STEP.search(self.title):
+            raise ValueError(f"step '{self.title}' is generic filler - name the real action, object or place")
         return self
 
 
@@ -118,3 +128,17 @@ class PlannerOutputV1(BaseModel):
 
 
 PLANNER_JSON_SCHEMA = PlannerOutputV1.model_json_schema()
+
+
+class ActionItem(BaseModel):
+    task: str = Field(min_length=2, max_length=200)
+    owner: str | None = Field(default=None, max_length=60)
+    due: str | None = Field(default=None, max_length=60)
+
+
+class MeetingSummary(BaseModel):
+    """Kimi's read of a meeting transcript (optional, on request in the app)."""
+    title: str = Field(min_length=2, max_length=80)
+    summary: str = Field(min_length=2, max_length=2000)
+    decisions: list[str] = Field(default_factory=list)
+    action_items: list[ActionItem] = Field(default_factory=list)

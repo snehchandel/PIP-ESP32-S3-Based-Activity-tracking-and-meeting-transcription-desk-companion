@@ -1,11 +1,16 @@
 import { AlarmClock, Bell, ListTodo, Repeat } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { CalItem, DayItems } from "../api/types";
 import { cn, todayIso } from "../lib/utils";
 
 /* Outlook-style week/day grid: roomy hours, events as solid blocks with a coloured edge,
-   the title first (wrapping as far as the block allows) and the time range underneath. */
+   the title first (wrapping as far as the block allows) and the time range underneath.
+   Tasks and reminders can be dragged to another time or day; tasks can be resized from their top or bottom edge.
+   Everything snaps to 15 minutes. A press without movement is still a click (opens the editor). */
 const HOUR_PX = 64;
+const SNAP = 15;
+const DRAG_START_PX = 4;
 const KIND_ICON = [ListTodo, Bell, AlarmClock];
 const KIND_NAME = ["Task", "Reminder", "Alarm"];
 const KIND_STYLE = [
@@ -57,11 +62,68 @@ function AllDay({ day, selectedId, onSelect }: {
   );
 }
 
-export function TimeGrid({ days, selectedId, onSelect, onSlot }: {
+export type CalChange = { item: CalItem; date: string; hhmm: string; minutes: number; resized: boolean };
+
+type Drag = {
+  item: CalItem; fromDate: string; mode: "move" | "top" | "bottom"; x0: number; y0: number; pointer: number;
+  start: number; dur: number; date: string; moved: boolean;
+};
+
+const hhmmOf = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+export function TimeGrid({ days, selectedId, onSelect, onSlot, onChange }: {
   days: DayItems[]; selectedId: string | null; onSelect: (item: CalItem, date: string) => void;
-  onSlot: (date: string, hhmm: string) => void;
+  onSlot: (date: string, hhmm: string) => void; onChange?: (c: CalChange) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const columns = useRef<(HTMLDivElement | null)[]>([]);
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const dragRef = useRef<Drag | null>(null);
+  const setD = (d: Drag | null) => { dragRef.current = d; setDrag(d); };
+
+  const begin = (e: ReactPointerEvent, item: CalItem, date: string, mode: Drag["mode"]) => {
+    if (e.button !== 0 || !onChange || item.kind === 2 || (mode !== "move" && item.kind !== 0)) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setD({ item, fromDate: date, mode, x0: e.clientX, y0: e.clientY, pointer: e.pointerId, start: toMin(item.hhmm),
+      dur: Math.max(SNAP, item.duration_min), date, moved: false });
+  };
+  const move = (e: ReactPointerEvent) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointer) return;
+    const dy = e.clientY - d.y0;
+    if (!d.moved && Math.abs(dy) < DRAG_START_PX && Math.abs(e.clientX - d.x0) < DRAG_START_PX) return;
+    const steps = Math.round((dy / HOUR_PX) * 60 / SNAP) * SNAP;
+    const s0 = toMin(d.item.hhmm), d0 = Math.max(SNAP, d.item.duration_min), end0 = s0 + d0;
+    let start = d.start, dur = d.dur, date = d.date;
+    if (d.mode === "move") {
+      start = Math.min(24 * 60 - SNAP, Math.max(0, s0 + steps));
+      const col = columns.current.findIndex((c) => {
+        const r = c?.getBoundingClientRect();
+        return !!r && e.clientX >= r.left && e.clientX < r.right;
+      });
+      if (col >= 0) date = days[col].date;
+    } else if (d.mode === "bottom") {
+      dur = Math.min(24 * 60 - s0, Math.max(SNAP, d0 + steps));
+    } else {
+      start = Math.min(end0 - SNAP, Math.max(0, s0 + steps));
+      dur = end0 - start;
+    }
+    setD({ ...d, start, dur, date, moved: true });
+  };
+  const end = (e: ReactPointerEvent) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointer) return;
+    setD(null);
+    if (!d.moved) {
+      onSelect(d.item, d.fromDate);
+      return;
+    }
+    const changed = d.start !== toMin(d.item.hhmm) || d.date !== d.fromDate || d.dur !== Math.max(SNAP, d.item.duration_min);
+    if (changed && onChange) {
+      onChange({ item: d.item, date: d.date, hhmm: hhmmOf(d.start), minutes: d.dur, resized: d.mode !== "move" });
+    }
+  };
   const timed = days.flatMap((d) => d.items.filter((i) => i.hhmm));
   const startH = Math.min(6, ...timed.map((i) => Math.floor(toMin(i.hhmm) / 60)));
   const endH = Math.min(24, Math.max(23, ...timed.map((i) => Math.ceil((toMin(i.hhmm) + i.duration_min) / 60))));
@@ -77,6 +139,45 @@ export function TimeGrid({ days, selectedId, onSelect, onSlot }: {
     scroller.current?.scrollTo({ top: target });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days.length, startH]);
+
+  function renderBlock(item: CalItem, date: string, start: number, durMin: number, lane: number, lanes: number,
+                       ghost: boolean) {
+    const Icon = KIND_ICON[item.kind] ?? ListTodo;
+    const dur = Math.max(durMin, item.kind === 2 ? 15 : 30);
+    const top = (start / 60 - startH) * HOUR_PX + 1;
+    const height = Math.max(42, (dur / 60) * HOUR_PX - 3); // always room for title + time
+    const range = item.kind === 2 ? fmtTime(start) : `${fmtTime(start)} – ${fmtTime(start + durMin)}`;
+    const movable = !!onChange && item.kind !== 2;
+    const resizable = !!onChange && item.kind === 0;
+    return (
+      <div key={item.id} role="button" tabIndex={0} title={`${item.title}\n${range} · ${KIND_NAME[item.kind]}${movable ? " · drag to move" : ""}${resizable ? ", drag an edge to resize" : ""}`}
+        aria-label={`${item.title}, ${range}, ${KIND_NAME[item.kind]}`} data-testid="cal-block"
+        onPointerDown={(e) => (movable ? begin(e, item, date, "move") : undefined)} onPointerMove={move} onPointerUp={end}
+        onPointerCancel={() => setD(null)}
+        onClick={() => { if (!movable) onSelect(item, date); }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(item, date); } }}
+        className={cn("absolute z-20 select-none overflow-hidden rounded-[4px] border-l-[4px] px-1.5 py-1 text-left text-xs",
+          "leading-snug shadow-[0_1px_2px_rgba(0,0,0,0.12)] hover:z-30 hover:brightness-95", KIND_STYLE[item.kind],
+          movable ? "cursor-grab touch-none" : "cursor-pointer",
+          ghost && "z-40 cursor-grabbing opacity-90 shadow-lg ring-2 ring-amber",
+          item.done && "opacity-50", selectedId === item.id && "ring-2 ring-ink")}
+        style={{ top, height, left: `calc(${(lane / lanes) * 100}% + 2px)`, width: `calc(${100 / lanes}% - 5px)` }}>
+        {resizable && <span aria-hidden className="absolute inset-x-0 top-0 h-1.5 cursor-ns-resize"
+          onPointerDown={(e) => begin(e, item, date, "top")} />}
+        <span className={cn("block break-words font-semibold", item.done && "line-through")}
+          style={{ display: "-webkit-box", WebkitBoxOrient: "vertical",
+            WebkitLineClamp: Math.max(1, Math.floor((height - 22) / 16)), overflow: "hidden" }}>
+          {item.title}</span>
+        <span className="mt-0.5 flex items-center gap-1 text-[11px] opacity-80">
+          <Icon size={11} aria-hidden className="shrink-0" />
+          <span className="tabular truncate">{range}</span>
+          {item.recurring && <Repeat size={10} aria-hidden className="shrink-0" />}
+        </span>
+        {resizable && <span aria-hidden className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
+          onPointerDown={(e) => begin(e, item, date, "bottom")} />}
+      </div>
+    );
+  }
 
   const cols = `64px repeat(${days.length}, minmax(${days.length > 1 ? 104 : 0}px, 1fr))`;
   return (
@@ -108,8 +209,8 @@ export function TimeGrid({ days, selectedId, onSelect, onSlot }: {
                   <span className="relative -top-2">{h === startH ? "" : fmtHour(h)}</span></div>
               ))}
             </div>
-            {days.map((d) => (
-              <div key={d.date} className="relative border-l border-line">
+            {days.map((d, di) => (
+              <div key={d.date} ref={(el) => { columns.current[di] = el; }} className="relative border-l border-line">
                 {hours.map((h) => (
                   <div key={h} className={cn("border-t border-line", (h < 8 || h >= 18) && "bg-paper-2/40")}
                     style={{ height: HOUR_PX }}>
@@ -127,34 +228,13 @@ export function TimeGrid({ days, selectedId, onSelect, onSlot }: {
                     <span className="absolute -left-1 -top-[5px] h-2 w-2 rounded-full bg-amber" /></div>
                 )}
                 {layout(d.items).map(({ item, lane, lanes }) => {
-                  const Icon = KIND_ICON[item.kind] ?? ListTodo;
-                  const start = toMin(item.hhmm);
-                  const dur = Math.max(item.duration_min, item.kind === 2 ? 15 : 30);
-                  const top = (start / 60 - startH) * HOUR_PX + 1;
-                  const height = Math.max(42, (dur / 60) * HOUR_PX - 3); // always room for title + time
-                  const range = item.kind === 2 ? fmtTime(start) : `${fmtTime(start)} – ${fmtTime(start + item.duration_min)}`;
-                  return (
-                    <button key={item.id} onClick={() => onSelect(item, d.date)}
-                      title={`${item.title}\n${range} · ${KIND_NAME[item.kind]}`}
-                      aria-label={`${item.title}, ${range}, ${KIND_NAME[item.kind]}`}
-                      className={cn("absolute z-20 overflow-hidden rounded-[4px] border-l-[4px] px-1.5 py-1 text-left text-xs",
-                        "leading-snug shadow-[0_1px_2px_rgba(0,0,0,0.12)] hover:z-30 hover:brightness-95", KIND_STYLE[item.kind],
-                        item.done && "opacity-50", selectedId === item.id && "ring-2 ring-ink")}
-                      style={{ top, height, left: `calc(${(lane / lanes) * 100}% + 2px)`, width: `calc(${100 / lanes}% - 5px)` }}>
-                        <>
-                          <span className={cn("block break-words font-semibold", item.done && "line-through")}
-                            style={{ display: "-webkit-box", WebkitBoxOrient: "vertical",
-                              WebkitLineClamp: Math.max(1, Math.floor((height - 22) / 16)), overflow: "hidden" }}>
-                            {item.title}</span>
-                          <span className="mt-0.5 flex items-center gap-1 text-[11px] opacity-80">
-                            <Icon size={11} aria-hidden className="shrink-0" />
-                            <span className="tabular truncate">{range}</span>
-                            {item.recurring && <Repeat size={10} aria-hidden className="shrink-0" />}
-                          </span>
-                        </>
-                    </button>
-                  );
+                  const moving = drag?.moved && drag.item.id === item.id;
+                  if (moving && drag.date !== d.date) return null; // shown in the column it is being dragged to
+                  return renderBlock(item, d.date, moving ? drag.start : toMin(item.hhmm),
+                    moving ? drag.dur : item.duration_min, moving ? 0 : lane, moving ? 1 : lanes, !!moving);
                 })}
+                {drag?.moved && drag.date === d.date && drag.fromDate !== d.date &&
+                  renderBlock(drag.item, d.date, drag.start, drag.dur, 0, 1, true)}
               </div>
             ))}
           </div>

@@ -82,6 +82,7 @@ class TaskIn(BaseModel):
     title: str = Field(min_length=1, max_length=64)
     target_date: date
     start_hhmm: str | None = Field(default=None, pattern=HHMM)
+    block_min: int | None = Field(default=None, ge=5, le=24 * 60)
     steps: list[dict[str, Any]] | None = None
 
 
@@ -95,7 +96,11 @@ def create_task(body: TaskIn, req: Request) -> dict[str, Any]:
     s = svc(req)
     tid = s.manager.tasks.create_task(body.title, body.steps or steps_for(body.title), body.target_date.isoformat(),
                                       s.manager.tz.key, start_hhmm=body.start_hhmm)
+    if body.block_min:
+        s.manager.tasks.update_task(tid, block_min=body.block_min)
     s.manager.changed()
+    if not body.steps:  # placeholder steps now, Kimi's concrete ones a few seconds later
+        s.refine_task_steps(tid, body.title)
     return s.manager.tasks.get_task(tid) or {}
 
 
@@ -105,6 +110,7 @@ class TaskPatch(BaseModel):
     status: str | None = None
     if_then_cue: str | None = None
     start_hhmm: str | None = Field(default=None, pattern=r"^$|^([01]\d|2[0-3]):[0-5]\d$")  # "" clears the time
+    block_min: int | None = Field(default=None, ge=0, le=24 * 60)  # calendar length (0 = the open steps' total)
 
 
 @router.patch("/tasks/{tid}")
@@ -112,7 +118,7 @@ def patch_task(tid: str, body: TaskPatch, req: Request) -> dict[str, Any]:
     s = svc(req)
     if not s.manager.tasks.update_task(tid, title=body.title, status=body.status, if_then_cue=body.if_then_cue,
                                        target_date=body.target_date.isoformat() if body.target_date else None,
-                                       start_hhmm=body.start_hhmm):
+                                       start_hhmm=body.start_hhmm, block_min=body.block_min):
         raise HTTPException(404, "task not found")
     s.manager.changed()
     return s.manager.tasks.get_task(tid) or {}
@@ -129,6 +135,15 @@ def delete_task(tid: str, req: Request) -> dict[str, bool]:
             raise HTTPException(404, "task not found")
         s.manager.changed()
     return {"deleted": True}
+
+
+@router.post("/tasks/{tid}/park")
+def park(tid: str, req: Request) -> dict[str, Any]:
+    """Send a task (usually the one in progress) back to Parked tangents; its steps are kept for later."""
+    pid = svc(req).manager.park_active_task(tid)
+    if pid is None:
+        raise HTTPException(404, "no open task with that id")
+    return {"parked_id": pid}
 
 
 @router.post("/tasks/{tid}/activate")

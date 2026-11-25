@@ -19,6 +19,8 @@ static const note_t CHIME_PAUSE_N[] = {{700, 90}, {520, 140}};
 static const note_t CHIME_ALARM_N[] = {{880, 140}, {0, 80}, {880, 140}, {0, 80}, {1175, 220}};
 static const note_t CHIME_OFFLINE_N[] = {{520, 120}, {390, 160}};
 static const note_t CHIME_CONFIRM_N[] = {{780, 80}, {1040, 120}};
+static const note_t CHIME_NUDGE_N[] = {{587, 110}, {0, 60}, {587, 160}};          /* soft: "5 minutes left" */
+static const note_t CHIME_WRAP_N[] = {{784, 100}, {659, 100}, {523, 220}};        /* falling: "wrap up" */
 
 static void play_note(uint16_t hz, uint16_t ms, float amp)
 {
@@ -60,6 +62,8 @@ void audio_play_chime(uint8_t chime_id, uint8_t volume_pct)
     case 4: PICK(CHIME_ALARM_N); break;
     case 5: PICK(CHIME_OFFLINE_N); break;
     case 6: PICK(CHIME_CONFIRM_N); break;
+    case 7: PICK(CHIME_NUDGE_N); break;
+    case 8: PICK(CHIME_WRAP_N); break;
     default: return;
     }
     float amp = 0.25f * (float)(volume_pct > 100 ? 100 : volume_pct) / 100.0f;

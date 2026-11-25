@@ -61,6 +61,7 @@ alarms it already knows, offline event log) and reconciles idempotently when the
 
 | Path | What lives there |
 |---|---|
+| `host/service/meetings/` | Meeting recorder/transcriber (`service.py`), speaker detection + remembered voices (`diarize.py`, numpy only), storage (`store.py`), exports md/txt/srt/json (`export.py`). Recordings: `data/meetings/<id>.wav`. |
 | `firmware/main/` | ESP-IDF app. `app_main.c` = FreeRTOS wiring (tasks, adapters, link routing). `app_controller.c/.h`, `app_gestures.c`, `app_frames.c`, `app_report.c` = **portable** state coordinator (also compiled into the simulator and C tests). `dev_config.c` (NVS settings), `net_link.c` (Wi-Fi + TCP server + mDNS + HMAC auth), `dev_ota.c` (firmware updates), `dev_wake.c` (wake word) are ESP-only. |
 | `firmware/components/ui_core/` | 1-bit renderer: primitives (`ui_draw*.c`), fonts (`fonts_gen.c`, generated), icons, header/bar chrome (`ui_chrome.c`), screens (`ui_screens_a/b/c.c`), PIP rig drawing (`ui_mascot.c`), props (`ui_props.c`), slide transitions (`ui_slide.c`), animated weather icons (`ui_weather.c`), layout constants (`include/ui_layout.h`), the UI model (`include/ui_model.h`). |
 | `firmware/components/mascot_renderer/` | PIP rig geometry + scene engine (`mascot.c`) and choreography (`mascot_acts.c`): per-screen act libraries, 2-hour no-repeat history, reactions. Pure C, no drawing. |
@@ -90,7 +91,8 @@ dependencies** — it is compiled into `sim_rlcd` and the C tests with `-Wall -W
 device-frame interceptor in `app_main.c` (`device_frame()` handles DEVICE_CONFIG / OTA_* / WAKE_TEST).
 
 **Screens** (`ui_render.c` → `ui_screen_for()`): idle "Let's Focus", listening, thinking, focus running, paused,
-break, step done, today's calendar, alarm, confirm time, sleep, voice picker, error. Layout: header 0–34 px
+break, step done, today's calendar, alarm, confirm time, sleep, voice picker, error, meeting (14 in all). Focus and
+paused draw a shrinking time pie in the stage corner; the device chimes "5 minutes left" / "Time to wrap up" itself. Layout: header 0–34 px
 (24 px bold clock, alarm, indoor and animated outdoor weather; **no link status in the header** — it is in the
 bottom bar), PIP stage column x 4–147 (home spot `STAGE_CX/STAGE_FY`, a plain floor line — no isometric tile),
 text column x 154–392, inverted bottom bar y 264–299. **The idle screen is PIP's world** (ADR-021, ADR-022): a small
@@ -135,9 +137,11 @@ To add an act: write `static void a_xxx(mascot_pose_t *p, float t, float D, int 
 end near the home pose, add it to a table with duration and variant count, run `test_ui` (smoothness + no-repeat)
 and look at it: `build/host/sim_rlcd --render-acts artifacts/rlcd_acts && python tools/act_sheet.py`.
 
-**Voice:** KEY hold (or the wake word) → voice picker ("What's it about?": Calendar / Brain dump / Focus / Alarms)
-→ KEY hold records (release ends) **or** saying the wake word again records hands-free (WebRTC VAD ends it after
-~1.2 s of quiet, 6 s with no speech, 25 s max). Audio: 16 kHz mono PCM16 in 20 ms frames
+**Voice:** KEY hold (or the wake word) → voice picker ("What's it about?": Calendar / Brain dump / Focus / Alarms /
+Meeting) → KEY hold records (release ends, 10 min max) **or** saying the wake word again records hands-free (WebRTC
+VAD ends it after ~1.2 s of quiet - 2.5 s once 20 s were spoken -, 6 s with no speech, 10 min max). **Meeting**
+(ADR-026) records in `UI_STATE_MEETING` until KEY is held again, with no limit; the host stores and transcribes it.
+BOOT double-click parks the task in progress (ADR-027). Audio: 16 kHz mono PCM16 in 20 ms frames
 (AUDIO_START/DATA/END); the activity id rides in AUDIO_START's former reserved u16.
 
 **Wake word** (`dev_wake.c`, ADR-019): ESP-SR WakeNet9 stock models ("Hi ESP" default, "Jarvis", "Computer",
@@ -165,7 +169,7 @@ on 20 ms idle with a partial frame.
 | Type | Dir | Payload / meaning |
 |---|---|---|
 | 0x00 HEARTBEAT | ⇄ | proto, link mode, flags, uptime, epoch, revision |
-| 0x01–0x03 AUDIO_START/DATA/END | dev→host | mic stream (activity in START) |
+| 0x01–0x03 AUDIO_START/DATA/END | dev→host | mic stream (activity in START: 0 brain dump, 1 calendar, 2 focus, 3 alarms, 4 meeting; max_sec 600, 0 = meeting/no limit) |
 | 0x04 BTN_EVENT | dev→host | gesture (idempotent by boot id + seq) |
 | 0x05 OFFLINE_EVENTS | dev→host | JSON list of offline actions to reconcile |
 | 0x06 AUTH_CHALLENGE | dev→host | Wi-Fi only: nonce(16) + MAC(6) |
@@ -197,6 +201,9 @@ on 20 ms idle with a partial frame.
 - **Cost meter** (`ai_cost.py`): every Kimi call's `usage` is priced (editable per-model prices, defaults
   k3.1-pro $2 / $0.20 cached / $10 per M tokens) into `ai_usage`; optional monthly cap → `BudgetExceeded`
   → device error "AI budget reached".
+- **Meetings** (ADR-026): activity-4 streams go to `MeetingService` (WAV on disk, gap fill, crash recovery, own
+  faster-whisper instance `pip_meeting_model`, 10-min windows, numpy speaker detection, remembered voices, optional
+  Kimi summary). API under `/meetings` + `/voices`; WebSocket event `meeting_updated` (status, progress).
 - **Speech:** faster-whisper `small.en` (CPU int8; CUDA falls back), Piper voices in `data/voices`. Spoken alarms
   are pre-rendered to `data/alarm_audio/` at creation; ring sequence = device chime → script → chimes every
   2.5 s for 60 s, aborted the moment the alarm is dismissed.
@@ -212,7 +219,7 @@ on 20 ms idle with a partial frame.
   Kimi model, preferences), ai (usage, budget, prices), weather, device (diagnostics, framebuffer.png, network,
   wifi, wake, wake/test, simulate-button), firmware (status, upload, update), error/dismiss, diagnostics/export.
   WebSocket: `/ws/events`.
-- **DB:** SQLite WAL, migrations `storage/migrations/NNN_*.sql` applied in order (current: 001–005). Add a new
+- **DB:** SQLite WAL, migrations `storage/migrations/NNN_*.sql` applied in order (current: 001–006). Add a new
   numbered file; never edit an applied one.
 
 ---
@@ -282,6 +289,12 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
 - **Golden images** change whenever the UI does: render, *look at the PNGs*, then
   `verify_rlcd.py --strict --update-golden` (delete stale baselines first).
 - `sdkconfig` keeps old values: after editing `sdkconfig.defaults`, delete `firmware/sdkconfig` before building.
+- **Heredocs again:** a `\b` inside a bash heredoc'd Python patch landed in a regex as a literal backspace byte (the
+  BUG-007 class). Patch scripts with backslashes go in files written by the editor tool, then scan for control bytes.
+- **faster-whisper's `decode_audio` breaks with PyAV 19** (`metadata_errors` kwarg). The meeting importer decodes
+  itself (`decode_to_pcm16`: `wave` for WAV, PyAV resampler otherwise); always pass numpy audio to Whisper.
+- **Speaker features are noise-sensitive:** never normalise per meeting (one voice got split into 8); use the fixed
+  within-speaker scale in `diarize.py` and re-run the Piper-voice tests in `tests/unit/test_meetings.py` after changes.
 
 ---
 
@@ -302,6 +315,9 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   (`artifacts/rlcd/hardware/hw_next_up_v140.png`).
 - Firmware 1.5.1 (1.5.0 + potato battery): indoor reading steady (48/48 samples over 4 min, `env` 9 ok / 0 fail; before: 24/46 missing),
   hands on laptop keys and guitar, easter eggs; 254 s uptime, heap 36 KB.
+- Firmware 1.6.0 (meeting recording, 10-min messages, time pie + cues, BOOT 2x park): built, simulator and C tests
+  green, **not yet on hardware**. Host: meetings verified end-to-end with real faster-whisper on synthetic voices
+  (12/12 lines attributed) and in the Playwright flow; a real-room meeting with real people is not yet tested.
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
   end-of-speech timing in a real room, a slide transition and a full prop trip watched on the panel (needs a
   real button press / a minute of idle play; `simulate-button` is simulator-only).

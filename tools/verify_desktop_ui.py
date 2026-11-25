@@ -16,7 +16,7 @@ from e2e_stack import ROOT, Stack  # noqa: E402
 
 OUT = ROOT / "artifacts/desktop"
 VIEWS = [("today", "/"), ("calendar", "/calendar"), ("voice", "/voice"), ("focus", "/focus"),
-         ("alarms", "/alarms"), ("device", "/device"), ("settings", "/settings")]
+         ("meetings", "/meetings"), ("alarms", "/alarms"), ("device", "/device"), ("settings", "/settings")]
 VIEWPORTS = [(1440, 900), (900, 700)]
 DUMP = "Finish Q3 report, also remind me to call dentist, and set alarm for 3pm"
 
@@ -108,7 +108,90 @@ def flows(page: Page, stack: Stack, base: str) -> list[str]:
                stack.state()["active_task"]["steps"]}[step_id]["status"] == "COMPLETED", 12, "offline reconcile")
     log.append("sim restarted with queued STEP_COMPLETE -> reconciled, revision incremented")
     page.fill("#brain-dump-input", "")
+    log += calendar_drag(page, stack, base)
+    log += meeting_review(page, stack, base)
     return log
+
+
+def calendar_drag(page: Page, stack: Stack, base: str) -> list[str]:
+    """Outlook-style editing: drag a block one hour later, then drag its bottom edge 30 minutes longer."""
+    from datetime import date, timedelta
+    day = (date.today() + timedelta(days=1)).isoformat()
+    t = stack.http.post("/api/v1/tasks", json={"title": "Drag me", "target_date": day, "start_hhmm": "10:00",
+                                               "steps": [{"title": "Drive to the bank", "duration_min": 30}]}).json()
+    page.goto(base + "/calendar")
+    block = page.get_by_role("button", name="Drag me, ", exact=False).first
+    block.wait_for()
+    box = block.bounding_box()
+    assert box
+    x, y = box["x"] + box["width"] / 2, box["y"] + 12
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x, y + 20, steps=3)
+    page.mouse.move(x, y + 64, steps=5)  # 64 px = 1 hour
+    page.mouse.up()
+    stack.wait(lambda: stack.http.get(f"/api/v1/tasks?date_from={day}&date_to={day}").json()[0]["start_hhmm"] == "11:00",
+               5, "task moved to 11:00")
+    block = page.get_by_role("button", name="Drag me, ", exact=False).first
+    page.wait_for_timeout(400)
+    box = block.bounding_box()
+    assert box
+    bx, by = box["x"] + box["width"] / 2, box["y"] + box["height"] - 2
+    page.mouse.move(bx, by)
+    page.mouse.down()
+    page.mouse.move(bx, by + 10, steps=2)
+    page.mouse.move(bx, by + 32, steps=4)  # 32 px = 30 min
+    page.mouse.up()
+    stack.wait(lambda: next(i for i in stack.http.get(f"/api/v1/calendar?start={day}&days=1").json()[0]["items"]
+                            if i["id"] == t["id"])["duration_min"] == 60, 5, "task resized to 60 min")
+    page.screenshot(path=str(OUT / "1440x900/calendar_dragged.png"), full_page=True)
+    stack.http.delete(f"/api/v1/tasks/{t['id']}")
+    return ["calendar: block dragged 10:00 -> 11:00 and resized 30 -> 60 min by its edge"]
+
+
+def meeting_review(page: Page, stack: Stack, base: str) -> list[str]:
+    """Two Piper voices -> imported recording -> real Whisper + speaker detection -> name a speaker in the UI."""
+    import io
+    import wave
+    lines = [("en_GB-jenny_dioco-medium", "Good morning. Let's go through the launch checklist together."),
+             ("en_US-ryan-medium", "Sure. The landing page is finished and the emails are scheduled for Monday."),
+             ("en_GB-jenny_dioco-medium", "Great. Did legal approve the new pricing table yet?"),
+             ("en_US-ryan-medium", "Not yet, I will chase them this afternoon and report back tomorrow.")]
+    pcm = b""
+    for voice, text in lines:
+        r = stack.http.get("/api/v1/speech/say.wav", params={"text": text, "voice": voice}, timeout=60)
+        if r.status_code != 200:
+            return ["meetings: skipped (Piper voices not available)"]
+        with wave.open(io.BytesIO(r.content)) as w:
+            pcm += w.readframes(w.getnframes()) + bytes(16000)  # 0.5 s pause between turns
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(pcm)
+    mid = stack.http.post("/api/v1/meetings/import?filename=launch.wav&title=Launch%20check", content=out.getvalue(),
+                          timeout=60).json()["id"]
+    stack.wait(lambda: stack.http.get(f"/api/v1/meetings/{mid}").json()["status"] in ("READY", "FAILED"), 240,
+               "meeting transcribed")
+    m = stack.http.get(f"/api/v1/meetings/{mid}").json()
+    assert m["status"] == "READY", m.get("error")
+    assert len(m["speakers"]) == 2, [s["name"] for s in m["speakers"]]
+    page.goto(base + "/meetings")
+    page.get_by_role("button", name="Launch check", exact=False).first.click()
+    page.get_by_label("Name for Speaker 01").fill("Priya")
+    page.get_by_label("Name for Speaker 01").press("Enter")
+    stack.wait(lambda: any(s["name"] == "Priya" for s in stack.http.get(f"/api/v1/meetings/{mid}").json()["speakers"]),
+               5, "speaker renamed")
+    page.get_by_text("Priya").first.wait_for()
+    page.screenshot(path=str(OUT / "1440x900/meeting_review.png"), full_page=True)
+    md = stack.http.get(f"/api/v1/meetings/{mid}/export?format=md").text
+    assert "**Priya**" in md and "pricing" in md.lower()
+    stack.http.delete(f"/api/v1/meetings/{mid}")
+    for v in stack.http.get("/api/v1/voices").json():
+        if v["name"] == "Priya":
+            stack.http.delete(f"/api/v1/voices/{v['id']}")
+    return ["meetings: imported 2-voice recording -> Whisper transcript with 2 speakers -> named in the UI -> exported"]
 
 
 def main() -> int:

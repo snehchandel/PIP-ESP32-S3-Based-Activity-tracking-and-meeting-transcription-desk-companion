@@ -97,13 +97,13 @@ int main(void)
     CHECK_EQ(l.ev[0].gesture, GEST_HOLD_START);
     CHECK_EQ(l.ev[1].gesture, GEST_HOLD_END);
 
-    /* 60 s PTT watchdog forces HOLD_END(timeout); release later emits nothing more */
-    uint32_t wd[] = {450 + 60000 + 500};
+    /* 10 min PTT watchdog forces HOLD_END(timeout); release later emits nothing more */
+    uint32_t wd[] = {450 + PTT_MAX_DURATION_MS + 500};
     l = run(BTN_KEY, wd, 1, 1000);
     CHECK_EQ(l.n, 2);
     CHECK_EQ(l.ev[1].gesture, GEST_HOLD_END);
     CHECK_EQ(l.ev[1].flags, GEST_FLAG_TIMEOUT);
-    CHECK_EQ(l.ev[1].ts_ms, 1000 + 450 + 60000);
+    CHECK_EQ(l.ev[1].ts_ms, 1000 + 450 + PTT_MAX_DURATION_MS);
 
     /* BOOT rescue: 1199 -> SHORT, 1200 -> RESCUE only */
     uint32_t r1199[] = {1199};
@@ -115,11 +115,16 @@ int main(void)
     CHECK_EQ(l.n, 1);
     CHECK_EQ(l.ev[0].gesture, GEST_RESCUE);
 
-    /* BOOT short is immediate (no double window) */
+    /* BOOT short waits out the double-click window; two quick clicks are a double-click (= park the task) */
     uint32_t bs[] = {100};
-    l = run(BTN_BOOT, bs, 1, 50);
+    l = run(BTN_BOOT, bs, 1, 400);
     CHECK_EQ(l.n, 1);
-    CHECK_EQ(l.ev[0].ts_ms, 1100);
+    CHECK_EQ(l.ev[0].gesture, GEST_SHORT);
+    CHECK_EQ(l.ev[0].ts_ms, 1100 + DOUBLE_CLICK_WINDOW_MS);
+    uint32_t bd[] = {80, 150, 80};
+    l = run(BTN_BOOT, bd, 3, 400);
+    CHECK_EQ(l.n, 1);
+    CHECK_EQ(l.ev[0].gesture, GEST_DOUBLE);
 
     /* BOOT startup lockout: a press within 500 ms of reset is ignored entirely */
     {

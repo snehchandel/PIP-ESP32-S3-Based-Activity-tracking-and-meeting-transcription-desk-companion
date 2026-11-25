@@ -65,7 +65,7 @@ int main(void)
     const ui_state_t states[] = {UI_STATE_IDLE_READY, UI_STATE_LISTENING, UI_STATE_THINKING,
                                  UI_STATE_RUNNING, UI_STATE_PAUSED, UI_STATE_BREAK, UI_STATE_STEP_DONE,
                                  UI_STATE_IDLE_READY, UI_STATE_ALARM_RINGING, UI_STATE_NEEDS_CONFIRMATION,
-                                 UI_STATE_SLEEP, UI_STATE_VOICE_PICK, UI_STATE_ERROR_RECOVERABLE};
+                                 UI_STATE_SLEEP, UI_STATE_VOICE_PICK, UI_STATE_ERROR_RECOVERABLE, UI_STATE_MEETING};
     for (int i = 0; i < SCREEN_COUNT; i++) {
         m.state = states[i];
         m.page = i == SCREEN_DAILY_TASKS ? PAGE_AGENDA : PAGE_FOCUS;

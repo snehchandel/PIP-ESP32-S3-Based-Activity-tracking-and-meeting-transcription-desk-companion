@@ -35,7 +35,7 @@ static void on_press(gestures_t *g, btn_id_t id, uint32_t t, sink_t *s)
         b->locked = true; /* preserve ROM download-mode chord right after reset */
         return;
     }
-    if (id == BTN_KEY && b->clicks == 1 && t - b->release_ms >= DOUBLE_CLICK_WINDOW_MS) {
+    if (b->clicks == 1 && t - b->release_ms >= DOUBLE_CLICK_WINDOW_MS) {
         emit(s, id, GEST_SHORT, 0, b->release_ms + DOUBLE_CLICK_WINDOW_MS);
         b->clicks = 0;
     }
@@ -58,11 +58,7 @@ static void on_release(gestures_t *g, btn_id_t id, uint32_t t, sink_t *s)
         b->hold_fired = false;
         return;
     }
-    if (id == BTN_BOOT) {
-        emit(s, id, GEST_SHORT, 0, t);
-        return;
-    }
-    if (b->clicks == 1) {
+    if (b->clicks == 1) { /* both buttons: a second click inside the window is a double-click (BOOT 2x = park) */
         emit(s, id, GEST_DOUBLE, 0, t);
         b->clicks = 0;
     } else {
@@ -84,13 +80,14 @@ static void timeouts(gestures_t *g, btn_id_t id, uint32_t now, sink_t *s)
                 emit(s, id, GEST_HOLD_START, 0, b->press_ms + KEY_HOLD_PTT_MS);
             } else if (id == BTN_BOOT && held >= BOOT_HOLD_RESCUE_MS) {
                 b->hold_fired = true;
+                b->clicks = 0;
                 emit(s, id, GEST_RESCUE, 0, b->press_ms + BOOT_HOLD_RESCUE_MS);
             }
         } else if (id == BTN_KEY && !b->ptt_timed_out && held >= KEY_HOLD_PTT_MS + PTT_MAX_DURATION_MS) {
             b->ptt_timed_out = true;
             emit(s, id, GEST_HOLD_END, GEST_FLAG_TIMEOUT, b->press_ms + KEY_HOLD_PTT_MS + PTT_MAX_DURATION_MS);
         }
-    } else if (id == BTN_KEY && !b->stable && !b->raw && b->clicks == 1 && now - b->release_ms >= DOUBLE_CLICK_WINDOW_MS) {
+    } else if (!b->stable && !b->raw && b->clicks == 1 && now - b->release_ms >= DOUBLE_CLICK_WINDOW_MS) {
         b->clicks = 0;
         emit(s, id, GEST_SHORT, 0, b->release_ms + DOUBLE_CLICK_WINDOW_MS);
     }

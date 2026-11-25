@@ -299,8 +299,8 @@ class DeviceLink:
             a = AudioStart.unpack(f.payload)
             self.voice.start(a.stream_id, a.activity)
         elif t == FrameType.AUDIO_DATA:
-            sid, _, pcm = unpack_audio_data(f.payload)
-            self.voice.data(sid, pcm)
+            sid, seq, pcm = unpack_audio_data(f.payload)
+            self.voice.data(sid, pcm, seq)
         elif t == FrameType.AUDIO_END:
             e = AudioEnd.unpack(f.payload)
             self.voice.end(e.stream_id, e.total_samples)

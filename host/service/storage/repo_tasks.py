@@ -27,10 +27,27 @@ class TaskRepo:
                        start_hhmm or None))
             for i, s in enumerate(steps):
                 dur = int(s["duration_min"])
-                c.execute("INSERT INTO steps(id,task_id,position,title,duration_min,is_starter,remaining_sec,status)"
-                          " VALUES (?,?,?,?,?,?,?,?)", (new_id("step"), tid, i, s["title"], dur,
-                                                         int(bool(s.get("is_starter"))), dur * 60, "PENDING"))
+                c.execute("INSERT INTO steps(id,task_id,position,title,duration_min,is_starter,remaining_sec,status,"
+                          "activity) VALUES (?,?,?,?,?,?,?,?,?)",
+                          (new_id("step"), tid, i, s["title"], dur, int(bool(s.get("is_starter"))), dur * 60,
+                           "PENDING", s.get("activity") or None))
         return tid
+
+    def replace_open_steps(self, tid: str, steps: list[dict[str, Any]]) -> bool:
+        """Swap a not-yet-started task's steps for better ones (Kimi refining placeholder steps)."""
+        with self.db.tx() as c:
+            done = c.execute("SELECT COUNT(*) FROM steps WHERE task_id=? AND status='COMPLETED'", (tid,)).fetchone()[0]
+            if done:
+                return False
+            c.execute("DELETE FROM steps WHERE task_id=?", (tid,))
+            for i, s in enumerate(steps):
+                dur = int(s["duration_min"])
+                c.execute("INSERT INTO steps(id,task_id,position,title,duration_min,is_starter,remaining_sec,status,"
+                          "activity) VALUES (?,?,?,?,?,?,?,?,?)",
+                          (new_id("step"), tid, i, s["title"], dur, int(bool(s.get("is_starter"))), dur * 60,
+                           "PENDING", s.get("activity") or None))
+            c.execute("UPDATE tasks SET updated_at=? WHERE id=?", (utcnow(), tid))
+        return True
 
     def get_task(self, tid: str) -> dict[str, Any] | None:
         r = self.db.one("SELECT * FROM tasks WHERE id=?", (tid,))
@@ -60,10 +77,12 @@ class TaskRepo:
         return out
 
     def update_task(self, tid: str, **fields: Any) -> bool:
-        allowed = {"title", "status", "target_date", "if_then_cue", "priority", "start_hhmm"}
+        allowed = {"title", "status", "target_date", "if_then_cue", "priority", "start_hhmm", "block_min"}
         sets = {k: v for k, v in fields.items() if k in allowed and v is not None}
         if sets.get("start_hhmm") == "":
             sets["start_hhmm"] = None  # "" clears the time (task becomes "anytime")
+        if sets.get("block_min") == 0:
+            sets["block_min"] = None  # 0 = back to the length of the open steps
         if not sets:
             return self.db.one("SELECT 1 FROM tasks WHERE id=?", (tid,)) is not None
         cols = ", ".join(f"{k}=?" for k in sets)
@@ -114,10 +133,10 @@ class TaskRepo:
             c.execute("UPDATE steps SET position=position+1 WHERE task_id=? AND position>?", (s["task_id"], s["position"]))
             c.execute("UPDATE steps SET title=?, remaining_sec=?, duration_min=? WHERE id=?",
                       (f"{base} (first half)", current_sec, max(1, min(60, -(-current_sec // 60))), sid))
-            c.execute("INSERT INTO steps(id,task_id,position,title,duration_min,is_starter,remaining_sec,status)"
-                      " VALUES (?,?,?,?,?,0,?,'PENDING')",
+            c.execute("INSERT INTO steps(id,task_id,position,title,duration_min,is_starter,remaining_sec,status,activity)"
+                      " VALUES (?,?,?,?,?,0,?,'PENDING',?)",
                       (new_sid, s["task_id"], s["position"] + 1, f"{base} (second half)",
-                       max(1, min(60, -(-next_sec // 60))), next_sec))
+                       max(1, min(60, -(-next_sec // 60))), next_sec, s.get("activity")))
         return new_sid
 
     def reorder_steps(self, tid: str, ordered_ids: list[str]) -> None:
@@ -129,11 +148,12 @@ class TaskRepo:
                 c.execute("UPDATE steps SET position=? WHERE id=?", (i, sid))
 
     # ---- parked tangents ------------------------------------------------------------------
-    def park(self, title: str, source_text: str | None, target_date: str | None = None) -> str:
+    def park(self, title: str, source_text: str | None, target_date: str | None = None,
+             task_id: str | None = None) -> str:
         pid = new_id("park")
         with self.db.tx() as c:
-            c.execute("INSERT INTO parked_tasks(id,title,source_text,target_date,status,created_at)"
-                      " VALUES (?,?,?,?,'PARKED',?)", (pid, title, source_text, target_date, utcnow()))
+            c.execute("INSERT INTO parked_tasks(id,title,source_text,target_date,status,created_at,task_id)"
+                      " VALUES (?,?,?,?,'PARKED',?,?)", (pid, title, source_text, target_date, utcnow(), task_id))
         return pid
 
     def parked(self) -> list[dict[str, Any]]:

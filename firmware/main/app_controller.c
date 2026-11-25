@@ -10,7 +10,8 @@
 
 static const char *const STATE_NAMES[UI_STATE_COUNT] = {
     "IDLE_READY", "LISTENING", "TRANSCRIBING", "THINKING", "RUNNING", "PAUSED",
-    "BREAK", "STEP_DONE", "ALARM_RINGING", "NEEDS_CONFIRMATION", "SLEEP", "ERROR_RECOVERABLE", "VOICE_PICK"};
+    "BREAK", "STEP_DONE", "ALARM_RINGING", "NEEDS_CONFIRMATION", "SLEEP", "ERROR_RECOVERABLE", "VOICE_PICK",
+    "MEETING"};
 
 const char *app_state_name(ui_state_t s) { return (unsigned)s < UI_STATE_COUNT ? STATE_NAMES[s] : "IDLE_READY"; }
 
@@ -102,7 +103,7 @@ void app_set_audio_level(app_t *a, uint8_t level)
     if (level > 8) {
         level = 8;
     }
-    if (a->m.audio_level != level && a->m.state == UI_STATE_LISTENING) {
+    if (a->m.audio_level != level && (a->m.state == UI_STATE_LISTENING || a->m.state == UI_STATE_MEETING)) {
         a->m.audio_level = level;
         a->dirty = true;
     }
@@ -134,6 +135,33 @@ void app_send_offline_events(app_t *a)
 }
 
 static void supervise_states(app_t *a, uint32_t now_ms);
+
+/* Gentle time cues while a step runs: "5 minutes left" (steps of 8+ min) and "Time to wrap up" at 1 minute.
+ * Device-local, so they work offline too; each fires once, when the countdown crosses its mark. */
+static void focus_cues(app_t *a, uint32_t before_s, uint32_t after_s)
+{
+    if (a->timer.state != LT_RUNNING || a->m.state != UI_STATE_RUNNING) {
+        return;
+    }
+    const char *msg = NULL;
+    uint8_t id = 0;
+    if (before_s > APP_CUE_5MIN_S && after_s <= APP_CUE_5MIN_S && a->timer.total_ms >= APP_CUE_5MIN_MIN_TOTAL_MS) {
+        msg = "5 minutes left";
+        id = CHIME_NUDGE;
+    } else if (before_s > APP_CUE_WRAP_S && after_s <= APP_CUE_WRAP_S &&
+               a->timer.total_ms >= APP_CUE_WRAP_MIN_TOTAL_MS) {
+        msg = "Time to wrap up";
+        id = CHIME_WRAP;
+    }
+    if (!msg) {
+        return;
+    }
+    app_toast_for(a, msg, 5000);
+    mascot_react(&a->anim, PIP_REACT_PRESS, a->now_ms); /* PIP turns and looks at you */
+    if (a->io.chime) {
+        a->io.chime(a->io.ctx, id);
+    }
+}
 
 static void update_clock(app_t *a)
 {
@@ -185,11 +213,14 @@ static void link_supervision(app_t *a)
         a->m.link = want;
         a->dirty = true;
         if (want == LINK_TETHERED) {
+            a->meeting_link_lost_ms = 0;
             app_send_diag(a);
             app_send_offline_events(a);
         } else {
             a->pending_oev_seq = 0;
-            if (a->m.state == UI_STATE_LISTENING || a->m.state == UI_STATE_TRANSCRIBING ||
+            if (a->m.state == UI_STATE_MEETING) {
+                a->meeting_link_lost_ms = a->now_ms ? a->now_ms : 1u; /* keep recording for a grace period */
+            } else if (a->m.state == UI_STATE_LISTENING || a->m.state == UI_STATE_TRANSCRIBING ||
                 a->m.state == UI_STATE_THINKING) {
                 if (a->io.capture) {
                     a->io.capture(a->io.ctx, false, a->stream_id);
@@ -220,7 +251,9 @@ void app_tick(app_t *a, uint32_t now_ms)
         app_sync_timer_to_model(a);
         snprintf(a->m.done_title, sizeof a->m.done_title, "%s", a->m.step_title);
         a->m.done_activity = a->m.activity;
-        a->m.state = UI_STATE_STEP_DONE;
+        if (a->m.state != UI_STATE_MEETING) { /* a meeting recording is never interrupted */
+            a->m.state = UI_STATE_STEP_DONE;
+        }
         if (a->m.link == LINK_STANDALONE) {
             oev_push(&a->oev, OEV_STEP_COMPLETE, a->m.step_id, 0, app_epoch_now(a));
         }
@@ -230,6 +263,7 @@ void app_tick(app_t *a, uint32_t now_ms)
         a->dirty = true;
     } else if (a->timer.remaining_ms / 1000u != before) {
         app_sync_timer_to_model(a);
+        focus_cues(a, before, a->timer.remaining_ms / 1000u);
         a->dirty = true;
     }
     uint32_t bb = a->brk.remaining_ms / 1000u;
@@ -246,8 +280,13 @@ void app_tick(app_t *a, uint32_t now_ms)
         a->m.break_remaining_ms = a->brk.remaining_ms;
         a->dirty = true;
     }
-    if (a->m.state == UI_STATE_LISTENING) {
-        uint16_t el = (uint16_t)((now_ms - a->listen_start_ms) / 1000u);
+    if (a->m.state == UI_STATE_MEETING && a->meeting_link_lost_ms &&
+        now_ms - a->meeting_link_lost_ms >= APP_MEETING_LINK_GRACE_MS) {
+        app_meeting_end(a, "Meeting stopped: PC link lost");
+    }
+    if (a->m.state == UI_STATE_LISTENING || a->m.state == UI_STATE_MEETING) {
+        uint32_t el32 = (now_ms - a->listen_start_ms) / 1000u;
+        uint16_t el = (uint16_t)(el32 > 65535u ? 65535u : el32);
         if (el != a->m.listen_elapsed_s) {
             a->m.listen_elapsed_s = el;
             a->dirty = true;
@@ -267,7 +306,8 @@ void app_tick(app_t *a, uint32_t now_ms)
         a->m.toast[0] = 0;
         a->dirty = true;
     }
-    bool busy = a->timer.state == LT_RUNNING || a->brk.state == LT_RUNNING || a->m.state == UI_STATE_ALARM_RINGING;
+    bool busy = a->timer.state == LT_RUNNING || a->brk.state == LT_RUNNING || a->m.state == UI_STATE_ALARM_RINGING ||
+                a->m.state == UI_STATE_MEETING;
     if (busy || a->m.link == LINK_TETHERED) {
         a->idle_since_ms = now_ms;
     } else if (a->m.state == UI_STATE_IDLE_READY && now_ms - a->idle_since_ms >= APP_SLEEP_IDLE_MS) {
@@ -293,7 +333,7 @@ void app_local_error(app_t *a, const char *title, const char *text)
 {
     snprintf(a->m.error_title, sizeof a->m.error_title, "%s", title);
     snprintf(a->m.error_text, sizeof a->m.error_text, "%s", text);
-    if (a->io.capture && a->m.state == UI_STATE_LISTENING) {
+    if (a->io.capture && (a->m.state == UI_STATE_LISTENING || a->m.state == UI_STATE_MEETING)) {
         a->io.capture(a->io.ctx, false, a->stream_id);
     }
     a->m.state = UI_STATE_ERROR_RECOVERABLE;
@@ -351,10 +391,12 @@ static void supervise_states(app_t *a, uint32_t now_ms)
         a->m.error_flash = flash;
         a->dirty = true;
     }
-    bool busy = st == UI_STATE_LISTENING || st == UI_STATE_TRANSCRIBING || st == UI_STATE_THINKING;
+    /* a meeting has no time limit; a voice message may run 10 minutes */
+    uint32_t limit = st == UI_STATE_LISTENING ? APP_STUCK_LISTEN_MS
+                     : (st == UI_STATE_TRANSCRIBING || st == UI_STATE_THINKING) ? APP_STUCK_MS : 0u;
     if (st != a->prev_state) {
         a->state_since_ms = now_ms;
-    } else if (busy && now_ms - a->state_since_ms >= APP_STUCK_MS) {
+    } else if (limit && now_ms - a->state_since_ms >= limit) {
         app_local_error(a, "PIP got stuck", "No answer from the PC. Press any button.");
     }
 }

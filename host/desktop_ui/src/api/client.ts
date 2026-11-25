@@ -1,4 +1,4 @@
-import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, Place, Plan, PlanResult, Settings, VoiceSession, WeatherInfo } from "./types";
+import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingDetail, MeetingList, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
 
 const BASE = "/api/v1";
 
@@ -36,8 +36,9 @@ export const api = {
     req<unknown>("POST", "/tasks/commit", { plan, source_text, activate: true, voice_session_id }),
   createTask: (title: string, target_date: string, start_hhmm?: string | null) =>
     req<unknown>("POST", "/tasks", { title, target_date, start_hhmm: start_hhmm || null }),
-  patchTask: (id: string, body: { title?: string; target_date?: string; status?: string; start_hhmm?: string }) =>
+  patchTask: (id: string, body: { title?: string; target_date?: string; status?: string; start_hhmm?: string; block_min?: number }) =>
     req<unknown>("PATCH", `/tasks/${id}`, body),
+  parkTask: (id: string) => req<{ parked_id: string }>("POST", `/tasks/${id}/park`),
   deleteTask: (id: string) => req<unknown>("DELETE", `/tasks/${id}`),
   activateTask: (id: string) => req<FullState>("POST", `/tasks/${id}/activate`),
   completeStep: (id: string) => req<FullState>("POST", `/steps/${id}/complete`),
@@ -105,5 +106,35 @@ export const api = {
   weatherSearch: (q: string) => req<Place[]>("GET", `/weather/search?q=${encodeURIComponent(q)}`),
   setWeatherLocation: (p: Place) => req<WeatherInfo>("PUT", "/weather/location", p),
   dismissError: () => req<unknown>("POST", "/error/dismiss"),
+  // meetings
+  meetings: () => req<MeetingList>("GET", "/meetings"),
+  meeting: (id: string) => req<MeetingDetail>("GET", `/meetings/${id}`),
+  patchMeeting: (id: string, body: { title?: string; notes?: string }) => req<unknown>("PATCH", `/meetings/${id}`, body),
+  deleteMeeting: (id: string) => req<unknown>("DELETE", `/meetings/${id}`),
+  renameSpeaker: (id: string, key: string, name: string, remember: boolean) =>
+    req<unknown>("PUT", `/meetings/${id}/speakers/${key}`, { name, remember }),
+  addSpeaker: (id: string, name?: string) => req<{ key: string }>("POST", `/meetings/${id}/speakers`, { name: name || null }),
+  mergeSpeaker: (id: string, key: string, into: string) => req<unknown>("POST", `/meetings/${id}/speakers/${key}/merge`, { into }),
+  patchSegment: (id: string, seg: number, body: { speaker_key?: string; text?: string }) =>
+    req<unknown>("PATCH", `/meetings/${id}/segments/${seg}`, body),
+  rediarize: (id: string, num_speakers: number | null) =>
+    req<{ speakers: Speaker[] }>("POST", `/meetings/${id}/rediarize`, { num_speakers }),
+  retryMeeting: (id: string) => req<unknown>("POST", `/meetings/${id}/retry`),
+  summarizeMeeting: (id: string) => req<MeetingSummary>("POST", `/meetings/${id}/summarize`),
+  parkMeetingActions: (id: string) => req<{ parked_ids: string[] }>("POST", `/meetings/${id}/park-actions`),
+  meetingExportUrl: (id: string, format: "md" | "txt" | "srt" | "json") => `${BASE}/meetings/${id}/export?format=${format}`,
+  meetingAudioUrl: (id: string, download = false) => `${BASE}/meetings/${id}/audio${download ? "?download=true" : ""}`,
+  importMeeting: async (file: File, title: string): Promise<{ id: string }> => {
+    const res = await fetch(`${BASE}/meetings/import?filename=${encodeURIComponent(file.name)}&title=${encodeURIComponent(title)}`,
+      { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail; } catch { /* non-JSON */ }
+      throw new ApiError(res.status, String(detail));
+    }
+    return (await res.json()) as { id: string };
+  },
+  voices: () => req<VoiceProfile[]>("GET", "/voices"),
+  forgetVoice: (id: string) => req<unknown>("DELETE", `/voices/${id}`),
   exportDiagnostics: () => req<Record<string, unknown>>("GET", "/diagnostics/export"),
 };

@@ -105,7 +105,7 @@ def test_no_key_means_ai_has_left(tmp_path) -> None:  # type: ignore[no-untyped-
 def test_stuck_thinking_becomes_logged_error(manager) -> None:  # type: ignore[no-untyped-def]
     manager.overlay = "THINKING"
     assert manager.check_stuck() is False  # first sighting starts the clock
-    manager._clock["t"] += 151
+    manager._clock["t"] += manager.STUCK_LIMITS_S["THINKING"] + 1
     assert manager.check_stuck() is True
     assert manager.ui_state() == "ERROR_RECOVERABLE" and manager.overlay is None
     rows = manager.db.query("SELECT level, category, message FROM event_log WHERE level='ERROR'")

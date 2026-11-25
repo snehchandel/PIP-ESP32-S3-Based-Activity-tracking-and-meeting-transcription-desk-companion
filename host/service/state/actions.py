@@ -1,6 +1,7 @@
 """Timer, step and button actions (host mirror of the firmware gesture matrix, spec 5.3)."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -107,6 +108,48 @@ class ActionsMixin:
             self.changed(completed_step=step["id"])
             return step
 
+    def park_active_task(self: DeviceStateManager, tid: str | None = None) -> str | None:
+        """Send a task (default: the one in progress) back to the parked tangents. Its steps and the time left on
+        the current one are kept; promoting the parked note resumes exactly where it stopped."""
+        with self.lock:
+            task = self.tasks.get_task(tid) if tid else self.active_task()
+            if task is None or task["status"] in ("COMPLETED", "ARCHIVED"):
+                return None
+            if self.device.state().get("active_task_id") == task["id"]:
+                st = self.active_step()
+                if st:
+                    self.tasks.set_step_remaining(st["id"], self.timer.remaining_ms // 1000)
+                    self.tasks.set_step_status(st["id"], "PENDING")
+                self.timer.load(0, 0, "STOPPED")
+                self.brk.stop()
+                if self.overlay in ("STEP_DONE", "BREAK"):
+                    self.overlay = None
+                self.device.update(active_task_id=None, active_step_id=None)
+            left = [s for s in self.tasks.steps(task["id"]) if s["status"] != "COMPLETED"]
+            todo = "; ".join(f"{s['title']} ({s['duration_min']} min)" for s in left)
+            self.tasks.update_task(task["id"], status="ARCHIVED")
+            pid = self.tasks.park(task["title"][:64], f"{task['title']}. Left to do: {todo}" if todo else task["title"],
+                                  task_id=task["id"])
+            self.set_ack("Parked for later")
+            self.changed("task_parked", task_id=task["id"], parked_id=pid)
+            return pid
+
+    def resume_parked_task(self: DeviceStateManager, pid: str) -> str | None:
+        """A parked task that kept its steps comes back as it was (today, and active if nothing else is)."""
+        with self.lock:
+            p = self.tasks.get_parked(pid)
+            if p is None or not p.get("task_id") or self.tasks.get_task(p["task_id"]) is None:
+                return None
+            tid = str(p["task_id"])
+            today = datetime.now(self.tz).date().isoformat()
+            self.tasks.update_task(tid, status="SCHEDULED", target_date=today)
+            self.tasks.set_parked_status(pid, "PROMOTED")
+            if self.active_step() is None:
+                self.activate_task(tid)
+            else:
+                self.changed()
+            return tid
+
     def start_next_step(self: DeviceStateManager) -> None:
         with self.lock:
             st = self.active_step()
@@ -167,6 +210,8 @@ class ActionsMixin:
                 return "ignored"
             if gesture == RESCUE:
                 return "split" if self.rescue_split() else "ignored"
+            if gesture == DOUBLE:  # BOOT double-click: park the task in progress for later
+                return "park" if self.park_active_task() else "ignored"
             if gesture != SHORT:
                 return "ignored"
             if self.page == "AGENDA":

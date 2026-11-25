@@ -1,4 +1,4 @@
-import { Check, Coffee, Pause, Play, Scissors, SkipForward } from "lucide-react";
+import { Check, CircleParking, Coffee, Pause, Play, Scissors, SkipForward } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import { fmtMs, useLive } from "../api/live";
@@ -76,6 +76,11 @@ export function FocusCard({ autoOpenSplit = false }: { autoOpenSplit?: boolean }
             <Button size="lg" variant="ghost" disabled={!step} onClick={() => setSplitOpen(true)} aria-keyshortcuts="S">
               <Scissors size={18} aria-hidden /> Cut in half</Button>
           </>
+        )}
+        {!onBreak && (
+          <Button size="lg" variant="ghost" title="Not now: move it to Parked tangents with its steps, resume it later"
+            onClick={() => run(() => api.parkTask(task.id))}>
+            <CircleParking size={18} aria-hidden /> Park for later</Button>
         )}
       </div>
       {task.if_then_cue && <p className="mt-4 text-center text-xs text-muted">Cue: {task.if_then_cue}</p>}

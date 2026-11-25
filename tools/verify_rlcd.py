@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW, META, PREVIEW = ROOT / "artifacts/rlcd/raw", ROOT / "artifacts/rlcd/meta", ROOT / "artifacts/rlcd/preview"
 GOLDEN = ROOT / "tests/golden/rlcd"
 SPRITES = ROOT / "artifacts/pip/png"
-EXPECTED_SCREENS = 13
+EXPECTED_SCREENS = 14
 EXPRESSIONS = ["ready", "listening", "thinking", "working", "paused", "done", "alarm", "sleep"]
 
 

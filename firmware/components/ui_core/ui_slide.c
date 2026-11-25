@@ -59,7 +59,8 @@ static int rank(ui_screen_t s)
     switch (s) {
     case SCREEN_IDLE_READY: return 0;
     case SCREEN_VOICE_PICK: return 1;
-    case SCREEN_LISTENING: return 2;
+    case SCREEN_LISTENING:
+    case SCREEN_MEETING: return 2;
     case SCREEN_THINKING: return 3;
     case SCREEN_NEEDS_CONFIRMATION: return 4;
     case SCREEN_FOCUS_RUNNING:

@@ -94,7 +94,8 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
         return self.tasks.get_step(sid) if sid else None
 
     # ---- errors & stuck-state watchdog -------------------------------------------------------
-    STUCK_LIMITS_S = {"LISTENING": 90.0, "TRANSCRIBING": 90.0, "THINKING": 150.0}
+    # a voice message may run 10 minutes; transcribing it on the CPU and planning a long one take a while
+    STUCK_LIMITS_S = {"LISTENING": 660.0, "TRANSCRIBING": 420.0, "THINKING": 300.0}
 
     def set_error(self, title: str, text: str) -> None:
         with self.lock:
@@ -186,8 +187,10 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
                 "clarification_text": _cut((self.pending or {}).get("question", ""), 90),
                 "thinking_stage": self.thinking_stage, "done_title": _cut(self.done_title, 90),
                 # what PIP acts out: the step in progress, the one after it (offline advance), the one just done
-                "activity": classify(step["title"] if step else "", task["title"] if task else ""),
-                "next_activity": classify(nxt["title"] if nxt else "", task["title"] if task else ""),
+                "activity": (step or {}).get("activity") or classify(step["title"] if step else "",
+                                                                    task["title"] if task else ""),
+                "next_activity": (nxt or {}).get("activity") or classify(nxt["title"] if nxt else "",
+                                                                         task["title"] if task else ""),
                 "done_activity": classify(self.done_title, task["title"] if task else ""),
                 "break_remaining_ms": self.brk.remaining_ms if self.overlay == "BREAK" else 0,
                 "tz_offset_min": self.tz_offset_min(), "alarm_ringing": bool(self.ringing),

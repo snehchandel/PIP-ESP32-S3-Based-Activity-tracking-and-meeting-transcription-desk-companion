@@ -49,6 +49,14 @@ class FakeKimi:
                     words = ("Good morning sunshine, it is time to rise and shine. " * 9).strip()
                     return self._send(200, {"choices": [{"message": {"content": words + " Time to get up."}}],
                                             "usage": {"prompt_tokens": 120, "completion_tokens": 110}})
+                if "meeting transcripts" in req["messages"][0]["content"]:  # KimiPlanner.summarize_meeting
+                    summary = {"title": "Weekly sync", "summary": "The team reviewed the migration and next steps.",
+                               "decisions": ["Present to the client on Friday"],
+                               "action_items": [{"task": "Send the Q3 budget spreadsheet", "owner": "Sam", "due": None},
+                                                {"task": "Book the final-round interviews", "owner": None,
+                                                 "due": "next week"}]}
+                    return self._send(200, {"choices": [{"message": {"content": json.dumps(summary)}}],
+                                            "usage": {"prompt_tokens": 2000, "completion_tokens": 150}})
                 said = re.search(r"What I said: (.*)$", req["messages"][-1]["content"], re.DOTALL)
                 plan = planner.plan(said.group(1) if said else "")
                 self._send(200, {"choices": [{"message": {"content": plan.model_dump_json()}}],

@@ -7,6 +7,7 @@ import AlarmsView from "./views/AlarmsView";
 import CalendarView from "./views/CalendarView";
 import DeviceView from "./views/DeviceView";
 import FocusView from "./views/FocusView";
+import MeetingsView from "./views/MeetingsView";
 import SettingsView from "./views/SettingsView";
 import TodayView from "./views/TodayView";
 import VoiceView from "./views/VoiceView";
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/calendar" element={<CalendarView />} />
         <Route path="/voice" element={<VoiceView />} />
         <Route path="/focus" element={<FocusView />} />
+        <Route path="/meetings" element={<MeetingsView />} />
         <Route path="/alarms" element={<AlarmsView />} />
         <Route path="/device" element={<DeviceView />} />
         <Route path="/settings" element={<SettingsView />} />

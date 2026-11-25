@@ -51,7 +51,7 @@ CATEGORIES: list[tuple[re.Pattern[str], Template]] = [
 GENERIC: Template = [
     ("Put the tools or files for {obj} in front of you", 2),
     ("Write down the very first concrete action for {obj}", 5),
-    ("Work on the first part of {obj}", 20),
+    ("Do the first part of {obj}", 20),
     ("Note where you stopped and the next step", 5),
 ]
 

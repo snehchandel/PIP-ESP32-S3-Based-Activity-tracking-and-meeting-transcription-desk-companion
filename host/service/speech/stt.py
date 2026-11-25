@@ -85,3 +85,31 @@ class SpeechToText:
                 return ""
             segments, _ = self._model.transcribe(audio, language="en", beam_size=1, vad_filter=True)
             return " ".join(s.text.strip() for s in segments).strip()
+
+    def transcribe_segments(self, audio: Any, on_segment: Any = None, beam_size: int = 1) -> list[tuple[float, float, str]]:
+        """Timed segments of a long recording (float32 mono 16 kHz numpy array). VAD splits at pauses of 0.5 s so
+        segments tend to follow turns in a conversation; `on_segment(end_s)` reports progress."""
+        if not self.installed:
+            raise RuntimeError("faster-whisper not installed")
+        with self._lock:
+            if self._model is None:
+                self._model = self._load()
+                self.error = ""
+            if audio.size < 1600:
+                return []
+            segments, _ = self._model.transcribe(audio, language="en", beam_size=beam_size, vad_filter=True,
+                                                 vad_parameters={"min_silence_duration_ms": 500},
+                                                 condition_on_previous_text=False)
+            out = []
+            for seg in segments:
+                text = seg.text.strip()
+                if text:
+                    out.append((float(seg.start), float(seg.end), text))
+                if on_segment:
+                    on_segment(float(seg.end))
+            return out
+
+    def unload(self) -> None:
+        """Free the model's memory (the meeting transcriber does this when its queue is empty)."""
+        with self._lock:
+            self._model = None

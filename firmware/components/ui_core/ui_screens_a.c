@@ -462,10 +462,56 @@ void ui_screen_thinking(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     ui_chrome_bar(fb, m, h, 1, meta);
 }
 
+/* Time you can feel: a disc in the corner of PIP's stage that shrinks clockwise as the step runs out (like a kitchen
+ * time timer), with the minutes left underneath. Drawn over a white halo so PIP can walk behind it. */
+static void focus_pie(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
+{
+    int stage = meta ? meta->n - 1 : -1; /* nested in mascot_stage (added just before) */
+    uint32_t total = m->step_total_ms ? m->step_total_ms : m->remaining_ms;
+    uint32_t rem = m->remaining_ms > total ? total : m->remaining_ms;
+    float frac = total ? (float)rem / (float)total : 0.0f;
+    const int cx = STAGE_X + 31, cy = ZONE_TOP + 31, r = 26;
+    fb_fill_circle(fb, cx, cy, r + 3, INK_WHITE);
+    fb_fill_circle(fb, cx, cy, r, INK_BLACK);
+    fb_fill_circle(fb, cx, cy, r - 2, INK_WHITE);
+    const int ri = r - 4;
+    float lim = frac * 6.2831853f;
+    for (int dy = -ri; dy <= ri; dy++) {
+        for (int dx = -ri; dx <= ri; dx++) {
+            if (dx * dx + dy * dy > ri * ri) {
+                continue;
+            }
+            float a = atan2f((float)dx, (float)-dy); /* 0 at 12 o'clock, clockwise on screen */
+            if (a < 0.0f) {
+                a += 6.2831853f;
+            }
+            if (a <= lim && frac > 0.0f) {
+                fb_set(fb, cx + dx, cy + dy, INK_BLACK);
+            }
+        }
+    }
+    for (int q = 0; q < 4; q++) { /* quarter ticks on the rim */
+        int tx = q == 1 ? 1 : (q == 3 ? -1 : 0), ty = q == 0 ? -1 : (q == 2 ? 1 : 0);
+        fb_fill_circle(fb, cx + tx * (r - 1), cy + ty * (r - 1), 1, INK_WHITE);
+    }
+    char lbl[12];
+    uint32_t min = (rem + 59999u) / 60000u;
+    if (rem < 60000u) {
+        snprintf(lbl, sizeof lbl, "%us", (unsigned)((rem + 999u) / 1000u));
+    } else {
+        snprintf(lbl, sizeof lbl, "%u min", (unsigned)min);
+    }
+    int lw = text_width(&FONT_12B, lbl), ly = cy + r + 4;
+    fb_fill_rect(fb, cx - lw / 2 - 2, ly - 1, lw + 4, FONT_12B.line_h + 2, INK_WHITE);
+    text_draw(fb, &FONT_12B, cx - lw / 2, ly, lbl, INK_BLACK);
+    ui_meta_add(meta, "focus_pie", cx - r - 3, cy - r - 3, 2 * r + 7, 2 * r + 7 + FONT_12B.line_h + 4, stage);
+}
+
 void ui_screen_focus(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
 {
     ui_chrome_top(fb, m, meta);
     ui_chrome_mascot(fb, m, PIP_EXPR_WORKING, "Focus", meta);
+    focus_pie(fb, m, meta);
     big_timer(fb, m->remaining_ms, 34, meta);
     char badge[96];
     if (m->is_starter) {
@@ -493,13 +539,14 @@ void ui_screen_paused(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
 {
     ui_chrome_top(fb, m, meta);
     ui_chrome_mascot(fb, m, PIP_EXPR_PAUSED, "Paused", meta);
+    focus_pie(fb, m, meta);
     big_timer(fb, m->remaining_ms, 34, meta);
     ui_inverted_pill(fb, &FONT_12B, CONTENT_X, 112, "Paused", meta, "step_badge");
     step_title_block(fb, m, &FONT_14, 136, 3, meta);
     const char *calm = "No rush \xE2\x80\x94 resume anytime";
     text_draw(fb, &FONT_12, CONTENT_X, 222, calm, INK_BLACK);
     ui_meta_add(meta, "calm_text", CONTENT_X, 222, text_width(&FONT_12, calm), FONT_12.line_h, -1);
-    ui_hint_t h[] = {{ICON_PLAY, "Resume"}, {-1, "Hold BOOT: Split"}};
+    ui_hint_t h[] = {{ICON_PLAY, "Resume"}, {-1, "BOOT hold: Split \xC2\xB7 2x: Park"}};
     ui_chrome_bar(fb, m, h, 2, meta);
 }
 

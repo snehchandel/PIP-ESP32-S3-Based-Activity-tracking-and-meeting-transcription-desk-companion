@@ -17,8 +17,10 @@ from ..state.manager import DeviceStateManager
 from .stt import SpeechToText
 
 log = logging.getLogger("pip.voice")
-MAX_BYTES = 60 * 16000 * 2  # 60 s of 16 kHz mono PCM
-ACTIVITIES = ["BRAIN_DUMP", "CALENDAR", "FOCUS", "ALARMS"]  # device AUDIO_START activity byte
+MAX_SECONDS = 600  # a voice message may run 10 minutes (meetings have no limit: see meetings/service.py)
+MAX_BYTES = MAX_SECONDS * 16000 * 2  # of 16 kHz mono PCM16
+ACTIVITIES = ["BRAIN_DUMP", "CALENDAR", "FOCUS", "ALARMS", "MEETING"]  # device AUDIO_START activity byte
+MEETING = 4
 AI_GONE = ("AI has left the device", "Kimi couldn't be reached. Your words are saved as a parked note.")
 AI_BUDGET = ("AI budget reached", "This month's Kimi cap is spent. Words parked; raise the cap in Settings.")
 
@@ -37,19 +39,29 @@ class VoicePipeline:
         self.streams: dict[int, bytearray] = {}
         self.activity: dict[int, str] = {}
         self.last: dict[str, Any] = {"status": "IDLE"}
+        self.meetings: Any = None  # MeetingService: records activity 4 (MEETING) streams to disk
 
     def start(self, stream_id: int, activity: int = 0) -> None:
+        if activity == MEETING and self.meetings is not None:
+            self.meetings.start(stream_id)
+            return
         self.streams = {stream_id: bytearray()}
         self.activity = {stream_id: ACTIVITIES[activity] if 0 <= activity < len(ACTIVITIES) else "BRAIN_DUMP"}
         self._set_overlay("LISTENING", "")
         self._status("LISTENING", stream_id=stream_id, activity=self.activity[stream_id])
 
-    def data(self, stream_id: int, pcm: bytes) -> None:
+    def data(self, stream_id: int, pcm: bytes, seq: int | None = None) -> None:
+        if self.meetings is not None and self.meetings.owns(stream_id):
+            self.meetings.data(stream_id, pcm, seq)
+            return
         buf = self.streams.get(stream_id)
         if buf is not None and len(buf) + len(pcm) <= MAX_BYTES:
             buf += pcm
 
     def end(self, stream_id: int, total_samples: int) -> None:
+        if self.meetings is not None and self.meetings.owns(stream_id):
+            self.meetings.end(stream_id)
+            return
         pcm = bytes(self.streams.pop(stream_id, b""))
         activity = self.activity.pop(stream_id, "BRAIN_DUMP")
         threading.Thread(target=self._process, args=(stream_id, pcm, activity), daemon=True, name="pip-voice").start()

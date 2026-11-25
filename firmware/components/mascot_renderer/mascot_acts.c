@@ -1965,8 +1965,8 @@ static const act_t FOCUS[] = {
 };
 static const act_t LISTEN[] = {
     ACT_T("calendar notes", l_calendar, 12, 1, PIP_TAG_VOICE(0)),
-    ACT_T("takes notes", l_notes, 12, 1, PIP_TAG_VOICE(1)),
-    ACT_T("hand to ear", l_ear, 12, 2, PIP_TAG_VOICE(2)),
+    ACT_T("takes notes", l_notes, 12, 1, PIP_TAG_VOICE(1) | PIP_TAG_VOICE(4)), /* brain dump, meeting minutes */
+    ACT_T("hand to ear", l_ear, 12, 2, PIP_TAG_VOICE(2) | PIP_TAG_VOICE(4)),
     ACT_T("alarm clock to ear", l_alarm, 12, 1, PIP_TAG_VOICE(3)),
 };
 static const act_t THINK[] = { /* played in order */

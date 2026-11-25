@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from pydantic import ValidationError
 
-from .schema import PlannerOutputV1
+from .schema import MeetingSummary, PlannerOutputV1
 
 # Newest first; the first one the account actually offers is used unless the user picks one in Settings.
 # Standard (non-"highspeed") models only: highspeed variants cost several times more per token.
@@ -34,6 +34,8 @@ ACTIVITY_RULES = {
              "SPLIT_STEP) when they ask to control the timer/step; otherwise park the thought so focus isn't broken.",
     "ALARMS": "The user wants alarms. Use scheduled items with kind ALARM and due_local; for repeating alarms set "
               "repeat_days like MO,WE,FR. intent ADD_ALARM.",
+    "TASK": "The user has picked ONE task to start (from their parked notes or calendar). Return intent CREATE_TASK "
+            "with active_task broken into steps. Do not add scheduled or parked items.",
 }
 
 ALARM_RULES = """Alarm rules (kind ALARM):
@@ -47,21 +49,47 @@ ALARM_RULES = """Alarm rules (kind ALARM):
 SYSTEM_PROMPT = """You are PIP, a calm ADHD focus companion. Reply with ONE JSON object only (no markdown, no list).
 {activity}
 How to break a task into steps (hard rules):
-- Steps are the concrete physical/real-world actions THIS user must do, taken from their own words and situation.
+- First work out what the task really is: WHERE it happens (desk, kitchen, a store, the car, outside), WHAT
+  objects/people/places/apps are involved, and what "done" looks like. The steps are the real sequence of
+  physical actions to get there, in the order they happen, using the user's own nouns (shop names, people,
+  items, apps, documents). A step that would fit any other task is wrong.
+- Errands and outings: include leaving and travelling (keys/wallet/bag, drive or walk there, find the thing,
+  check it, pay, come back) - never desk steps like "open a file" for a shopping trip.
+  Example: "I need to go to Old Navy to buy winter pants for my son, I'll take the car" ->
+  "Grab keys, wallet and his size from the tag" (starter, errand), "Drive to Old Navy" (errand),
+  "Find kids' winter pants in his size" (errand), "Check fit and warmth, pay" (errand), "Drive home" (errand).
+- Desk work: name the actual document, app, person or message.
   Example: "I need to send my tax papers to the accountant" ->
-  "Open the folder with this year's tax papers", "Scan the T4 and receipts with your phone",
-  "Attach the scans to an email to the accountant", "Send it and file the papers back".
+  "Open the folder with this year's tax papers" (starter, computer), "Scan the T4 and receipts" (computer),
+  "Attach the scans to an email to the accountant" (computer), "Send it and file the papers back" (computer).
 - NEVER output headings, phases or categories as steps (no "Preparation:", "Step 1", "Phase 2", "Setup", ALL CAPS).
-- NEVER use generic filler ("work on the task", "write down the first action", "review progress").
-- 3-6 steps. Step 1: is_starter=true, 2-5 min, the tiniest physical first move. Other steps 5-25 min.
+- NEVER use generic filler ("work on the task", "write down the first action", "gather materials",
+  "review progress", "put the tools in front of you").
+- 3-6 steps. Step 1: is_starter=true, 2-5 min, the tiniest physical first move. Other steps 5-25 min with
+  realistic durations (a drive across town is not 5 min; one email is not 25).
 - Each step title is an imperative sentence of at most 40 characters.
-- active_task.title max 40 chars; active_task.short_title max 18 chars for a tiny screen (e.g. "Gym bag + keys").
+- Each step has "activity": what the body is doing during that step (PIP acts it out on the device):
+  errand = going out, driving, shopping, appointments; computer = screen, email, forms, files, coding;
+  write = pen/paper or drafting text; read = reading/studying; call = phone/video call or talking to someone;
+  clean = tidying/laundry/dishes; cook = food; exercise = sport/walk/gym; garden = plants/yard; music = practising
+  an instrument; fix = repairs/assembly/installing; plan = scheduling/deciding/organising; rest = sleep/relax;
+  general = anything else.
+- active_task.title: the goal in a few plain words (max 40 chars), e.g. "Buy winter pants for my son" -
+  never the first words of what they said. active_task.short_title max 18 chars for a tiny screen
+  (e.g. "Kids' winter pants").
 - If too vague for concrete steps: intent NEEDS_CLARIFICATION with a short clarification_question.
 - Times: due_local "YYYY-MM-DDTHH:MM" in the user's local zone. Vague times ("afternoon", "later", "Friday")
   set needs_confirmation=true.
 - Kind, calm language. No shame.
 {alarm_rules}
 JSON schema: {schema}"""
+
+MEETING_PROMPT = """You read meeting transcripts for an ADHD-friendly assistant. Reply with ONE JSON object only:
+{"title": "<what the meeting was about, max 60 chars>", "summary": "<3-6 plain sentences: purpose, what was
+discussed, outcome>", "decisions": ["<each decision made>"], "action_items": [{"task": "<concrete next action>",
+"owner": "<speaker name if said, else null>", "due": "<deadline if said, else null>"}]}
+Use the speaker names from the transcript. Only include decisions and action items that were actually said.
+No markdown, no emojis."""
 
 
 class PlannerError(RuntimeError):
@@ -107,7 +135,7 @@ class KimiPlanner:
     mode = "KIMI"
 
     def __init__(self, api_key: str, base_url: str, model: str, tz: str = "America/Toronto",
-                 client: httpx.Client | None = None, timeout: float = 90.0, on_usage: UsageSink | None = None) -> None:
+                 client: httpx.Client | None = None, timeout: float = 120.0, on_usage: UsageSink | None = None) -> None:
         if not api_key:
             raise PlannerError("no Kimi API key configured")
         self.api_key = api_key
@@ -166,6 +194,20 @@ class KimiPlanner:
         if len(text.split()) < 30:
             raise PlannerError("Kimi returned a script that is too short")
         return text[:1200]
+
+    def summarize_meeting(self, transcript: str) -> MeetingSummary:
+        """Title, summary, decisions and action items of a meeting transcript ("[mm:ss] Name: text" lines)."""
+        messages = [{"role": "system", "content": MEETING_PROMPT}, {"role": "user", "content": transcript}]
+        content = self._call(messages, purpose="meeting_summary")
+        try:
+            return MeetingSummary.model_validate_json(extract_json(content))
+        except ValidationError as first:
+            messages += [{"role": "assistant", "content": content},
+                         {"role": "user", "content": f"Fix these validation errors and return the JSON: {first.errors()}"}]
+        try:
+            return MeetingSummary.model_validate_json(extract_json(self._call(messages, purpose="meeting_summary")))
+        except ValidationError as second:
+            raise PlannerError(f"Kimi summary invalid after retry: {second.error_count()} errors") from second
 
     def plan(self, text: str, now: datetime | None = None, activity: str = "BRAIN_DUMP") -> PlannerOutputV1:
         now = now or datetime.now(self.tz)

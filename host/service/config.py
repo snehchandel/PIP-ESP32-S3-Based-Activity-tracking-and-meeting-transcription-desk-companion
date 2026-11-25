@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     pip_sim_addr: str = "127.0.0.1:18422"
 
     pip_stt_model: str = "small.en"
+    pip_meeting_model: str = "small.en"  # faster-whisper model for meeting transcripts (e.g. medium.en: slower, better)
     pip_stt_preload: bool = True
     pip_piper_voice: str = ""
     pip_voices_dir: str = str(ROOT / "data" / "voices")

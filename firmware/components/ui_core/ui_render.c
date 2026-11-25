@@ -21,6 +21,7 @@ ui_screen_t ui_screen_for(const ui_model_t *m)
     case UI_STATE_ALARM_RINGING: return SCREEN_ALARM_RINGING;
     case UI_STATE_ERROR_RECOVERABLE: return SCREEN_ERROR;
     case UI_STATE_VOICE_PICK: return SCREEN_VOICE_PICK;
+    case UI_STATE_MEETING: return SCREEN_MEETING;
     case UI_STATE_LISTENING: return SCREEN_LISTENING;
     case UI_STATE_TRANSCRIBING:
     case UI_STATE_THINKING: return SCREEN_THINKING;
@@ -45,7 +46,7 @@ pip_expr_t ui_expr_for(const ui_model_t *m)
     static const pip_expr_t by_screen[SCREEN_COUNT] = {
         PIP_EXPR_READY, PIP_EXPR_LISTENING, PIP_EXPR_THINKING, PIP_EXPR_WORKING, PIP_EXPR_PAUSED, PIP_EXPR_PAUSED,
         PIP_EXPR_DONE,  PIP_EXPR_READY,     PIP_EXPR_ALARM,    PIP_EXPR_THINKING, PIP_EXPR_SLEEP, PIP_EXPR_LISTENING,
-        PIP_EXPR_THINKING};
+        PIP_EXPR_THINKING, PIP_EXPR_LISTENING};
     return by_screen[ui_screen_for(m)];
 }
 
@@ -54,7 +55,7 @@ pip_mode_t ui_mode_for(const ui_model_t *m)
     static const pip_mode_t by_screen[SCREEN_COUNT] = {
         PIP_MODE_IDLE,   PIP_MODE_LISTEN,  PIP_MODE_THINK,   PIP_MODE_FOCUS, PIP_MODE_PAUSE,
         PIP_MODE_BREAK,  PIP_MODE_DONE,    PIP_MODE_AGENDA,  PIP_MODE_ALARM, PIP_MODE_CONFIRM,
-        PIP_MODE_SLEEP,  PIP_MODE_PICK,    PIP_MODE_ERROR};
+        PIP_MODE_SLEEP,  PIP_MODE_PICK,    PIP_MODE_ERROR,   PIP_MODE_LISTEN};
     return by_screen[ui_screen_for(m)];
 }
 
@@ -63,19 +64,19 @@ const char *ui_screen_name(ui_screen_t s)
     static const char *const names[SCREEN_COUNT] = {
         "01_idle_ready",     "02_listening",          "03_thinking",         "04_focus_running", "05_paused",
         "06_break_screen",   "07_step_done",          "08_daily_tasks",      "09_alarm_ringing",
-        "10_needs_confirmation", "11_standalone_sleep", "12_voice_pick", "13_error"};
+        "10_needs_confirmation", "11_standalone_sleep", "12_voice_pick", "13_error", "14_meeting"};
     return (unsigned)s < SCREEN_COUNT ? names[s] : "unknown";
 }
 
 const char *ui_voice_choice_label(uint8_t choice)
 {
-    static const char *const labels[UI_VOICE_CHOICES] = {"Calendar", "Brain dump", "Focus", "Alarms"};
+    static const char *const labels[UI_VOICE_CHOICES] = {"Calendar", "Brain dump", "Focus", "Alarms", "Meeting"};
     return labels[choice % UI_VOICE_CHOICES];
 }
 
 uint8_t ui_voice_choice_activity(uint8_t choice)
 {
-    static const uint8_t act[UI_VOICE_CHOICES] = {1, 0, 2, 3}; /* -> protocol activity id */
+    static const uint8_t act[UI_VOICE_CHOICES] = {1, 0, 2, 3, 4}; /* -> protocol activity id */
     return act[choice % UI_VOICE_CHOICES];
 }
 
@@ -86,7 +87,7 @@ void ui_render(rlcd_fb_t *fb, const ui_model_t *m, ui_meta_t *meta)
     static const screen_fn fns[SCREEN_COUNT] = {
         ui_screen_idle,  ui_screen_listening, ui_screen_thinking, ui_screen_focus, ui_screen_paused,
         ui_screen_break, ui_screen_done,      ui_screen_daily,    ui_screen_alarm, ui_screen_confirm,
-        ui_screen_sleep, ui_screen_voice_pick, ui_screen_error};
+        ui_screen_sleep, ui_screen_voice_pick, ui_screen_error, ui_screen_meeting};
     ui_screen_t s = ui_screen_for(m);
     if (meta) {
         memset(meta, 0, sizeof *meta);

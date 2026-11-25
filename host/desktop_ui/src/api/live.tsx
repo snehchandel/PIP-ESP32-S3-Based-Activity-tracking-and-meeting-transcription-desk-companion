@@ -5,12 +5,15 @@ import { api } from "./client";
 import type { FullState, Health } from "./types";
 
 export type Conn = "connecting" | "live" | "offline";
+/** Latest meeting_updated event (n increments on every event so views can refetch). */
+export interface MeetingEvt { n: number; id: string; status: string; progress?: number }
 
 interface LiveValue {
   state: FullState | null;
   health: Health | null;
   conn: Conn;
   fbVersion: number;
+  meetingEvt: MeetingEvt;
   error: string | null;
   refresh: () => Promise<void>;
   run: <T>(fn: () => Promise<T>) => Promise<T | undefined>;
@@ -23,6 +26,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [health, setHealth] = useState<Health | null>(null);
   const [conn, setConn] = useState<Conn>("connecting");
   const [fbVersion, setFbVersion] = useState(0);
+  const [meetingEvt, setMeetingEvt] = useState<MeetingEvt>({ n: 0, id: "", status: "" });
   const [error, setError] = useState<string | null>(null);
   const refreshTimer = useRef<number | null>(null);
 
@@ -65,6 +69,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (msg.event === "framebuffer_updated") return;
+        if (msg.event === "meeting_updated") { // recordings + transcription progress: the Meetings view refetches
+          setMeetingEvt((m) => ({ n: m.n + 1, id: String(msg.data.id ?? ""), status: String(msg.data.status ?? ""),
+            progress: typeof msg.data.progress === "number" ? msg.data.progress : undefined }));
+          return;
+        }
         scheduleRefresh();
         setFbVersion((v) => v + 1);
       };
@@ -96,8 +105,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     }
   }, [scheduleRefresh]);
 
-  const value = useMemo(() => ({ state, health, conn, fbVersion, error, refresh, run }),
-    [state, health, conn, fbVersion, error, refresh, run]);
+  const value = useMemo(() => ({ state, health, conn, fbVersion, meetingEvt, error, refresh, run }),
+    [state, health, conn, fbVersion, meetingEvt, error, refresh, run]);
   return <LiveCtx.Provider value={value}>{children}</LiveCtx.Provider>;
 }
 

@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { useLive } from "../api/live";
 import type { CalItem, DayItems } from "../api/types";
 import { TimeGrid } from "../components/TimeGrid";
+import type { CalChange } from "../components/TimeGrid";
 import { Button } from "../components/ui/button";
 import { Badge, Card, Input, Label, PageHeader, Select } from "../components/ui/primitives";
 import { cn, todayIso } from "../lib/utils";
@@ -85,6 +86,19 @@ export default function CalendarView() {
   useEffect(() => { void load(); }, [load, state?.revision]);
 
   const step = mode === "month" ? 30 : mode === "week" ? 7 : 1;
+  const change = async ({ item, date, hhmm, minutes, resized }: CalChange) => {
+    // optimistic: move the block right away, then save (Outlook-style drag)
+    setDays((ds) => ds.map((d) => ({ ...d, items: d.date === date
+      ? [...d.items.filter((i) => i.id !== item.id), { ...item, hhmm, duration_min: item.kind === 0 ? minutes : item.duration_min }]
+      : d.items.filter((i) => i.id !== item.id) })));
+    if (item.kind === 0) {
+      await run(() => api.patchTask(item.id, { target_date: date, start_hhmm: hhmm, ...(resized ? { block_min: minutes } : {}) }));
+    } else if (item.kind === 1) {
+      await run(() => api.patchReminder(item.id, { due_local: `${date}T${hhmm}` }));
+    }
+    setSelected(date);
+    void load();
+  };
   const add = async () => {
     if (!title.trim()) return;
     await run(() => (kind === "task" ? api.createTask(title.trim(), selected, time || null)
@@ -135,7 +149,7 @@ export default function CalendarView() {
             </div>
           ) : (
             <TimeGrid days={days} selectedId={picked?.item.id ?? null}
-              onSelect={(item, date) => { setPicked({ item, date }); setSelected(date); }}
+              onSelect={(item, date) => { setPicked({ item, date }); setSelected(date); }} onChange={(c) => void change(c)}
               onSlot={(date, hhmm) => { setSelected(date); setTime(hhmm); setPicked(null);
                 window.setTimeout(() => document.getElementById("cal-title")?.focus(), 20); }} />
           )}
@@ -169,7 +183,8 @@ export default function CalendarView() {
                 onChange={(e) => setTitle(e.target.value)} />
               <Button type="submit" variant="primary" disabled={!title.trim()}><Plus size={16} aria-hidden /> Add</Button>
             </div>
-            <p className="text-xs text-muted">Tip: click any hour in Week or Day view to schedule there.</p>
+            <p className="text-xs text-muted">Tip: click any hour in Week or Day view to schedule there. Drag a block to
+              move it; drag a task's top or bottom edge to change its length.</p>
           </form>
         </Card>
       </div>
