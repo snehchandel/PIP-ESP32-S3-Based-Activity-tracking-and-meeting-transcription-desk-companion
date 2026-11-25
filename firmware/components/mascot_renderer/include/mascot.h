@@ -72,8 +72,37 @@ typedef enum {
     PROP_PENCIL,
     PROP_WRENCH,
     PROP_GIFT,
+    PROP_PHONE,
+    PROP_PAN,
+    PROP_BAG,
     PROP_COUNT
 } prop_t;
+
+/* What the step in progress is about (classified on the PC: host/service/planner/activity.py). PIP acts it out. */
+typedef enum {
+    PIP_ACT_GENERAL = 0,
+    PIP_ACT_WRITE,
+    PIP_ACT_COMPUTER,
+    PIP_ACT_READ,
+    PIP_ACT_CALL,
+    PIP_ACT_CLEAN,
+    PIP_ACT_EXERCISE,
+    PIP_ACT_COOK,
+    PIP_ACT_GARDEN,
+    PIP_ACT_MUSIC,
+    PIP_ACT_FIX,
+    PIP_ACT_PLAN,
+    PIP_ACT_ERRAND,
+    PIP_ACT_REST,
+    PIP_ACTIVITY_COUNT
+} pip_activity_t;
+
+/* Scene tags select acts that fit the moment: the task's activity (focus, pause, done, idle preview), the
+ * activity picked in the voice picker (listening) or the thinking stage. */
+#define PIP_TAG(act) (1u << (unsigned)(act))
+#define PIP_TAG_VOICE(choice) (1u << (unsigned)(choice)) /* 0 Calendar, 1 Brain dump, 2 Focus, 3 Alarms */
+#define PIP_TAG_TRANSCRIBE 1u
+#define PIP_TAG_PLANNING 2u
 
 /* Everything the renderer needs for one frame. Units: stage pixels, degrees, seconds. */
 typedef struct {
@@ -152,6 +181,7 @@ typedef struct {
     uint32_t rng;
     pip_mode_t mode;
     pip_perf_t perf;            /* current performance */
+    uint32_t tags;              /* scene tags (see PIP_TAG) */
     uint32_t act_start_ms, act_dur_ms;
     pip_react_t react;
     uint32_t react_start_ms;
@@ -177,6 +207,9 @@ typedef struct {
 
 void mascot_anim_init(mascot_anim_t *a, uint32_t seed, uint32_t now_ms);
 void mascot_set_mode(mascot_anim_t *a, pip_mode_t mode, uint32_t now_ms);
+/* Screen + what it is about. A tag change restarts the performance (except on the idle screen, where it only
+ * steers the next pick), so PIP switches to the new activity right away - fetching its props if needed. */
+void mascot_set_scene(mascot_anim_t *a, pip_mode_t mode, uint32_t tags, uint32_t now_ms);
 void mascot_react(mascot_anim_t *a, pip_react_t r, uint32_t now_ms);
 void mascot_set_pick(mascot_anim_t *a, int row, int rows);
 /* Advance; returns true when the pose changed and the screen should be redrawn (<= 20 FPS). */
@@ -216,6 +249,10 @@ void mascot_rig(const mascot_pose_t *p, pip_rig_t *r);
 /* library introspection (tests / sim contact sheets) */
 int mascot_act_count(pip_mode_t mode);
 const char *mascot_act_name(pip_mode_t mode, int act);
+uint32_t mascot_act_tags(pip_mode_t mode, int act); /* 0 = always eligible */
+bool mascot_lib_sequential(pip_mode_t mode);        /* acts play in order (break, thinking) */
+const char *mascot_activity_name(pip_activity_t a); /* "write", ... as sent by the host */
+pip_activity_t mascot_activity_from_name(const char *name);
 const char *mascot_mode_name(pip_mode_t mode);
 uint16_t mascot_perf_key(const pip_perf_t *p);
 /* Pose of a performance at time t (s) - pure; used by the engine, tests and the sim. */

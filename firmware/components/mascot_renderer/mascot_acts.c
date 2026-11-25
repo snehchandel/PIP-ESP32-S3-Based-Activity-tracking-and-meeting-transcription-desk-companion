@@ -10,12 +10,17 @@
 #define TAU_F 6.2831853f
 
 typedef void (*act_fn)(mascot_pose_t *p, float t, float D, int v, float s, int mood);
+/* the same act for every activity: `cat` picks the props (see GEAR) */
+typedef void (*kit_fn)(mascot_pose_t *p, float t, float D, int v, float s, int mood, int cat);
 
 typedef struct {
     const char *name;
     act_fn fn;
+    kit_fn kfn;
     float dur;       /* seconds at normal tempo */
     uint8_t variants;
+    uint32_t tags;   /* 0: always eligible; else only while the scene tags match */
+    int arg;         /* kit acts: the activity */
 } act_t;
 
 /* ---- easing toolkit ------------------------------------------------------------------------ */
@@ -1264,7 +1269,7 @@ bool mascot_same_props(const mascot_pose_t *a, const mascot_pose_t *b)
     if (ka.held != kb.held || ka.held_l != kb.held_l || ka.fp != kb.fp || ka.obj != kb.obj) {
         return false;
     }
-    return ka.fp == PROP_NONE || (fabsf(a->fp_x - b->fp_x) <= 10.0f && fabsf(a->fp_y - b->fp_y) <= 6.0f);
+    return ka.fp == PROP_NONE || (fabsf(a->fp_x - b->fp_x) <= 14.0f && fabsf(a->fp_y - b->fp_y) <= 6.0f);
 }
 
 typedef struct {
@@ -1413,64 +1418,483 @@ void mascot_trip_pose(const mascot_pose_t *f, const mascot_pose_t *to, float t, 
     p->mouth = MOUTH_SMILE;
 }
 
-/* ==== tables ================================================================================ */
+/* ==== the task at hand: what PIP does while you do it =========================================
+ * Each step is classified on the PC (planner/activity.py) into an activity. The focus, pause and done screens
+ * only play acts tagged with it; the idle screen previews the next step every third act. */
+typedef struct {
+    int held, held_l, floor;
+} gear_t;
+
+/* the things each activity needs (fetched from the screen edge by a prop trip when they change) */
+static const gear_t GEAR[PIP_ACTIVITY_COUNT] = {
+    {PROP_MUG, PROP_NONE, PROP_NONE},           /* general */
+    {PROP_BOOK, PROP_PENCIL, PROP_NONE},        /* write */
+    {PROP_NONE, PROP_NONE, PROP_LAPTOP},        /* computer */
+    {PROP_BOOK, PROP_NONE, PROP_NONE},          /* read */
+    {PROP_PHONE, PROP_NONE, PROP_NONE},         /* call */
+    {PROP_BROOM, PROP_NONE, PROP_NONE},         /* clean */
+    {PROP_DUMBBELL, PROP_DUMBBELL, PROP_NONE},  /* exercise */
+    {PROP_PAN, PROP_NONE, PROP_NONE},           /* cook */
+    {PROP_WATERCAN, PROP_NONE, PROP_PLANT},     /* garden */
+    {PROP_GUITAR, PROP_NONE, PROP_NONE},        /* music */
+    {PROP_WRENCH, PROP_NONE, PROP_NONE},        /* fix */
+    {PROP_CALENDAR, PROP_PENCIL, PROP_NONE},    /* plan */
+    {PROP_BAG, PROP_NONE, PROP_NONE},           /* errand */
+    {PROP_NONE, PROP_NONE, PROP_NONE},          /* rest */
+};
+
+static bool two_handed(int prop) { return prop == PROP_BOOK || prop == PROP_CALENDAR || prop == PROP_GUITAR; }
+
+/* where the floor gear stands: where the activity's own act puts it, so switching never moves it */
+static void wear_gear(mascot_pose_t *p, int cat, float s, float in)
+{
+    const gear_t *g = &GEAR[(unsigned)cat < PIP_ACTIVITY_COUNT ? cat : 0];
+    p->held = g->held;
+    p->held_l = g->held_l;
+    p->floor_prop = g->floor;
+    if (g->floor == PROP_LAPTOP) {
+        p->fp_x = s * 6.0f;
+        p->fp_y = 18.0f;
+    } else if (g->floor) {
+        p->fp_x = s * 36.0f;
+        p->fp_y = 2.0f;
+        p->fp_t = 2.0f; /* a grown plant */
+    }
+    if (two_handed(g->held)) {
+        p->arm_l = p->arm_r = 50.0f * in;
+    } else {
+        p->arm_r = (g->held ? 35.0f : 8.0f) * in;
+        p->arm_l = (g->held_l ? 35.0f : 8.0f) * in;
+    }
+}
+
+/* every ~9 s PIP looks up from its work at you for a moment (keeps catching your eye without interrupting) */
+static float glance(mascot_pose_t *p, float t, float period, float phase)
+{
+    float g = bump(fmodf(t + phase, period), period - 2.0f, period - 0.4f);
+    if (g > 0.4f) {
+        p->eyes = EYE_HAPPY;
+        p->mouth = MOUTH_SMILE;
+    }
+    p->look_x = mixf(p->look_x, 0.0f, g);
+    p->look_y = mixf(p->look_y, 0.0f, g);
+    return g;
+}
+
+/* ---- focus: one act family per activity ---- */
+static void f_notes(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* writes in its notebook, pencil scratching; v1 sits down for it */
+    float in = win(t, 0.0f, D, 0.8f);
+    p->held = PROP_BOOK;
+    p->held_l = PROP_PENCIL;
+    p->sit = v == 1 ? win(t, 0.2f, D - 0.2f, 1.0f) : 0.0f;
+    float burst = 0.5f + 0.5f * sinf(t * 1.3f); /* writes in bursts */
+    p->arm_r = 50.0f * in;
+    p->arm_l = (44.0f + 7.0f * sinf(t * 19.0f) * burst) * in; /* pencil on the page */
+    p->held_t = floorf(t / 8.0f) * 0.5f; /* turns the page now and then */
+    p->look_x = 0.3f * s;
+    p->look_y = 0.75f;
+    p->yaw = 12.0f * s * in;
+    p->head_dy = 0.8f * sinf(t * 3.0f) * burst;
+    if (glance(p, t, 9.0f, 0.0f) < 0.3f) {
+        emote(p, burst > 0.7f ? EMOTE_FOCUS : EMOTE_NONE, t, 0.0f);
+    }
+    if (fmodf(t, 13.0f) > 11.0f) emote(p, EMOTE_IDEA, t, floorf(t / 13.0f) * 13.0f + 11.0f);
+    (void)mood;
+}
+
+static void f_read(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* reads, turning pages; nods at a good bit; v0 sits, v1 stands */
+    float in = win(t, 0.0f, D, 0.8f);
+    p->held = PROP_BOOK;
+    p->sit = v == 0 ? win(t, 0.2f, D - 0.2f, 1.0f) : 0.0f;
+    p->arm_l = p->arm_r = 55.0f * in;
+    p->held_t = t * 0.25f;
+    p->look_y = 0.8f;
+    p->yaw = 10.0f * s * in;
+    p->look_x = 0.4f * sinf(t * 1.1f); /* eyes run along the lines */
+    float nod = bump(fmodf(t, 7.0f), 3.0f, 4.2f);
+    p->head_dy = 2.5f * fabsf(sinf(t * 9.0f)) * nod;
+    if (nod > 0.3f) emote(p, mood_emote(mood, EMOTE_IDEA, EMOTE_EXCLAIM, EMOTE_IDEA), t, floorf(t / 7.0f) * 7.0f + 3.0f);
+    glance(p, t, 11.0f, 2.0f);
+}
+
+static void f_call(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* phone at its ear, talking with its free hand, then listening and nodding; v1 paces while it talks */
+    float in = win(t, 0.0f, D, 0.8f);
+    p->held = PROP_PHONE;
+    p->arm_r = 152.0f * in;
+    p->lean = 3.0f * in;
+    p->yaw = 15.0f * s * in;
+    if (v == 1) {
+        float u = t / D;
+        p->x = s * 16.0f * sinf(u * TAU_F) * in;
+        float vx = cosf(u * TAU_F);
+        p->yaw = (vx >= 0.0f ? 60.0f : -60.0f) * s * fminf2(1.0f, fabsf(vx) * 2.0f) * in;
+        steps(p, t, fminf2(1.0f, fabsf(vx) * 2.0f) * in, 1.2f);
+    }
+    bool talking = fmodf(t, 6.0f) < 3.2f;
+    if (talking) {
+        p->mouth = (int)(t * 7.0f) % 2 ? MOUTH_O : MOUTH_SMILE;
+        p->arm_l = (45.0f + 35.0f * fabsf(sinf(t * 3.5f))) * in; /* gestures */
+        p->look_x = 0.3f * s;
+    } else {
+        p->mouth = MOUTH_SMILE;
+        p->arm_l = 15.0f * in;
+        p->head_dy = 2.0f * fabsf(sinf(t * 6.0f)); /* uh-huh */
+        p->look_y = -0.3f;
+        emote(p, EMOTE_SOUND, t, floorf(t / 6.0f) * 6.0f + 3.2f);
+    }
+    (void)mood;
+}
+
+static void f_cook(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* v0 flips a pancake in the pan, v1 stirs; humming */
+    float in = win(t, 0.0f, D, 0.8f);
+    p->held = PROP_PAN;
+    p->held_t = v == 0 ? t : -1.0f - t; /* >= 0: flipping, < 0: stirring (the pan drawing reads the sign) */
+    p->look_x = 0.6f;
+    p->look_y = 0.5f;
+    p->yaw = 20.0f * s * in;
+    if (v == 0) {
+        float c = fmodf(t, 2.5f), flick = bump(c, 0.0f, 0.35f);
+        p->arm_r = (62.0f + 30.0f * flick) * in;
+        float up = c < 0.9f ? sinf(PI_F * c / 0.9f) : 0.0f;
+        p->look_y = 0.5f - 1.2f * up;
+        if (up > 0.6f) p->eyes = EYE_WIDE;
+        if (c > 0.9f && c < 1.4f) emote(p, EMOTE_SPARKLE, c, 0.9f);
+    } else {
+        p->arm_r = (60.0f + 6.0f * sinf(t * 7.0f)) * in;
+        p->arm_l = (40.0f + 8.0f * cosf(t * 7.0f)) * in;
+        emote(p, EMOTE_MUSIC, t, 0.5f);
+    }
+    glance(p, t, 10.0f, 5.0f);
+    (void)mood;
+}
+
+static void f_errand(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* out and about with the shopping bag: strolls, stops to check the time, strolls on */
+    float in = win(t, 0.0f, D, 0.8f);
+    p->held = PROP_BAG;
+    p->arm_r = 18.0f * in;
+    float u = t / D;
+    p->x = s * 18.0f * sinf(u * TAU_F) * in;
+    float vx = cosf(u * TAU_F);
+    float stop = bump(fmodf(t, 8.0f), 5.0f, 7.5f);
+    p->yaw = (vx >= 0.0f ? 65.0f : -65.0f) * s * fminf2(1.0f, fabsf(vx) * 2.0f) * in * (1.0f - stop);
+    steps(p, t, fminf2(1.0f, fabsf(vx) * 2.0f) * in * (1.0f - stop), 1.6f);
+    p->arm_l = mixf(p->arm_l, 115.0f, stop); /* checks its watch */
+    p->look_y = mixf(0.0f, 0.4f, stop);
+    p->look_x = mixf(0.0f, -0.6f, stop);
+    if (stop > 0.6f) emote(p, v == 0 ? EMOTE_EXCLAIM : EMOTE_QUESTION, t, floorf(t / 8.0f) * 8.0f + 5.5f);
+    p->mouth = MOUTH_SMILE;
+    (void)mood;
+}
+
+static void f_fix(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* turns the wrench in steady strokes, leaning into the job */
+    float in = win(t, 0.0f, D, 0.8f);
+    p->held = PROP_WRENCH;
+    p->held_t = t;
+    p->arm_r = (72.0f + 28.0f * sinf(t * (v == 0 ? 5.0f : 7.0f))) * in;
+    p->lean = 4.0f * s * in;
+    p->yaw = 30.0f * s * in;
+    p->look_x = 0.7f * s;
+    p->look_y = 0.6f;
+    p->eyes = EYE_ANGLED;
+    p->mouth = MOUTH_FLAT;
+    if (glance(p, t, 10.0f, 1.0f) < 0.3f && fmodf(t, 10.0f) < 4.0f) emote(p, EMOTE_FOCUS, t, 0.0f);
+    (void)mood;
+}
+
+static void f_rest(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    /* winding down: sits, breathes slowly with its eyes closed */
+    float sit = win(t, 0.3f, D - 0.3f, 1.2f);
+    p->sit = sit;
+    p->eyes = EYE_CLOSED;
+    p->mouth = MOUTH_SMILE;
+    float br = sinf(t * TAU_F / 5.0f); /* 5 s breaths */
+    p->head_dy = 1.5f + 1.2f * br;
+    p->arm_l = p->arm_r = (25.0f + 10.0f * br) * sit;
+    p->antenna = 1.5f * br;
+    if (v == 1) emote(p, EMOTE_ZZZ, t, 2.0f);
+    (void)s;
+    (void)mood;
+}
+
+/* ---- listening: follows the activity picked in the voice picker ---- */
+static void l_calendar(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    float in = win(t, 0.0f, D, 0.6f);
+    p->held = PROP_CALENDAR;
+    p->held_l = PROP_PENCIL;
+    p->arm_r = 60.0f * in;
+    p->arm_l = (70.0f + 8.0f * sinf(t * 18.0f)) * in;
+    p->look_y = 0.6f;
+    p->lean = 3.0f * s * in;
+    p->head_dy = 1.0f * bump(fmodf(t, 2.0f), 0.0f, 0.5f);
+    emote(p, EMOTE_SOUND, t, 0.0f);
+    (void)v;
+    (void)mood;
+}
+
+static void l_alarm(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    float in = win(t, 0.0f, D, 0.6f);
+    p->held = PROP_CLOCK;
+    p->held_t = t;
+    p->arm_r = 125.0f * in;
+    p->lean = 5.0f * in;
+    p->look_x = 0.6f;
+    p->eyes = EYE_WIDE;
+    p->mouth = MOUTH_O;
+    emote(p, EMOTE_SOUND, t, 0.0f);
+    (void)v;
+    (void)s;
+    (void)mood;
+}
+
+/* ---- thinking: transcribing (headphones on, typing it out), then planning ---- */
+static void t_transcribe(mascot_pose_t *p, float t, float D, int v, float s, int mood)
+{
+    a_laptop(p, t, D, 0, s, 0);
+    p->held_l = PROP_HEADPHONES;
+    p->head_dy += 1.2f * fabsf(sinf(t * 4.0f)); /* nodding to what it hears */
+    p->emote = EMOTE_NONE;
+    emote(p, EMOTE_SOUND, t, 0.0f);
+    (void)v;
+    (void)mood;
+}
+
+/* ---- kit acts: one per activity (cat), shared code ---- */
+static void k_wait(mascot_pose_t *p, float t, float D, int v, float s, int mood, int cat)
+{
+    /* paused: keeps its things at hand, taps a foot, glances at the buttons - ready when you are */
+    float in = win(t, 0.0f, D, 0.8f);
+    if (cat == PIP_ACT_REST) {
+        r_relax(p, t, D, v, s, mood);
+        return;
+    }
+    wear_gear(p, cat, s, in);
+    if (GEAR[cat].floor == PROP_LAPTOP) {
+        p->sit = win(t, 0.2f, D - 0.2f, 1.0f);
+        p->arm_l = p->arm_r = 20.0f * p->sit;
+    }
+    p->leg_r = p->sit > 0.5f ? 0.0f : 3.0f * fmaxf2(0.0f, sinf(t * PI_F * 1.5f)) * in;
+    p->yaw = 15.0f * s * in;
+    float hint = bump(fmodf(t, 7.0f), 4.5f, 6.5f);
+    p->look_y = 0.9f * hint;
+    p->mouth = MOUTH_FLAT;
+    emote(p, hint > 0.3f ? EMOTE_QUESTION : EMOTE_DOTS, t, hint > 0.3f ? floorf(t / 7.0f) * 7.0f + 4.5f : 0.5f);
+}
+
+static void k_done(mascot_pose_t *p, float t, float D, int v, float s, int mood, int cat)
+{
+    /* step done: holds up what it worked with, hops, sparkles */
+    if (cat == PIP_ACT_GENERAL || cat == PIP_ACT_REST) {
+        if (v == 1) {
+            d_highfive(p, t, D, v, s, mood);
+        } else {
+            d_celebrate(p, t, D, v, s, mood);
+        }
+        return;
+    }
+    float in = win(t, 0.0f, D, 0.5f);
+    wear_gear(p, cat, s, in);
+    float j = fabsf(sinf(t * PI_F * 1.4f));
+    p->y = -12.0f * j * in;
+    p->leg_l = p->leg_r = 4.0f * j;
+    const gear_t *g = &GEAR[cat];
+    if (two_handed(g->held)) {
+        p->arm_l = p->arm_r = (72.0f + 10.0f * j) * in; /* shows it off in front: never over its face */
+    } else if (g->held_l) {
+        p->arm_l = p->arm_r = (150.0f + 15.0f * j) * in; /* both hands full: punches the air with both */
+    } else {
+        p->arm_r = (g->held ? 158.0f : 150.0f + 15.0f * j) * in;
+        p->arm_l = (150.0f + 15.0f * j) * in;
+    }
+    p->eyes = v == 0 ? EYE_STAR : EYE_HAPPY;
+    p->mouth = MOUTH_GRIN;
+    emote(p, EMOTE_SPARKLE, t, 0.0f);
+}
+
+static void k_ready(mascot_pose_t *p, float t, float D, int v, float s, int mood, int cat)
+{
+    /* idle, a step is lined up: shows what's next - brings its things, points at the board, nods at you */
+    float in = win(t, 0.0f, D, 0.8f);
+    wear_gear(p, cat, s, in);
+    if (p->floor_prop) {
+        p->fp_x = -30.0f; /* out of the way of the walk to the board */
+        p->fp_y = 2.0f;
+    }
+    const float at = 26.0f;
+    walk(p, t, 0.4f, 2.6f, 0.0f, at);
+    walk(p, t, D - 2.6f, D - 0.4f, at, 0.0f);
+    float pt = win(t, 2.6f, D * 0.6f, 0.5f);
+    p->yaw = mixf(p->yaw, 70.0f, pt);
+    if (!two_handed(GEAR[cat].held)) {
+        p->arm_l = mixf(p->arm_l, 150.0f + 8.0f * wav(t, 0.8f), pt); /* points at "Next: ..." */
+    } else {
+        p->arm_l = p->arm_r = mixf(p->arm_r, 110.0f, pt); /* shows it toward the board */
+    }
+    p->look_x = mixf(p->look_x, 1.0f, pt);
+    p->look_y = mixf(p->look_y, -0.8f, pt);
+    if (pt > 0.5f) emote(p, EMOTE_EXCLAIM, t, 3.0f);
+    float nod = win(t, D * 0.6f, D - 2.6f, 0.5f);
+    if (nod > 0.0f) {
+        p->yaw = mixf(p->yaw, 0.0f, nod);
+        p->look_x = mixf(p->look_x, 0.0f, nod);
+        p->look_y = mixf(p->look_y, 0.0f, nod);
+        p->head_dy = 2.0f * fabsf(sinf(t * 6.0f)) * nod;
+        p->eyes = EYE_HAPPY;
+        p->mouth = MOUTH_GRIN;
+        emote(p, mood_emote(mood, EMOTE_SPARKLE, EMOTE_HEART, EMOTE_SPARKLE), t, D * 0.6f);
+    }
+    (void)v;
+}
+
+static const char *const ACTIVITY_NAMES[PIP_ACTIVITY_COUNT] = {
+    "general", "write", "computer", "read", "call", "clean", "exercise",
+    "cook",    "garden", "music",   "fix",  "plan", "errand", "rest",
+};
+
+const char *mascot_activity_name(pip_activity_t a)
+{
+    return (unsigned)a < PIP_ACTIVITY_COUNT ? ACTIVITY_NAMES[a] : "general";
+}
+
+pip_activity_t mascot_activity_from_name(const char *name)
+{
+    for (int i = 0; name && i < PIP_ACTIVITY_COUNT; i++) {
+        if (strcmp(name, ACTIVITY_NAMES[i]) == 0) {
+            return (pip_activity_t)i;
+        }
+    }
+    return PIP_ACT_GENERAL;
+}
+
+/* ==== tables ================================================================================
+ * tags: 0 = always eligible in that screen's library; otherwise eligible only while the scene tags (the task's
+ * activity, the picked voice activity, the thinking stage) intersect them. */
+#define ACT(nm, f, d, n) {nm, f, NULL, d, n, 0u, 0}
+#define ACT_T(nm, f, d, n, tg) {nm, f, NULL, d, n, tg, 0}
+#define KIT(nm, f, d, n, cat) {nm, NULL, f, d, n, PIP_TAG(cat), cat}
+#define KITS(prefix, f, d, n)                                                                                       \
+    KIT(prefix " (general)", f, d, n, PIP_ACT_GENERAL), KIT(prefix " (write)", f, d, n, PIP_ACT_WRITE),             \
+        KIT(prefix " (computer)", f, d, n, PIP_ACT_COMPUTER), KIT(prefix " (read)", f, d, n, PIP_ACT_READ),         \
+        KIT(prefix " (call)", f, d, n, PIP_ACT_CALL), KIT(prefix " (clean)", f, d, n, PIP_ACT_CLEAN),               \
+        KIT(prefix " (exercise)", f, d, n, PIP_ACT_EXERCISE), KIT(prefix " (cook)", f, d, n, PIP_ACT_COOK),         \
+        KIT(prefix " (garden)", f, d, n, PIP_ACT_GARDEN), KIT(prefix " (music)", f, d, n, PIP_ACT_MUSIC),           \
+        KIT(prefix " (fix)", f, d, n, PIP_ACT_FIX), KIT(prefix " (plan)", f, d, n, PIP_ACT_PLAN),                   \
+        KIT(prefix " (errand)", f, d, n, PIP_ACT_ERRAND), KIT(prefix " (rest)", f, d, n, PIP_ACT_REST)
+
+#define T(a) PIP_TAG(PIP_ACT_##a)
+
 static const act_t IDLE[] = {
-    {"ball", a_ball, 26, 4},         {"knock on the glass", a_knock, 16, 4},
-    {"bored", a_bored, 22, 4},       {"check calendar", a_calendar, 18, 2},
-    {"telescope", a_telescope, 20, 3}, {"dance", a_dance, 18, 3},
-    {"read", a_read, 24, 2},         {"coffee", a_coffee, 18, 2},
-    {"water plant", a_plant, 22, 2}, {"workout", a_workout, 18, 3},
-    {"yo-yo", a_yoyo, 16, 3},        {"paper plane", a_plane, 18, 2},
-    {"block tower", a_blocks, 22, 2}, {"balloon", a_balloon, 18, 2},
-    {"juggle", a_juggle, 16, 3},     {"spin and wave", a_spin, 12, 2},
-    {"hide and seek", a_hide, 20, 2}, {"stretch", a_stretch, 16, 2},
-    {"guitar", a_guitar, 20, 2},     {"sweep", a_sweep, 18, 2},
-    {"kite", a_kite, 24, 3},         {"clock", a_clock, 16, 2},
-    {"sign", a_sign, 12, 4},         {"idea", a_idea, 16, 2},
-    {"laptop", a_laptop, 20, 2},     {"umbrella", a_umbrella, 18, 2},
-    {"peekaboo", a_peekaboo, 14, 2}, {"gift", a_gift, 18, 2},
+    ACT("ball", a_ball, 26, 4),         ACT("knock on the glass", a_knock, 16, 4),
+    ACT("bored", a_bored, 22, 4),       ACT("check calendar", a_calendar, 18, 2),
+    ACT("telescope", a_telescope, 20, 3), ACT("dance", a_dance, 18, 3),
+    ACT("read", a_read, 24, 2),         ACT("coffee", a_coffee, 18, 2),
+    ACT("water plant", a_plant, 22, 2), ACT("workout", a_workout, 18, 3),
+    ACT("yo-yo", a_yoyo, 16, 3),        ACT("paper plane", a_plane, 18, 2),
+    ACT("block tower", a_blocks, 22, 2), ACT("balloon", a_balloon, 18, 2),
+    ACT("juggle", a_juggle, 16, 3),     ACT("spin and wave", a_spin, 12, 2),
+    ACT("hide and seek", a_hide, 20, 2), ACT("stretch", a_stretch, 16, 2),
+    ACT("guitar", a_guitar, 20, 2),     ACT("sweep", a_sweep, 18, 2),
+    ACT("kite", a_kite, 24, 3),         ACT("clock", a_clock, 16, 2),
+    ACT("sign", a_sign, 12, 4),         ACT("idea", a_idea, 16, 2),
+    ACT("laptop", a_laptop, 20, 2),     ACT("umbrella", a_umbrella, 18, 2),
+    ACT("peekaboo", a_peekaboo, 14, 2), ACT("gift", a_gift, 18, 2),
     /* the whole room */
-    {"behind the board", a_behind, 22, 2}, {"lean on the board", a_lean, 20, 2},
-    {"present the board", a_present, 14, 2}, {"kick across the room", a_kick, 14, 2},
-    {"lap of the room", a_lap, 16, 2},
+    ACT("behind the board", a_behind, 22, 2), ACT("lean on the board", a_lean, 20, 2),
+    ACT("present the board", a_present, 14, 2), ACT("kick across the room", a_kick, 14, 2),
+    ACT("lap of the room", a_lap, 16, 2),
+    /* a step is lined up: every third act shows what's next */
+    KITS("next up", k_ready, 14, 2),
 };
 static const act_t FOCUS[] = {
-    {"typing", f_type, 22, 2},   {"points at timer", f_point, 10, 1}, {"peeks over laptop", f_peek, 14, 1},
-    {"cheers", f_cheer, 8, 1},   {"focus sign", f_sign, 10, 4},       {"watches timer", f_watch, 16, 1},
-    {"takes notes", f_write, 14, 1}, {"knocks", f_knock, 12, 2},     {"coffee", a_coffee, 14, 1},
-    {"spin and wave", a_spin, 12, 2},
+    ACT_T("writes notes", f_notes, 20, 2, T(WRITE)),
+    ACT_T("typing", f_type, 22, 2, T(WRITE) | T(COMPUTER)),
+    ACT_T("peeks over laptop", f_peek, 14, 1, T(COMPUTER)),
+    ACT_T("reads", f_read, 22, 2, T(READ)),
+    ACT_T("on the phone", f_call, 20, 2, T(CALL)),
+    ACT_T("sweeps", a_sweep, 18, 2, T(CLEAN)),
+    ACT_T("works out", a_workout, 18, 3, T(EXERCISE)),
+    ACT_T("stretches", a_stretch, 16, 2, T(EXERCISE)),
+    ACT_T("cooks", f_cook, 18, 2, T(COOK)),
+    ACT_T("waters the plant", a_plant, 22, 2, T(GARDEN)),
+    ACT_T("plays guitar", a_guitar, 20, 2, T(MUSIC)),
+    ACT_T("dances", a_dance, 16, 3, T(MUSIC)),
+    ACT_T("fixes", f_fix, 16, 2, T(FIX)),
+    ACT_T("builds", a_blocks, 22, 2, T(FIX)),
+    ACT_T("plans in the calendar", f_write, 14, 1, T(PLAN)),
+    ACT_T("checks the calendar", a_calendar, 18, 2, T(PLAN)),
+    ACT_T("runs errands", f_errand, 20, 2, T(ERRAND)),
+    ACT_T("winds down", f_rest, 20, 2, T(REST)),
+    /* no recognisable activity: cheer you on */
+    ACT_T("points at timer", f_point, 10, 1, T(GENERAL)), ACT_T("cheers", f_cheer, 8, 1, T(GENERAL)),
+    ACT_T("focus sign", f_sign, 10, 4, T(GENERAL)),       ACT_T("watches timer", f_watch, 16, 1, T(GENERAL)),
+    ACT_T("knocks", f_knock, 12, 2, T(GENERAL)),          ACT_T("coffee", a_coffee, 14, 1, T(GENERAL)),
 };
-static const act_t LISTEN[] = {{"hand to ear", l_ear, 12, 2}, {"takes notes", l_notes, 12, 1}};
-static const act_t THINK[] = {{"paces", t_pace, 10, 2}, {"scratches head", t_scratch, 9, 2}, {"flips book", t_flip, 8, 1}};
-static const act_t PAUSE[] = {{"coffee", a_coffee, 18, 2}, {"read", a_read, 22, 2}, {"relax", r_relax, 18, 2}};
-static const act_t BREAK_[] = {{"stretch", a_stretch, 16, 2}, {"workout", a_workout, 16, 3}, {"water plant", a_plant, 20, 2},
-                               {"coffee", a_coffee, 16, 2},   {"relax", r_relax, 18, 2},     {"dance", a_dance, 16, 3}};
-static const act_t DONE[] = {{"celebrate", d_celebrate, 8, 2}, {"spin and wave", a_spin, 10, 2}, {"high five", d_highfive, 10, 1},
-                             {"gift", a_gift, 14, 2}};
-static const act_t AGENDA[] = {{"calendar", c_point, 16, 2}, {"clock", a_clock, 14, 2}};
-static const act_t ALARM[] = {{"alarm ringing", al_ring, 8, 1}, {"wake up!", al_wake, 6, 1}};
-static const act_t CONFIRM[] = {{"head tilt", q_tilt, 10, 2}};
-static const act_t SLEEP[] = {{"dozing", z_sit, 30, 3}};
-static const act_t ERROR_[] = {{"fixing", e_fix, 10, 2}};
-static const act_t PICK[] = {{"points at option", NULL, 30, 1}};
+static const act_t LISTEN[] = {
+    ACT_T("calendar notes", l_calendar, 12, 1, PIP_TAG_VOICE(0)),
+    ACT_T("takes notes", l_notes, 12, 1, PIP_TAG_VOICE(1)),
+    ACT_T("hand to ear", l_ear, 12, 2, PIP_TAG_VOICE(2)),
+    ACT_T("alarm clock to ear", l_alarm, 12, 1, PIP_TAG_VOICE(3)),
+};
+static const act_t THINK[] = { /* played in order */
+    ACT_T("transcribes", t_transcribe, 10, 1, PIP_TAG_TRANSCRIBE),
+    ACT_T("paces", t_pace, 10, 2, PIP_TAG_PLANNING),
+    ACT_T("scratches head", t_scratch, 9, 2, PIP_TAG_PLANNING),
+    ACT_T("writes the plan", t_flip, 8, 1, PIP_TAG_PLANNING),
+};
+static const act_t PAUSE[] = {KITS("waits", k_wait, 18, 1)};
+static const act_t BREAK_[] = { /* played in order, like the cue: "Stretch, sip some water, look far away." */
+    ACT("stretch", a_stretch, 16, 2), ACT("sips water", a_coffee, 16, 1), ACT("looks far away", a_telescope, 20, 3),
+};
+static const act_t DONE[] = {KITS("done", k_done, 8, 2)};
+static const act_t AGENDA[] = {ACT("calendar", c_point, 16, 2), ACT("clock", a_clock, 14, 2)};
+static const act_t ALARM[] = {ACT("alarm ringing", al_ring, 8, 1), ACT("wake up!", al_wake, 6, 1)};
+static const act_t CONFIRM[] = {ACT("head tilt", q_tilt, 10, 2)};
+static const act_t SLEEP[] = {ACT("dozing", z_sit, 30, 3)};
+static const act_t ERROR_[] = {ACT("fixing", e_fix, 10, 2)};
+static const act_t PICK[] = {ACT("points at option", NULL, 30, 1)};
 
 typedef struct {
     const act_t *acts;
     int n;
     const char *name;
+    bool seq; /* acts play in table order instead of at random */
 } lib_t;
 
-#define LIB(a, nm) {a, (int)(sizeof(a) / sizeof((a)[0])), nm}
+#define LIB(a, nm, sq) {a, (int)(sizeof(a) / sizeof((a)[0])), nm, sq}
 static const lib_t LIBS[PIP_MODE_COUNT] = {
-    LIB(IDLE, "idle"),   LIB(LISTEN, "listen"), LIB(THINK, "think"),   LIB(FOCUS, "focus"),   LIB(PAUSE, "pause"),
-    LIB(BREAK_, "break"), LIB(DONE, "done"),    LIB(AGENDA, "agenda"), LIB(ALARM, "alarm"),   LIB(CONFIRM, "confirm"),
-    LIB(SLEEP, "sleep"), LIB(PICK, "pick"),     LIB(ERROR_, "error"),
+    LIB(IDLE, "idle", false),     LIB(LISTEN, "listen", false), LIB(THINK, "think", true),
+    LIB(FOCUS, "focus", false),   LIB(PAUSE, "pause", false),   LIB(BREAK_, "break", true),
+    LIB(DONE, "done", false),     LIB(AGENDA, "agenda", false), LIB(ALARM, "alarm", false),
+    LIB(CONFIRM, "confirm", false), LIB(SLEEP, "sleep", false), LIB(PICK, "pick", false),
+    LIB(ERROR_, "error", false),
 };
 
 static const lib_t *lib(pip_mode_t m) { return &LIBS[(unsigned)m < PIP_MODE_COUNT ? m : PIP_MODE_IDLE]; }
 
 int mascot_act_count(pip_mode_t mode) { return lib(mode)->n; }
 const char *mascot_mode_name(pip_mode_t mode) { return lib(mode)->name; }
+
+uint32_t mascot_act_tags(pip_mode_t mode, int act)
+{
+    const lib_t *l = lib(mode);
+    return act >= 0 && act < l->n ? l->acts[act].tags : 0u;
+}
+
+bool mascot_lib_sequential(pip_mode_t mode) { return lib(mode)->seq; }
 
 const char *mascot_act_name(pip_mode_t mode, int act)
 {
@@ -1496,10 +1920,15 @@ void mascot_perf_pose(const pip_perf_t *pf, float t, float dur, mascot_pose_t *o
 {
     mascot_home_pose(out);
     const lib_t *l = lib((pip_mode_t)pf->mode);
-    if (pf->act >= l->n || !l->acts[pf->act].fn) {
+    if (pf->act >= l->n) {
         return;
     }
-    l->acts[pf->act].fn(out, t, dur, pf->variant, pf->dir ? 1.0f : -1.0f, pf->mood % 3);
+    const act_t *ac = &l->acts[pf->act];
+    if (ac->fn) {
+        ac->fn(out, t, dur, pf->variant, pf->dir ? 1.0f : -1.0f, pf->mood % 3);
+    } else if (ac->kfn) {
+        ac->kfn(out, t, dur, pf->variant, pf->dir ? 1.0f : -1.0f, pf->mood % 3, ac->arg);
+    }
 }
 
 void mascot_pick_pose(mascot_pose_t *p, float t, int row, int rows)

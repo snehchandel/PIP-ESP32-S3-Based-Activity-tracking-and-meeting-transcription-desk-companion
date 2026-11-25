@@ -219,6 +219,7 @@ void app_tick(app_t *a, uint32_t now_ms)
     if (lt_tick(&a->timer, now_ms)) {
         app_sync_timer_to_model(a);
         snprintf(a->m.done_title, sizeof a->m.done_title, "%s", a->m.step_title);
+        a->m.done_activity = a->m.activity;
         a->m.state = UI_STATE_STEP_DONE;
         if (a->m.link == LINK_STANDALONE) {
             oev_push(&a->oev, OEV_STEP_COMPLETE, a->m.step_id, 0, app_epoch_now(a));
@@ -274,9 +275,10 @@ void app_tick(app_t *a, uint32_t now_ms)
         a->dirty = true;
     }
     supervise_states(a, now_ms);
-    /* live PIP: each screen has its own act library; the idle one never repeats within 2 hours */
+    /* live PIP: each screen has its own act library, steered by what the screen is about (the idle one never
+     * repeats within 2 hours) */
     a->prev_state = a->m.state;
-    mascot_set_mode(&a->anim, ui_mode_for(&a->m), now_ms);
+    mascot_set_scene(&a->anim, ui_mode_for(&a->m), app_scene_tags(a), now_ms);
     if (a->anim.mode == PIP_MODE_PICK) {
         mascot_set_pick(&a->anim, a->m.voice_choice, UI_VOICE_CHOICES);
     }
@@ -307,6 +309,20 @@ void app_set_indoor(app_t *a, bool valid, int16_t temp_c10, uint8_t hum)
         a->m.in_temp_c10 = temp_c10;
         a->m.in_hum = hum;
         a->dirty = true;
+    }
+}
+
+/* What PIP should act out on this screen: the task's activity, the voice activity picked, the thinking stage. */
+uint32_t app_scene_tags(const app_t *a)
+{
+    switch (ui_mode_for(&a->m)) {
+    case PIP_MODE_FOCUS:
+    case PIP_MODE_PAUSE: return PIP_TAG(a->m.activity % PIP_ACTIVITY_COUNT);
+    case PIP_MODE_DONE: return PIP_TAG(a->m.done_activity % PIP_ACTIVITY_COUNT);
+    case PIP_MODE_IDLE: return a->m.has_active_step ? PIP_TAG(a->m.activity % PIP_ACTIVITY_COUNT) : 0u;
+    case PIP_MODE_LISTEN: return PIP_TAG_VOICE(a->m.voice_choice % UI_VOICE_CHOICES);
+    case PIP_MODE_THINK: return a->m.state == UI_STATE_TRANSCRIBING ? PIP_TAG_TRANSCRIBE : PIP_TAG_PLANNING;
+    default: return 0u;
     }
 }
 

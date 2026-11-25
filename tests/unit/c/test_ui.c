@@ -312,6 +312,79 @@ int main(void)
     CHECK(swapped_off && carried);
     CHECK(tp.floor_prop == PROP_PLANT && fabsf(tp.fp_x - 36.0f) < 0.5f && tp.fp_lift < 0.5f && fabsf(tp.x) < 0.5f);
 
+    /* ---- task-specific acts: what PIP does follows the task at hand, not a random pick ---- */
+    for (int act_k = 0; act_k < PIP_ACTIVITY_COUNT; act_k++) {
+        CHECK_EQ(mascot_activity_from_name(mascot_activity_name((pip_activity_t)act_k)), act_k);
+        static const pip_mode_t follows[] = {PIP_MODE_FOCUS, PIP_MODE_PAUSE, PIP_MODE_DONE};
+        for (int fm = 0; fm < 3; fm++) {
+            pip_mode_t md = follows[fm];
+            mascot_anim_init(&an, 500u + (uint32_t)act_k, 0);
+            mascot_set_scene(&an, md, PIP_TAG(act_k), 0);
+            int matched = 0, tagged = 0;
+            for (uint32_t t = 0; t < 30u * 60u * 1000u; t += 50) { /* half an hour on this screen */
+                uint32_t before = an.perf_count;
+                mascot_anim_step(&an, t);
+                if (an.perf_count != before || t == 0) {
+                    uint32_t at = mascot_act_tags(md, an.perf.act);
+                    tagged++;
+                    matched += (at & PIP_TAG(act_k)) != 0u;
+                }
+            }
+            if (matched != tagged) {
+                printf("%s/%s: %d of %d acts fit\n", mascot_mode_name(md), mascot_activity_name((pip_activity_t)act_k),
+                       matched, tagged);
+            }
+            CHECK(tagged > 10);
+            CHECK_EQ(matched, tagged); /* every activity has its own acts on these screens */
+        }
+    }
+    /* switching activity mid-focus restarts with the new activity's act at once */
+    mascot_anim_init(&an, 9, 0);
+    mascot_set_scene(&an, PIP_MODE_FOCUS, PIP_TAG(PIP_ACT_WRITE), 0);
+    mascot_anim_step(&an, 0);
+    mascot_set_scene(&an, PIP_MODE_FOCUS, PIP_TAG(PIP_ACT_CALL), 1000);
+    CHECK(mascot_act_tags(PIP_MODE_FOCUS, an.perf.act) & PIP_TAG(PIP_ACT_CALL));
+    /* listening follows the picked voice activity */
+    for (int vc = 0; vc < 4; vc++) {
+        mascot_anim_init(&an, 31, 0);
+        mascot_set_scene(&an, PIP_MODE_LISTEN, PIP_TAG_VOICE(vc), 0);
+        CHECK(mascot_act_tags(PIP_MODE_LISTEN, an.perf.act) & PIP_TAG_VOICE(vc));
+    }
+    /* the break follows its own cue, in order: stretch, sip water, look far away, stretch... */
+    CHECK(mascot_lib_sequential(PIP_MODE_BREAK) && mascot_lib_sequential(PIP_MODE_THINK));
+    mascot_anim_init(&an, 5, 0);
+    mascot_set_scene(&an, PIP_MODE_BREAK, 0, 0);
+    int order[6], no = 0;
+    order[no++] = an.perf.act;
+    for (uint32_t t = 50; t < 5u * 60u * 1000u && no < 6; t += 50) {
+        uint32_t before = an.perf_count;
+        mascot_anim_step(&an, t);
+        if (an.perf_count != before) order[no++] = an.perf.act;
+    }
+    CHECK_EQ(no, 6);
+    for (int i = 0; i < no; i++) CHECK_EQ(order[i], i % mascot_act_count(PIP_MODE_BREAK));
+    /* thinking: transcribing first, planning acts once the words are in */
+    mascot_anim_init(&an, 6, 0);
+    mascot_set_scene(&an, PIP_MODE_THINK, PIP_TAG_TRANSCRIBE, 0);
+    CHECK(mascot_act_tags(PIP_MODE_THINK, an.perf.act) == PIP_TAG_TRANSCRIBE);
+    mascot_set_scene(&an, PIP_MODE_THINK, PIP_TAG_PLANNING, 500);
+    CHECK(mascot_act_tags(PIP_MODE_THINK, an.perf.act) == PIP_TAG_PLANNING);
+    /* idle with a step lined up: free play, and every third act previews the next task */
+    mascot_anim_init(&an, 77, 0);
+    mascot_set_scene(&an, PIP_MODE_IDLE, PIP_TAG(PIP_ACT_COOK), 0);
+    int previews = 0, plays = 0;
+    for (uint32_t t = 0; t < 20u * 60u * 1000u; t += 50) {
+        uint32_t before = an.perf_count;
+        mascot_anim_step(&an, t);
+        if (an.perf_count != before || t == 0) {
+            uint32_t at = mascot_act_tags(PIP_MODE_IDLE, an.perf.act);
+            CHECK(at == 0u || at == PIP_TAG(PIP_ACT_COOK));
+            previews += at != 0u;
+            plays++;
+        }
+    }
+    CHECK(previews * 4 >= plays && previews * 2 <= plays); /* about one in three */
+
     /* ---- reactions: a double press spins PIP all the way round ---- */
     mascot_anim_init(&an, 99, 0);
     mascot_set_mode(&an, PIP_MODE_IDLE, 0);

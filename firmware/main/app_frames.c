@@ -28,6 +28,9 @@ void app_apply_ui_update(app_t *a, const char *j, size_t n)
     GETS("next_step_id", a->next_step_id);
     GETS("next_step_title", m->next_step_title);
     GETS("next_alarm_hhmm", m->next_alarm_hhmm);
+    if (jm_get_str(j, n, "activity", s, sizeof s)) m->activity = (uint8_t)mascot_activity_from_name(s);
+    if (jm_get_str(j, n, "next_activity", s, sizeof s)) m->next_activity = (uint8_t)mascot_activity_from_name(s);
+    if (jm_get_str(j, n, "done_activity", s, sizeof s)) m->done_activity = (uint8_t)mascot_activity_from_name(s);
     GETS("clarification_text", m->clarification);
     GETS("thinking_stage", m->thinking_stage);
     GETS("done_title", m->done_title);

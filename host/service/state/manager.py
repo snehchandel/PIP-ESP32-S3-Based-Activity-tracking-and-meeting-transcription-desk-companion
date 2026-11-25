@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ..planner.activity import classify
 from ..storage.db import Database
 from ..storage.repo_alarms import AlarmRepo, DeviceRepo
 from ..storage.repo_tasks import TaskRepo
@@ -184,6 +185,10 @@ class DeviceStateManager(ActionsMixin, ReconcileMixin):
                 "next_alarm_hhmm": next_alarm_hhmm(self.alarms.list(), self.tz),
                 "clarification_text": _cut((self.pending or {}).get("question", ""), 90),
                 "thinking_stage": self.thinking_stage, "done_title": _cut(self.done_title, 90),
+                # what PIP acts out: the step in progress, the one after it (offline advance), the one just done
+                "activity": classify(step["title"] if step else "", task["title"] if task else ""),
+                "next_activity": classify(nxt["title"] if nxt else "", task["title"] if task else ""),
+                "done_activity": classify(self.done_title, task["title"] if task else ""),
                 "break_remaining_ms": self.brk.remaining_ms if self.overlay == "BREAK" else 0,
                 "tz_offset_min": self.tz_offset_min(), "alarm_ringing": bool(self.ringing),
                 "error_title": (self.error or {}).get("title", ""), "error_text": (self.error or {}).get("text", ""),

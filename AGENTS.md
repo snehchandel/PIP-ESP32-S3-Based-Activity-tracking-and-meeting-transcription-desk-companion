@@ -115,6 +115,14 @@ acts are pure functions of time in `mascot_acts.c` (tables `IDLE[]`, `FOCUS[]`, 
 carries everything off the nearest screen edge, swaps it off-screen and walks back in with the new props, setting
 floor props down where the act expects them. Acts must therefore leave their props where they end (the ball is
 dropped beside PIP, not teleported home); `test_ui` runs 2 h of mode changes and fails on any jump or prop pop.
+**PIP acts out the task at hand** (ADR-024): the host classifies each step (`planner/activity.py`, keyword rules,
+earliest keyword wins) into an activity - general, write, computer, read, call, clean, exercise, cook, garden, music,
+fix, plan, errand, rest - and sends `activity` / `next_activity` / `done_activity` in UI_UPDATE. The app turns the
+screen + activity into *scene tags* (`app_scene_tags` → `mascot_set_scene`); every act carries a tag mask
+(`ACT_T`/`KITS` in the tables) and only matching acts play: focus = the activity's own acts, pause/done/idle preview =
+one "kit" act per activity (`GEAR[]` props), listening = the picked voice activity, thinking = transcribing then
+planning, break = its cue in order (stretch, sip water, look far away). Idle stays free play; with a step lined up
+every third act previews it. A tag change mid-screen restarts the performance (props via a trip).
 Idle acts may roam the world (`PIP_BOARD_DX`, `PIP_WORLD_L/R`, `PIP_OFFSCREEN` in `mascot.h`): they may only flip
 `behind` while PIP is clear of the board or off-screen, and must start and end at home — `test_ui` checks both.
 To add an act: write `static void a_xxx(mascot_pose_t *p, float t, float D, int v, float s, int mood)`, start and
@@ -156,7 +164,7 @@ on 20 ms idle with a partial frame.
 | 0x05 OFFLINE_EVENTS | dev→host | JSON list of offline actions to reconcile |
 | 0x06 AUTH_CHALLENGE | dev→host | Wi-Fi only: nonce(16) + MAC(6) |
 | 0x07 WAKE_EVENT | dev→host | source (0 mic, 1 test), listening flag |
-| 0x10 UI_UPDATE | host→dev | JSON snapshot (`manager.snapshot()`, ≤2 KB): step, timer, toast, error, weather… |
+| 0x10 UI_UPDATE | host→dev | JSON snapshot (`manager.snapshot()`, ≤2 KB): step, timer, toast, error, weather, `activity`/`next_activity`/`done_activity`… |
 | 0x11–0x13 AUDIO_*_OUT | host→dev | Piper speech to the speaker; END with flag byte 1 = abort |
 | 0x14 PLAY_CHIME, 0x15 ALARM_TRIGGER, 0x16 CALENDAR_SYNC | host→dev | chime id / alarm JSON / today's agenda (8 items) + alarms |
 | 0x17 DEVICE_CONFIG | host→dev | JSON `{"wifi":{"ssid","password"},"wifi_clear","token":"hex64","wake":{"enabled","word"}}` |
@@ -280,6 +288,9 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
 - Firmware 1.3.2 (space-station room, prop trips, short-legged board with COMING UP, one PIP during slides) on
   hardware via in-app OTA; after the reboot the host resynced on its own (header: local time, alarm, weather; board:
   today + coming up + date; `artifacts/rlcd/hardware/hw_idle_world_v132.png`).
+- Firmware 1.4.0 (task-specific acts) on hardware: with the step "Put the tools or files…" (→ computer) PIP
+  played free acts and, every third act, fetched the laptop and pointed at "Next: …" on the board
+  (`artifacts/rlcd/hardware/hw_next_up_v140.png`).
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
   end-of-speech timing in a real room, a slide transition and a full prop trip watched on the panel (needs a
   real button press / a minute of idle play; `simulate-button` is simulator-only).

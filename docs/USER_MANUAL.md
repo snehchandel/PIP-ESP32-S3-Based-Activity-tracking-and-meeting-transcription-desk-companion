@@ -24,8 +24,13 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
   like a presenter, kicks a ball under it to the far wall, runs off one side and comes back in from the other, and
   plays with props (ball tricks, kite, paper plane, block tower, guitar, umbrella in the rain, telescope, plant…),
   gets bored and sighs, checks its calendar, or walks right up to the glass and knocks to get your attention. No
-  animation repeats within 2 hours there. Every other screen has its own set: it works at a laptop and cheers you
-  on while the timer runs, leans in to listen, paces while planning, celebrates a finished step, dozes when resting.
+  animation repeats within 2 hours there. On the other screens PIP does what you are doing: while the timer runs it acts out
+  your step (writes in its notebook for "Draft the summary", is on the phone for "Call the dentist", flips pancakes
+  for "Cook dinner", works out for "Go to the gym", strolls with a shopping bag for "Pick up groceries"...). When
+  you pause it waits with its things, when you finish a step it holds up what it worked with. While you talk it
+  listens the way you chose (calendar, notes, focus, alarm clock), while planning it transcribes then thinks, and the
+  break screen's "Stretch, sip some water, look far away" is exactly what it does, in that order. When a step is lined
+  up, the Let's Focus screen mixes in a preview: PIP brings that task's things and points at "Next:" on the board.
   It turns its whole body to look at the option you're about to pick, and reacts to every button press (turns, spins,
   leans in). Its little symbols (focus lines, Zzz, ?, !, hearts, notes, sparkles) are animated too.
 - **Today's calendar:** double-click KEY. A timeline of today (time, task/reminder/alarm mark, title; done items

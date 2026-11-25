@@ -21,7 +21,7 @@
 #define APP_RING_CHIME_MS 2500u     /* offline ringing: repeat the alarm chime... */
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
-#define APP_FW_VERSION "1.3.2" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_FW_VERSION "1.4.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum { CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM } chime_id_t;
 
@@ -129,6 +129,8 @@ void app_set_battery(app_t *a, int pct);
 void app_set_audio_level(app_t *a, uint8_t level);
 void app_set_indoor(app_t *a, bool valid, int16_t temp_c10, uint8_t hum);
 void app_local_error(app_t *a, const char *title, const char *text);
+/* Scene tags for PIP on the current screen (see PIP_TAG in mascot.h). */
+uint32_t app_scene_tags(const app_t *a);
 /* Wake word heard: start a hands-free voice message (returns false when PIP can't listen right now). */
 bool app_voice_wake(app_t *a);
 /* End a hands-free recording (silence detected / time limit). */

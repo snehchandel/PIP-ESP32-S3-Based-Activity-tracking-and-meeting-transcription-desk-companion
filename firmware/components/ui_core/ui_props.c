@@ -224,6 +224,42 @@ static void held_one(rlcd_fb_t *fb, int prop, const mascot_pose_t *p, const pip_
         }
         break;
     }
+    case PROP_PHONE: { /* held to the ear: a little handset with a lit screen */
+        fb_fill_rrect(fb, ri(hx - 3.5f * s), ri(hy - 13.0f * s), ri(8.0f * s), ri(15.0f * s), ri(2.0f * s), INK_BLACK);
+        fb_fill_rect(fb, ri(hx - 1.5f * s), ri(hy - 11.0f * s), ri(4.0f * s), ri(8.0f * s), INK_WHITE);
+        fb_fill_rect(fb, ri(hx - 0.5f * s), ri(hy - 1.5f * s), ri(2.0f * s), 1, INK_WHITE);
+        break;
+    }
+    case PROP_PAN: { /* frying pan; held_t >= 0: a pancake flips every 2.5 s, < 0: stirring with steam */
+        float px = hx + side * 17.0f * s, py = hy - 3.0f * s;
+        fb_line_f(fb, hx, hy, hx + side * 9.0f * s, hy - 2.0f * s, 3.0f, INK_BLACK);
+        if (t >= 0.0f) {
+            float c = fmodf(t, 2.5f), up = c < 0.9f ? sinf(PI_F * c / 0.9f) : 0.0f;
+            float turn = c < 0.9f ? fabsf(cosf(PI_F * c / 0.9f)) : 1.0f;
+            int ry = ri(2.5f * s * turn) + 1;
+            float cy = py - 3.0f * s - 24.0f * s * up;
+            fb_fill_ellipse(fb, ri(px), ri(cy), ri(6.0f * s), ry, INK_BLACK);
+            fb_fill_ellipse_pat(fb, ri(px), ri(cy), ri(5.0f * s), ry > 1 ? ry - 1 : 1, 1);
+        } else {
+            for (int k = 0; k < 2; k++) {
+                float ph = fmodf(-t * 0.9f + (float)k * 0.5f, 1.0f);
+                float sx = px - 3.0f * s + (float)k * 6.0f * s, sy = py - 6.0f * s - 10.0f * ph;
+                fb_line_f(fb, sx, sy, sx + 2.0f * sinf(ph * 9.0f), sy - 5.0f, 1.5f, INK_BLACK);
+            }
+        }
+        fb_fill_ellipse(fb, ri(px), ri(py), ri(10.0f * s), ri(4.0f * s), INK_BLACK);
+        fb_fill_ellipse(fb, ri(px), ri(py - 1.0f * s), ri(7.5f * s), ri(2.0f * s), INK_WHITE);
+        break;
+    }
+    case PROP_BAG: { /* shopping bag hanging from the hand, a baguette and some greens poking out */
+        fb_arc(fb, ri(hx), ri(hy + 4.0f * s), ri(4.0f * s), 180, 360, 2, INK_BLACK);
+        fb_line_f(fb, hx + 2.0f * s, hy + 3.0f * s, hx + 7.0f * s, hy - 7.0f * s, 3.0f, INK_BLACK);
+        fb_fill_triangle(fb, ri(hx - 4.0f * s), ri(hy + 3.0f * s), ri(hx - 7.0f * s), ri(hy - 2.0f * s),
+                         ri(hx - 1.0f * s), ri(hy + 2.0f * s), INK_BLACK);
+        fb_box_f(fb, hx - 8.0f * s, hy + 3.0f * s, hx + 8.0f * s, hy + 19.0f * s, 2.0f, 2.0f, INK_WHITE);
+        fb_hline(fb, ri(hx - 5.0f * s), ri(hy + 9.0f * s), ri(10.0f * s), 1, INK_BLACK);
+        break;
+    }
     case PROP_WATERCAN: {
         float tilt = t * 0.8f;
         fb_box_f(fb, hx - 4.0f * s, hy - 4.0f * s, hx + 10.0f * s, hy + 8.0f * s, 2.0f, 2.0f, INK_WHITE);

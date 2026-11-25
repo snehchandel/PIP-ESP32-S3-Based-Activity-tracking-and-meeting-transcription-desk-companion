@@ -187,3 +187,25 @@ User report after 1.3.0: the Let's Focus board was "missing future tasks" and th
   the first frame of an act although the prop trip had delivered it in PIP's hand. They now leave from the real
   hand position (`from_hand`, via the rig) and return to it; `test_ui` checks every act's first and last frame.
   Firmware 1.3.2.
+
+## ADR-024 — PIP acts out the task at hand
+User request: animations on the activity (focus) and other screens must be specific to the task at hand rather than
+random picks from a library.
+- **Classification on the PC, not by Kimi:** `planner/activity.py` maps a step title (then its task title) to one
+  of 14 activities with keyword rules; the *earliest* keyword wins because step titles lead with their verb ("Create a
+  task for going to bed" is planning, not sleep). Free, instant, offline, works for steps planned before this change.
+  UI_UPDATE carries `activity` (step in progress), `next_activity` (so an offline step advance keeps it right) and
+  `done_activity` (the step-done screen shows what was finished; at STEP_DONE the host's active step is already the
+  next one). Unknown names fall back to "general".
+- **Scene tags:** acts got a tag mask; `mascot_set_scene(mode, tags)` filters the library. Focus: each activity has
+  its own acts (writing notes / typing, reading, on the phone, sweeping, workout / stretch, cooking, watering, guitar /
+  dancing, wrench / building, calendar, errands with a shopping bag, winding down; general = the old cheer-you-on
+  acts). Pause, done and the idle "next up" preview are one parameterised act each (`k_wait`, `k_done`, `k_ready`)
+  using the activity's props (`GEAR[]`). Listening follows the voice picker (calendar, notes, ear, alarm clock);
+  thinking is transcribing (headphones at the laptop) then planning; the break plays its own on-screen cue in order.
+  Agenda, alarm, confirm, sleep and error were already specific.
+- **New props:** phone, frying pan (pancake flip / stirring with steam), shopping bag.
+- **Continuity:** an activity change restarts the act and the prop trip fetches the new things; when only the
+  mirror side differs PIP keeps its props where they are (the engine flips the act's direction instead of moving them).
+- **Tests:** every activity gets only its own acts for 30 min on focus, pause and done; switching activity switches
+  at once; listen/think/break/idle-preview rules; UI_UPDATE parsing; classifier table (pytest). Firmware 1.4.0.

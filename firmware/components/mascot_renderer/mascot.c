@@ -173,19 +173,59 @@ static void remember(mascot_anim_t *a, uint32_t now)
     a->perf_count++;
 }
 
+/* Which acts fit the scene: tagged acts follow the task at hand. On the idle screen untagged free play runs and,
+ * while a step is lined up, every third act previews it. Falls back to the "general" acts, then to everything. */
+static int eligible_pool(const mascot_anim_t *a, pip_mode_t m, uint8_t *pool)
+{
+    int n = mascot_act_count(m), np = 0;
+    uint32_t tags = a->tags;
+    bool idle = m == PIP_MODE_IDLE, preview = idle && tags && a->perf_count % 3u == 2u;
+    for (int pass = 0; pass < 3 && np == 0; pass++) {
+        uint32_t want = pass == 0 ? tags : PIP_TAG(PIP_ACT_GENERAL);
+        for (int i = 0; i < n && np < 96; i++) {
+            uint32_t at = mascot_act_tags(m, i);
+            bool ok;
+            if (pass == 2) {
+                ok = true;
+            } else if (idle) {
+                ok = preview ? (at & want) != 0u : at == 0u;
+            } else {
+                ok = at == 0u || (at & want) != 0u;
+            }
+            if (ok) {
+                pool[np++] = (uint8_t)i;
+            }
+        }
+    }
+    return np;
+}
+
 static void start_perf(mascot_anim_t *a, uint32_t now)
 {
     pip_mode_t m = a->mode;
-    int n = mascot_act_count(m);
-    int gap = n / 2 < MASCOT_RECENT ? n / 2 : MASCOT_RECENT; /* an activity type sits out at least n/2 turns */
+    uint8_t pool[96];
+    int np = eligible_pool(a, m, pool);
+    int gap = np / 2 < MASCOT_RECENT ? np / 2 : MASCOT_RECENT; /* an activity type sits out at least n/2 turns */
     pip_perf_t best = {0};
     uint32_t best_ago = 0;
     bool have = false;
+    int seq_next = -1;
+    if (mascot_lib_sequential(m)) { /* the next act in table order after the last one played here */
+        int last = a->recent_n[m] ? a->recent[m][0] : -1;
+        for (int i = 0; i < np && seq_next < 0; i++) {
+            if (pool[i] > last) {
+                seq_next = pool[i];
+            }
+        }
+        if (seq_next < 0) {
+            seq_next = pool[0];
+        }
+    }
     for (int tries = 0; tries < 600; tries++) {
         pip_perf_t c;
         c.mode = (uint8_t)m;
-        c.act = (uint8_t)(rnd(a) % (uint32_t)n);
-        if (n > 1 && recent_act(a, m, c.act, gap) && tries < 400) {
+        c.act = (uint8_t)(seq_next >= 0 ? seq_next : pool[rnd(a) % (uint32_t)np]);
+        if (seq_next < 0 && np > 1 && recent_act(a, m, c.act, gap) && tries < 400) {
             continue;
         }
         c.variant = (uint8_t)(rnd(a) % (uint32_t)mascot_act_variants(m, c.act));
@@ -201,6 +241,18 @@ static void start_perf(mascot_anim_t *a, uint32_t now)
             best = c;
             best_ago = ago;
             have = true;
+        }
+    }
+    if (m != PIP_MODE_IDLE && m != PIP_MODE_PICK) { /* keep things where they are: mirror rather than move them */
+        mascot_pose_t t0;
+        mascot_perf_pose(&best, 0.0f, mascot_perf_seconds(&best), &t0);
+        if (!mascot_same_props(&a->pose, &t0)) {
+            pip_perf_t flip = best;
+            flip.dir ^= 1u;
+            mascot_perf_pose(&flip, 0.0f, mascot_perf_seconds(&flip), &t0);
+            if (mascot_same_props(&a->pose, &t0)) {
+                best = flip;
+            }
         }
     }
     a->from = a->pose;
@@ -237,15 +289,19 @@ void mascot_anim_init(mascot_anim_t *a, uint32_t seed, uint32_t now_ms)
     a->pick_rows = 4;
 }
 
-void mascot_set_mode(mascot_anim_t *a, pip_mode_t mode, uint32_t now_ms)
+void mascot_set_scene(mascot_anim_t *a, pip_mode_t mode, uint32_t tags, uint32_t now_ms)
 {
-    if (a->started && mode == a->mode) {
+    bool restart = !a->started || mode != a->mode || (tags != a->tags && mode != PIP_MODE_IDLE);
+    a->tags = tags;
+    if (!restart) {
         return;
     }
     a->mode = mode;
     a->started = true;
     start_perf(a, now_ms);
 }
+
+void mascot_set_mode(mascot_anim_t *a, pip_mode_t mode, uint32_t now_ms) { mascot_set_scene(a, mode, a->tags, now_ms); }
 
 void mascot_react(mascot_anim_t *a, pip_react_t r, uint32_t now_ms)
 {

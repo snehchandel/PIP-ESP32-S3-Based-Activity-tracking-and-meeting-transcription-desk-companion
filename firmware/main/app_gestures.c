@@ -77,6 +77,8 @@ static void start_next_step(app_t *a)
     }
     snprintf(a->m.step_id, sizeof a->m.step_id, "%s", a->next_step_id);
     snprintf(a->m.step_title, sizeof a->m.step_title, "%s", a->m.next_step_title);
+    a->m.activity = a->m.next_activity; /* offline too, PIP acts out the step it moves on to */
+    a->m.next_activity = PIP_ACT_GENERAL;
     uint32_t ms = (uint32_t)a->m.next_step_min * 60000u;
     a->m.step_index++;
     a->m.is_starter = false;
@@ -96,6 +98,7 @@ static void complete_step(app_t *a)
     lt_stop(&a->timer);
     log_offline(a, OEV_STEP_COMPLETE, a->m.step_id, a->timer.remaining_ms);
     snprintf(a->m.done_title, sizeof a->m.done_title, "%s", a->m.step_title);
+    a->m.done_activity = a->m.activity;
     a->m.has_active_step = a->next_step_id[0] != 0;
     a->m.state = UI_STATE_STEP_DONE;
     chime(a, CHIME_DONE);

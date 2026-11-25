@@ -78,7 +78,8 @@ int main(void)
                      "\"step_title\":\"Open template\",\"step_index\":1,\"step_total\":3,\"is_starter\":true,"
                      "\"timer_state\":\"RUNNING\",\"remaining_ms\":120000,\"step_total_ms\":120000,"
                      "\"next_step_id\":\"s2\",\"next_step_title\":\"Write intro\",\"next_step_min\":10,"
-                     "\"parked_count\":1,\"tz_offset_min\":-300}";
+                     "\"parked_count\":1,\"tz_offset_min\":-300,\"activity\":\"call\","
+                     "\"next_activity\":\"cook\",\"done_activity\":\"write\"}";
     frame(&A, PIP_UI_UPDATE, PIP_FLAG_ACK_REQUIRED, 40, ui);
     app_tick(&A, 1100);
     CHECK_EQ(A.m.link, LINK_TETHERED);
@@ -88,6 +89,13 @@ int main(void)
     CHECK_EQ(C.count[PIP_ACK], 1);
     CHECK_EQ(C.count[PIP_DIAG_REPORT], 1); /* sent on link-up */
     CHECK(app_render_if_dirty(&A));
+
+    /* PIP acts out the step: the host's activity steers the focus screen */
+    CHECK_EQ(A.m.activity, PIP_ACT_CALL);
+    CHECK_EQ(A.m.next_activity, PIP_ACT_COOK);
+    CHECK_EQ(A.m.done_activity, PIP_ACT_WRITE);
+    CHECK_EQ(app_scene_tags(&A), PIP_TAG(PIP_ACT_CALL));
+    CHECK(mascot_act_tags(PIP_MODE_FOCUS, A.anim.perf.act) & PIP_TAG(PIP_ACT_CALL));
 
     /* malformed JSON is NACKed, state untouched */
     frame(&A, PIP_UI_UPDATE, PIP_FLAG_ACK_REQUIRED, 41, "{\"rev\":");
@@ -311,6 +319,8 @@ int main(void)
     CHECK(A.m.today[0].done);
     CHECK_EQ(A.alarm_count, 1);
     CHECK(strcmp(A.m.date_label, "Mon, Nov 23") == 0);
+    frame(&A, PIP_UI_UPDATE, 0, 54, "{\"rev\":99,\"activity\":\"no-such-thing\"}");
+    CHECK_EQ(A.m.activity, PIP_ACT_GENERAL); /* unknown activity names fall back safely */
     CHECK_EQ(A.m.upcoming_count, 2); /* the board's "Coming up" list, separate from upcoming_alarms */
     CHECK(strcmp(A.m.upcoming[0].day, "Wed") == 0 && strcmp(A.m.upcoming[0].hhmm, "05:00") == 0);
     CHECK(strcmp(A.m.upcoming[1].title, "Dentist") == 0 && A.m.upcoming[1].hhmm[0] == 0);

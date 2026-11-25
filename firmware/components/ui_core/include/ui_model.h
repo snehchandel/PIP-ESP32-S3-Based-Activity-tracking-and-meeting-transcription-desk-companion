@@ -68,6 +68,7 @@ typedef struct {
     uint32_t remaining_ms;
     uint32_t step_total_ms;
     char next_step_title[64];
+    uint8_t activity, next_activity, done_activity; /* pip_activity_t: what PIP acts out for the step */
     uint16_t next_step_min;
     uint16_t parked_count;
     char next_alarm_hhmm[6];
