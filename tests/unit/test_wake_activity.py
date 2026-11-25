@@ -117,6 +117,14 @@ def test_wake_word_then_alarms_plans_with_the_alarms_activity(manager, tmp_path)
     assert not voice.meetings.repo.list()
 
 
+def test_name_said_without_a_pause_still_counts(manager, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # seen on hardware: "Focus I want to work on..." - Whisper's first look only had "Focus", no pause after it
+    voice, link, _ = _rig(manager, tmp_path, PhasedSTT("Focus", "Focus. I want to work on the rep ID question."))
+    _send(link, 25, _speech(4.0))
+    _until(lambda: voice.activity.get(25) == "FOCUS")
+    assert manager.snapshot()["voice_activity"] == "FOCUS"
+
+
 def test_talking_without_a_name_is_a_brain_dump(manager, tmp_path) -> None:  # type: ignore[no-untyped-def]
     voice, link, _ = _rig(manager, tmp_path, PhasedSTT("Finish the Q3 report now please", "Finish the Q3 report now please."))
     _send(link, 23, _speech(2.0))

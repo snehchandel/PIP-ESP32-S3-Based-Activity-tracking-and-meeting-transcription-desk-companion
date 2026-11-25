@@ -83,6 +83,10 @@ class ReconcileMixin:
                 self.overlay = "NEEDS_CONFIRMATION"
             if out["task_id"] and activate and (self.active_step() is None):
                 self.activate_task(out["task_id"])
+            elif out["task_id"] and plan.active_task:  # another task is in progress: say where the new one went
+                name = plan.active_task.short_title or plan.active_task.title
+                self.set_ack(f"Added to today: {name}")
+                self.changed()
             elif plan.intent == IntentType.NEEDS_CLARIFICATION:
                 self.pending = {"items": [], "question": plan.clarification_question or "Can you say more?"}
                 self.overlay = "NEEDS_CONFIRMATION"

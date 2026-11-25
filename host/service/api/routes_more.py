@@ -65,6 +65,74 @@ def delete_reminder(rid: str, req: Request) -> dict[str, bool]:
     return {"deleted": True}
 
 
+class AgendaRef(BaseModel):
+    kind: Literal["task", "reminder", "alarm"]
+    id: str
+
+
+class AgendaMove(AgendaRef):
+    date: date
+
+
+@router.post("/agenda/move")
+def agenda_move(body: AgendaMove, req: Request) -> dict[str, Any]:
+    """Drag on Today: an item to another day, same time of day (tasks, reminders, one-time alarms)."""
+    s = svc(req)
+    m = s.manager
+    if body.kind == "task":
+        if not m.move_task(body.id, body.date.isoformat()):
+            raise HTTPException(404, "task not found")
+        return {"moved": True}
+    with m.lock:
+        if body.kind == "reminder":
+            r = next((x for x in m.tasks.reminders(include_done=True) if x["id"] == body.id), None)
+            if r is None:
+                raise HTTPException(404, "reminder not found")
+            local = datetime.strptime(r["due_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).astimezone(m.tz)
+            new = datetime.combine(body.date, local.time(), tzinfo=m.tz)
+            m.tasks.update_reminder(body.id, due_utc=new.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        else:
+            a = m.alarms.get(body.id)
+            if a is None:
+                raise HTTPException(404, "alarm not found")
+            if a["schedule_kind"] != "ONCE":
+                raise HTTPException(409, "a weekly alarm can't move to one day - edit it in Alarms")
+            hh, mm = (int(x) for x in a["local_hhmm"].split(":"))
+            new = datetime.combine(body.date, datetime.min.time(), tzinfo=m.tz).replace(hour=hh, minute=mm)
+            m.alarms.update(body.id, fire_utc=new.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), ack_state="IDLE")
+        m.changed()
+    return {"moved": True}
+
+
+@router.post("/agenda/park")
+def agenda_park(body: AgendaRef, req: Request) -> dict[str, Any]:
+    """Drag on Today: an item onto Parked tangents. A task keeps its steps (Resume brings it back)."""
+    s = svc(req)
+    m = s.manager
+    if body.kind == "task":
+        pid = m.park_active_task(body.id)
+        if pid is None:
+            raise HTTPException(404, "no open task with that id")
+        return {"parked_id": pid}
+    with m.lock:
+        if body.kind == "reminder":
+            r = next((x for x in m.tasks.reminders(include_done=True) if x["id"] == body.id), None)
+            if r is None:
+                raise HTTPException(404, "reminder not found")
+            title, note = r["title"], f"Reminder (was {r['due_utc']}): {r['title']}"
+            m.tasks.delete_reminder(body.id)
+        else:
+            a = m.alarms.get(body.id)
+            if a is None:
+                raise HTTPException(404, "alarm not found")
+            title, note = a["title"], f"Alarm (was {a['local_hhmm']}): {a['title']}"
+            m.alarms.delete(body.id)
+        pid = m.tasks.park(title[:64], note)
+        m.set_ack("Parked for later")
+        m.changed()
+    return {"parked_id": pid}
+
+
 @router.post("/parked/{pid}/promote")
 def promote(pid: str, req: Request) -> dict[str, Any]:
     """A parked task resumes with its steps; a parked thought is broken into concrete steps by Kimi

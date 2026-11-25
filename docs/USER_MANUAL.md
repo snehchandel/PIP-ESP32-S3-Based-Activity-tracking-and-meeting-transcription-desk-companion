@@ -80,6 +80,10 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
    them (pull the numbers on the computer, then call Priya). Say when you'll start ("starting in 10 minutes",
    "at 2") and the task goes on the calendar at that time; PIP chimes and says **"Time to start: …"** then.
    **Reminders** now ping you the same way when they're due ("Reminder: …").
+   If that start time comes while you're mid-step on *another* task, PIP stays quiet and mentions it once at your
+   next break (step done, pause): **"Next: … (09:29)"** — then switch, or drag it to Tomorrow or Parked. A task you
+   have already begun gets no start nudge. If you add a task while another is in progress, PIP says
+   **"Added to today: …"** and keeps you on the current one.
    Add the names and acronyms you use under **Settings → Words PIP should know** (e.g. CASL, CST, Priya): speech
    recognition hears them better and Kimi fixes near-misses ("castle consent" → "CASL consent").
 3. **Time you can feel.** While a step runs, a disc in the top-left corner shrinks like a kitchen timer, with the
@@ -93,7 +97,10 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
    KEY to keep it as a parked note instead.
 
 ## 5. The Companion app
-- **Today:** focus timer, steps (Alt+↑/↓ to reorder), today/tomorrow, parked tangents. **Park for later** on the
+- **Today:** focus timer, steps (Alt+↑/↓ to reorder), today/tomorrow, parked tangents. **Drag** any task,
+  reminder or one-time alarm between **Today** and **Tomorrow**, or onto **Parked tangents**; drag a parked item onto
+  Today to start it (the row buttons do the same without a mouse). Moving the task in progress sets it down with its
+  time left. **Park for later** on the
   focus card sends the task in progress to Parked tangents; **Resume** brings it back exactly where it stopped. For a
   parked *thought*, **Promote** asks Kimi to break it into concrete steps (~20–40 s); if Kimi can't be reached the
   note simply stays parked.

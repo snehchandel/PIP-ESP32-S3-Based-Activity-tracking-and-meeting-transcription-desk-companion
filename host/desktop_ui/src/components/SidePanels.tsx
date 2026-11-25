@@ -1,9 +1,11 @@
-import { AlarmClock, ArrowUpRight, Bell, Check, ListTodo, Loader2, X } from "lucide-react";
+import { AlarmClock, ArrowUpRight, Bell, CalendarArrowDown, CalendarArrowUp, Check, CircleParking, GripVertical, ListTodo,
+  Loader2, X } from "lucide-react";
 import { useState } from "react";
+import type { DragEvent } from "react";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
 import type { FullState } from "../api/types";
-import { localTime, todayIso } from "../lib/utils";
+import { cn, localTime, todayIso } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Card, CardTitle, Empty } from "./ui/primitives";
 
@@ -32,20 +34,62 @@ function todayIsoOf(d: Date): string {
 
 const ICON = { task: ListTodo, reminder: Bell, alarm: AlarmClock };
 
+/* Drag and drop between Today, Tomorrow and Parked tangents (the row buttons do the same from the keyboard). */
+const MIME = "application/x-pip-item";
+type Dragged = { kind: Row["kind"] | "parked"; id: string; from: string };
+
+function startDrag(e: DragEvent, item: Dragged) {
+  e.dataTransfer.setData(MIME, JSON.stringify(item));
+  e.dataTransfer.effectAllowed = "move";
+}
+
+function useDropZone(accept: (d: Dragged) => boolean, onDrop: (d: Dragged) => void) {
+  const [over, setOver] = useState(false);
+  const read = (e: DragEvent): Dragged | null => {
+    try { return JSON.parse(e.dataTransfer.getData(MIME)) as Dragged; } catch { return null; }
+  };
+  return {
+    over,
+    props: {
+      onDragOver: (e: DragEvent) => {
+        if (!e.dataTransfer.types.includes(MIME)) return;
+        e.preventDefault(); // the payload is only readable on drop: accept here, filter there
+        e.dataTransfer.dropEffect = "move";
+        setOver(true);
+      },
+      onDragLeave: () => setOver(false),
+      onDrop: (e: DragEvent) => {
+        e.preventDefault();
+        setOver(false);
+        const d = read(e);
+        if (d && accept(d)) onDrop(d);
+      },
+    },
+  };
+}
+
 export function DayPanel({ title, offset }: { title: string; offset: number }) {
   const { state, run } = useLive();
+  const day = todayIso(offset);
+  const drop = useDropZone((d) => d.from !== day && (d.kind !== "parked" || offset === 0),
+    (d) => void run(() => (d.kind === "parked" ? api.promoteParked(d.id) : api.agendaMove(d.kind, d.id, day))));
   if (!state) return null;
-  const rows = rowsFor(state, todayIso(offset));
+  const rows = rowsFor(state, day);
+  const other = offset === 0 ? todayIso(1) : todayIso(0);
   return (
-    <Card aria-label={title}>
+    <Card aria-label={title} {...drop.props} className={cn(drop.over && "ring-2 ring-amber")}>
       <CardTitle aside={<span className="text-xs text-muted">{rows.length} item{rows.length === 1 ? "" : "s"}</span>}>
         {title}</CardTitle>
-      {rows.length === 0 ? <Empty>Nothing here. That's okay.</Empty> : (
+      {rows.length === 0 ? <Empty>{drop.over ? "Drop it here." : "Nothing here. That's okay."}</Empty> : (
         <ul className="space-y-1.5">
           {rows.map((r) => {
             const Icon = ICON[r.kind];
             return (
-              <li key={r.id} className="flex items-center gap-2.5 rounded-xl border border-line bg-white/60 px-3 py-2">
+              <li key={r.id} draggable={!r.done} onDragStart={(e) => startDrag(e, { kind: r.kind, id: r.id, from: day })}
+                data-testid="agenda-row" title={r.done ? undefined : "Drag to Tomorrow, Today or Parked tangents"}
+                className={cn("group flex items-center gap-2.5 rounded-xl border border-line bg-white/60 px-3 py-2",
+                  !r.done && "cursor-grab active:cursor-grabbing")}>
+                {!r.done && <GripVertical size={14} aria-hidden className="-ml-1.5 shrink-0 text-line group-hover:text-muted" />}
                 <Icon size={16} className="text-muted" aria-label={r.kind} />
                 <span className={`flex-1 text-sm ${r.done ? "text-muted line-through" : ""}`}>{r.title}</span>
                 {r.when && <span className="tabular text-xs text-muted">{r.when}</span>}
@@ -53,9 +97,19 @@ export function DayPanel({ title, offset }: { title: string; offset: number }) {
                   <Button size="sm" variant="ghost" aria-label={`Mark ${r.title} done`}
                     onClick={() => run(() => api.patchReminder(r.id, { done: true }))}><Check size={14} aria-hidden /></Button>
                 )}
-                {r.kind === "task" && !r.done && state.active_task?.id !== r.id && (
+                {r.kind === "task" && !r.done && state.active_task?.id !== r.id && offset === 0 && (
                   <Button size="sm" variant="ghost" aria-label={`Focus on ${r.title}`}
                     onClick={() => run(() => api.activateTask(r.id))}><ArrowUpRight size={14} aria-hidden /></Button>
+                )}
+                {!r.done && (
+                  <Button size="sm" variant="ghost" aria-label={`Move ${r.title} to ${offset === 0 ? "tomorrow" : "today"}`}
+                    title={offset === 0 ? "Move to tomorrow" : "Move to today"}
+                    onClick={() => run(() => api.agendaMove(r.kind, r.id, other))}>
+                    {offset === 0 ? <CalendarArrowDown size={14} aria-hidden /> : <CalendarArrowUp size={14} aria-hidden />}</Button>
+                )}
+                {!r.done && (
+                  <Button size="sm" variant="ghost" aria-label={`Park ${r.title}`} title="Park for later"
+                    onClick={() => run(() => api.agendaPark(r.kind, r.id))}><CircleParking size={14} aria-hidden /></Button>
                 )}
               </li>
             );
@@ -69,6 +123,10 @@ export function DayPanel({ title, offset }: { title: string; offset: number }) {
 export function ParkedPanel() {
   const { state, run } = useLive();
   const [busy, setBusy] = useState<string | null>(null);
+  const drop = useDropZone((d) => d.kind !== "parked", (d) => {
+    const kind = d.kind;
+    if (kind !== "parked") void run(() => api.agendaPark(kind, d.id));
+  });
   if (!state) return null;
   const promote = async (id: string) => {
     setBusy(id);
@@ -76,12 +134,16 @@ export function ParkedPanel() {
     setBusy(null);
   };
   return (
-    <Card aria-label="Parked tangents">
+    <Card aria-label="Parked tangents" {...drop.props} className={cn(drop.over && "ring-2 ring-amber")}>
       <CardTitle aside={<span className="text-xs text-muted">safe for later</span>}>Parked tangents</CardTitle>
-      {state.parked.length === 0 ? <Empty>No tangents parked. Your lane is clear.</Empty> : (
+      {state.parked.length === 0 ? <Empty>{drop.over ? "Drop it here - it waits safely."
+        : "No tangents parked. Your lane is clear. Drag anything here to park it."}</Empty> : (
         <ul className="space-y-1.5">
           {state.parked.map((p) => (
-            <li key={p.id} className="flex items-center gap-2 rounded-xl border border-line bg-white/60 px-3 py-2">
+            <li key={p.id} draggable onDragStart={(e) => startDrag(e, { kind: "parked", id: p.id, from: "parked" })}
+              title="Drag onto Today to start it" data-testid="parked-row"
+              className="group flex cursor-grab items-center gap-2 rounded-xl border border-line bg-white/60 px-3 py-2">
+              <GripVertical size={14} aria-hidden className="-ml-1.5 shrink-0 text-line group-hover:text-muted" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{p.title}</p>
                 {p.source_text && <p className="truncate text-xs text-muted">“{p.source_text}”</p>}

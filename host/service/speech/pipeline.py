@@ -87,7 +87,7 @@ class VoicePipeline:
             text = ""
         act, rest = spoken_activity.parse(text)
         secs = len(clip) / 32000
-        if act is not None and not rest and not spoken_activity.ends_quiet(clip):
+        if act is not None and not rest and not spoken_activity.ends_quiet(clip) and secs < DEFAULT_AFTER_S:
             act = None  # "Meeting..." may be the first word of a longer sentence still being spoken: wait
         if act is None and text and (spoken_activity.words(text) >= 3 or secs >= DEFAULT_AFTER_S):
             act = "BRAIN_DUMP"

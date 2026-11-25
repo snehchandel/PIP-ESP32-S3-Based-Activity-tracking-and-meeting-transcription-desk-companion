@@ -39,6 +39,10 @@ export const api = {
   patchTask: (id: string, body: { title?: string; target_date?: string; status?: string; start_hhmm?: string; block_min?: number }) =>
     req<unknown>("PATCH", `/tasks/${id}`, body),
   parkTask: (id: string) => req<{ parked_id: string }>("POST", `/tasks/${id}/park`),
+  agendaMove: (kind: "task" | "reminder" | "alarm", id: string, date: string) =>
+    req<{ moved: boolean }>("POST", "/agenda/move", { kind, id, date }),
+  agendaPark: (kind: "task" | "reminder" | "alarm", id: string) =>
+    req<{ parked_id: string }>("POST", "/agenda/park", { kind, id }),
   deleteTask: (id: string) => req<unknown>("DELETE", `/tasks/${id}`),
   activateTask: (id: string) => req<FullState>("POST", `/tasks/${id}/activate`),
   completeStep: (id: string) => req<FullState>("POST", `/steps/${id}/complete`),

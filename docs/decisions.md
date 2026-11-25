@@ -297,3 +297,16 @@ random picks from a library.
   "Reminder: ..." / "Time to start: ...", confirm chime and Piper speech on PIP.
 - **Vocabulary:** Settings "Words PIP should know" (prefs `vocabulary`) -> faster-whisper `hotwords` for voice and
   meetings, and "My words:" in the Kimi request with an instruction to fix mis-hearings from context.
+
+## ADR-030 — Today drag and drop; start nudges never interrupt focus
+- **Drag and drop (Today page):** rows of Today/Tomorrow and Parked tangents are HTML5-draggable; `POST
+  /agenda/move` (task -> another day, setting down the task in progress with its time left; reminder and one-time
+  alarm keep their time of day; weekly alarms refuse) and `POST /agenda/park` (task keeps its steps via
+  `parked_tasks.task_id`; a reminder/alarm becomes a parked note). A parked item dropped on Today is promoted.
+  Every drag has a button equivalent for keyboard users.
+- **Conflicting start time (seen in use):** a task's start time came while the user was mid-step on another task,
+  and PIP spoke over it. `NudgeScheduler` now holds a start nudge while a timer runs on a different task and says it
+  once at the next natural break ("Next: ... (09:29)"); no start nudge for the active task once begun. Reminders
+  still ping on time (hard times). Nothing is switched for the user.
+- **Also:** a task added while another is in progress now gets a toast "Added to today: ..." (it used to land
+  silently); a spoken activity name heard without a pause ("Focus I want to...") wins over the brain-dump default.

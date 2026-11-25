@@ -134,6 +134,28 @@ class ActionsMixin:
             self.changed("task_parked", task_id=task["id"], parked_id=pid)
             return pid
 
+    def move_task(self: DeviceStateManager, tid: str, day: str) -> bool:
+        """Another day (drag on Today: -> Tomorrow). The task in progress is set down first, keeping its time left."""
+        with self.lock:
+            task = self.tasks.get_task(tid)
+            if task is None:
+                return False
+            today = datetime.now(self.tz).date().isoformat()
+            if day != today and self.device.state().get("active_task_id") == tid:
+                st = self.active_step()
+                if st:
+                    self.tasks.set_step_remaining(st["id"], self.timer.remaining_ms // 1000)
+                    self.tasks.set_step_status(st["id"], "PENDING")
+                self.timer.load(0, 0, "STOPPED")
+                self.brk.stop()
+                if self.overlay in ("STEP_DONE", "BREAK"):
+                    self.overlay = None
+                self.device.update(active_task_id=None, active_step_id=None)
+                self.tasks.update_task(tid, status="SCHEDULED")
+            self.tasks.update_task(tid, target_date=day)
+            self.changed("task_moved", task_id=tid, date=day)
+            return True
+
     def resume_parked_task(self: DeviceStateManager, pid: str) -> str | None:
         """A parked task that kept its steps comes back as it was (today, and active if nothing else is)."""
         with self.lock:

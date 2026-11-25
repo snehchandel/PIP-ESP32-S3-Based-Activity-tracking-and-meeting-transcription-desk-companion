@@ -66,3 +66,35 @@ def test_vocabulary_reaches_whisper_and_kimi(tmp_path) -> None:  # type: ignore[
         assert svcs.stt.hotwords() == "CASL, CST, Priya" and svcs.meetings.stt.vocabulary == ["CASL", "CST", "Priya"]
         svcs._model_cache = ((hash("sk-test-key-123456"), ""), "kimi-k3")  # no /models call
         assert svcs.planner().vocabulary == ["CASL", "CST", "Priya"]
+
+
+def test_start_nudge_waits_while_focusing_on_another_task(manager) -> None:  # type: ignore[no-untyped-def]
+    start = datetime.now(manager.tz).replace(second=0, microsecond=0) + timedelta(minutes=10)
+    casl = manager.commit_plan(_plan(start.strftime("%Y-%m-%dT%H:%M")), "casl")["task_id"]
+    other = PlannerOutputV1.model_validate({"intent": "CREATE_TASK", "active_task": {
+        "title": "Ask Priya about the rep ID", "short_title": "Rep ID", "steps": [
+            {"title": "Open the thread with the URL", "duration_min": 2, "is_starter": True},
+            {"title": "Draft the two questions", "duration_min": 10}, {"title": "Send them to Priya", "duration_min": 5}]}})
+    rep = manager.commit_plan(other, "rep")["task_id"]
+    manager.activate_task(rep)  # the user switched to the rep ID task...
+    manager.timer_start()       # ...and is mid-step when the CASL start time comes
+    n = NudgeScheduler(manager)
+    at = start.astimezone(UTC) + timedelta(seconds=10)
+    assert n.check(at) == [] and manager.snapshot()["toast"] != "Time to start: CASL metrics"  # no interruption
+    assert n.check(at + timedelta(minutes=5)) == []  # still focusing: still quiet
+    manager.complete_step()  # natural break: step done
+    said = n.check(at + timedelta(minutes=6))
+    h = start.hour % 12 or 12
+    assert said == [f"When you're ready: Send CASL consent metrics to Priya was planned for "
+                    f"{h}:{start.minute:02d}." if start.minute else
+                    f"When you're ready: Send CASL consent metrics to Priya was planned for {h} o'clock."]
+    assert manager.snapshot()["toast"] == f"Next: CASL metrics ({start.strftime('%H:%M')})"
+    assert n.check(at + timedelta(minutes=7)) == []  # said once
+    assert manager.active_task()["id"] == rep and casl != rep  # nothing was switched for the user
+
+
+def test_no_start_nudge_for_the_task_already_in_hand(manager) -> None:  # type: ignore[no-untyped-def]
+    start = datetime.now(manager.tz).replace(second=0, microsecond=0) + timedelta(minutes=10)
+    manager.commit_plan(_plan(start.strftime("%Y-%m-%dT%H:%M")), "casl")  # becomes the active task
+    manager.timer_start()
+    assert NudgeScheduler(manager).check(start.astimezone(UTC) + timedelta(seconds=10)) == []

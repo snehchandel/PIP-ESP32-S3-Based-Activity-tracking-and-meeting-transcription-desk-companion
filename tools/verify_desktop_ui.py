@@ -109,6 +109,7 @@ def flows(page: Page, stack: Stack, base: str) -> list[str]:
     log.append("sim restarted with queued STEP_COMPLETE -> reconciled, revision incremented")
     page.fill("#brain-dump-input", "")
     log += calendar_drag(page, stack, base)
+    log += today_drag(page, stack, base)
     log += meeting_review(page, stack, base)
     return log
 
@@ -147,6 +148,31 @@ def calendar_drag(page: Page, stack: Stack, base: str) -> list[str]:
     page.screenshot(path=str(OUT / "1440x900/calendar_dragged.png"), full_page=True)
     stack.http.delete(f"/api/v1/tasks/{t['id']}")
     return ["calendar: block dragged 10:00 -> 11:00 and resized 30 -> 60 min by its edge"]
+
+
+def today_drag(page: Page, stack: Stack, base: str) -> list[str]:
+    """Today page: drag a task to Tomorrow, from there onto Parked tangents, and back onto Today (resumes)."""
+    from datetime import date, timedelta
+    today, tomorrow = date.today().isoformat(), (date.today() + timedelta(days=1)).isoformat()
+    t = stack.http.post("/api/v1/tasks", json={"title": "Drag across days", "target_date": today,
+                                               "steps": [{"title": "Open the CST report", "duration_min": 5}]}).json()
+    page.goto(base + "/")
+    today_card, tomorrow_card = page.get_by_label("Today", exact=True), page.get_by_label("Tomorrow", exact=True)
+    parked_card = page.get_by_label("Parked tangents", exact=True)
+    today_card.get_by_text("Drag across days").wait_for()
+    today_card.get_by_test_id("agenda-row").filter(has_text="Drag across days").drag_to(tomorrow_card)
+    stack.wait(lambda: stack.http.get(f"/api/v1/tasks?date_from={tomorrow}&date_to={tomorrow}").json()
+               and any(x["id"] == t["id"] for x in stack.http.get(f"/api/v1/tasks?date_from={tomorrow}&date_to={tomorrow}").json()),
+               5, "task dragged to tomorrow")
+    tomorrow_card.get_by_text("Drag across days").wait_for()
+    tomorrow_card.get_by_test_id("agenda-row").filter(has_text="Drag across days").drag_to(parked_card)
+    stack.wait(lambda: any(p.get("task_id") == t["id"] for p in stack.state()["parked"]), 5, "task dragged to parked")
+    parked_card.get_by_text("Drag across days", exact=True).wait_for()
+    page.screenshot(path=str(OUT / "1440x900/today_dragged_to_parked.png"), full_page=True)
+    parked_card.get_by_test_id("parked-row").filter(has_text="Drag across days").drag_to(today_card)
+    stack.wait(lambda: any(x["id"] == t["id"] for x in stack.state()["tasks"]), 5, "parked task resumed today")
+    stack.http.delete(f"/api/v1/tasks/{t['id']}")
+    return ["today: task dragged Today -> Tomorrow -> Parked tangents -> back to Today (resumed with its steps)"]
 
 
 def meeting_review(page: Page, stack: Stack, base: str) -> list[str]:
