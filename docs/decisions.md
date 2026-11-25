@@ -215,7 +215,10 @@ random picks from a library.
   other works' characters, even simplified, so the eggs are PIP's own family instead: "PIP Mk.0" (a wind-up tin toy
   with a turning key, accordion arms and a grille mouth) and "PIP-1960" (a cabinet computer with tape reels, status
   lamps and a printer that hands you "HI!"), swapped in behind a smoke puff (`pose.form`, `pose.puff`); and when PIP
-  is upset on the error screen it sometimes hurls a plain potato off the screen and dusts off its hands. Rarity: a
+  is upset on the error screen it sometimes hurls a potato off the screen and dusts off its hands. The potato is a
+  science-fair potato battery (copper + zinc electrode, wire, tiny bulb) worn with a monocle on a chain and a bow
+  tie - a posh spud with no face: the bulb flickers, PIP shakes it, the bulb flares and dies, the spud goes flying
+  (1.5.1). Rarity: a
   roll in `start_perf` (idle ~1 in 24, error 1 in 3), never twice within 2 h, never on the focus screen. The potato is
   fetched from the edge by a prop trip like every other prop.
 - **Grip:** the rig used to swing arms only outward, so the hands floated beside the laptop and the guitar.

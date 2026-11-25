@@ -38,7 +38,8 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
   "Wed 05:00 Gym wake-up"), with "+2 more" when there are more than fit, and today's date when there is room.
 - **Easter eggs:** every now and then PIP vanishes in a puff of smoke and one of its relatives drops by - a wind-up
   tin-toy ancestor, or a 1960s cabinet computer that prints you a "HI!". And on a really bad day (the error screen)
-  PIP may just throw a potato off the screen.
+  PIP may lose patience with its posh potato battery (monocle, bow tie, a bulb that won't stay lit) and
+  throw it off the screen.
 - **Moving between screens:** screens slide like pages behind PIP (PIP itself stays where it is) — forward
   (talk → plan → focus → done, calendar) to the left, back to the right. Alarms and messages drop in from the top and lift away when you dismiss them.
 - **Right:** the important thing right now (timer, step, agenda, alarm or question). On every screen except Let's

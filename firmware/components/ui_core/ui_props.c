@@ -21,17 +21,51 @@ static void ring_disc(rlcd_fb_t *fb, float x, float y, float r, float t)
     }
 }
 
-/* a lumpy spud with a few eyes that roll round as it tumbles */
-static void potato(rlcd_fb_t *fb, float x, float y, float s, float spin)
+/* a science-fair potato battery: lumpy spud, a copper and a zinc electrode, a wire loop up to a tiny bulb.
+ * glow: 1 bright (rays), ~0.3 a feeble glimmer, 0 dead (hollow bulb). spin rolls the skin specks. */
+static void potato(rlcd_fb_t *fb, float x, float y, float s, float spin, float glow)
 {
+    float ex0 = x - 3.0f * s, ex1 = x + 3.0f * s, et = y - 11.0f * s, bx = x, by = y - 22.0f * s;
+    fb_line_f(fb, ex0, et, bx - 2.0f * s, by + 4.0f * s, 1.0f, INK_BLACK); /* wires */
+    fb_line_f(fb, ex1, et, bx + 2.0f * s, by + 4.0f * s, 1.0f, INK_BLACK);
+    fb_fill_rect(fb, ri(ex0 - 1.0f), ri(et), 2, ri(8.0f * s), INK_BLACK);   /* copper strip */
+    fb_rect(fb, ri(ex1 - 1.0f), ri(et), 3, ri(8.0f * s), 1, INK_BLACK);     /* zinc strip */
+    fb_fill_rect(fb, ri(bx - 2.0f * s), ri(by + 2.0f * s), ri(4.0f * s) + 1, ri(2.0f * s) + 1, INK_BLACK); /* bulb base */
+    fb_disc_f(fb, bx, by, 4.0f * s, INK_BLACK);
+    fb_disc_f(fb, bx, by, 2.8f * s, INK_WHITE);
+    if (glow > 0.15f) {
+        fb_disc_f(fb, bx, by, glow > 0.6f ? 1.8f * s : 1.0f, INK_BLACK); /* filament */
+    }
+    if (glow > 0.6f) {
+        for (int k = 0; k < 5; k++) {
+            float a = -PI_F * (0.1f + 0.2f * (float)k);
+            fb_line_f(fb, bx + cosf(a) * 6.0f * s, by + sinf(a) * 6.0f * s, bx + cosf(a) * 9.0f * s,
+                      by + sinf(a) * 9.0f * s, 1.5f, INK_BLACK);
+        }
+    }
     fb_fill_ellipse(fb, ri(x), ri(y), ri(8.0f * s), ri(5.5f * s), INK_BLACK);
-    fb_fill_ellipse(fb, ri(x + 2.0f * s), ri(y - 3.0f * s), ri(3.0f * s), ri(2.5f * s), INK_BLACK); /* lump */
+    fb_fill_ellipse(fb, ri(x + 3.0f * s), ri(y + 2.0f * s), ri(3.5f * s), ri(3.0f * s), INK_BLACK); /* lump */
     fb_fill_ellipse(fb, ri(x), ri(y), ri(6.5f * s), ri(4.0f * s), INK_WHITE);
     fb_fill_ellipse_pat(fb, ri(x), ri(y), ri(6.5f * s), ri(4.0f * s), 2);
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < 3; k++) { /* skin specks */
         float a = spin + (float)k * 2.1f;
-        fb_fill_rect(fb, ri(x + cosf(a) * 4.0f * s), ri(y + sinf(a) * 2.5f * s), 2, 1, INK_BLACK);
+        fb_set(fb, ri(x + cosf(a) * 4.5f * s), ri(y + sinf(a) * 2.5f * s), INK_BLACK);
     }
+    /* a rather posh potato: a monocle worn off to one side - just a rim and a glint, the skin shows through the
+     * glass - on a chain that hangs below, and a little bow tie */
+    float mx = x - 3.5f * s, my = y - 0.5f * s, mr = 3.2f * s;
+    fb_ellipse(fb, ri(mx), ri(my), ri(mr), ri(mr), 1, INK_BLACK);
+    fb_set(fb, ri(mx + 1.0f), ri(my - mr + 1.0f), INK_WHITE); /* glint on the rim */
+    fb_set(fb, ri(mx + 2.0f), ri(my - mr + 2.0f), INK_WHITE);
+    for (int k = 0; k <= 8; k++) { /* chain: loops down outside the potato */
+        float u = (float)k / 8.0f;
+        float cxp = mx - mr - 3.0f * s * sinf(u * PI_F * 0.9f), cyp = my + 2.0f + 9.0f * s * u;
+        fb_set(fb, ri(cxp), ri(cyp), (k & 1) ? INK_BLACK : INK_WHITE);
+        fb_set(fb, ri(cxp) - 1, ri(cyp), INK_BLACK);
+    }
+    float tx = x + 1.0f * s, ty = y + 6.5f * s; /* bow tie */
+    fb_fill_triangle(fb, ri(tx), ri(ty), ri(tx - 4.0f * s), ri(ty - 2.0f * s), ri(tx - 4.0f * s), ri(ty + 2.0f * s), INK_BLACK);
+    fb_fill_triangle(fb, ri(tx), ri(ty), ri(tx + 4.0f * s), ri(ty - 2.0f * s), ri(tx + 4.0f * s), ri(ty + 2.0f * s), INK_BLACK);
 }
 
 static void ball(rlcd_fb_t *fb, float x, float y, float r, float spin)
@@ -237,7 +271,7 @@ static void held_one(rlcd_fb_t *fb, int prop, const mascot_pose_t *p, const pip_
         }
         break;
     }
-    case PROP_POTATO: potato(fb, hx, hy - 3.0f * s, s, t); break;
+    case PROP_POTATO: potato(fb, hx, hy - 3.0f * s, s, 0.0f, t); break; /* held: held_t = bulb brightness */
     case PROP_PHONE: { /* held to the ear: a little handset with a lit screen */
         fb_fill_rrect(fb, ri(hx - 3.5f * s), ri(hy - 13.0f * s), ri(8.0f * s), ri(15.0f * s), ri(2.0f * s), INK_BLACK);
         fb_fill_rect(fb, ri(hx - 1.5f * s), ri(hy - 11.0f * s), ri(4.0f * s), ri(8.0f * s), INK_WHITE);
@@ -437,7 +471,7 @@ void ui_prop_flying(rlcd_fb_t *fb, const mascot_pose_t *p, const pip_rig_t *r, i
     float rx = (float)cx + r->hand[1].x, ry = (float)fy + r->hand[1].y;
     switch (p->obj) {
     case PROP_BALL: ball(fb, x, y, 7.0f, t); break;
-    case PROP_POTATO: potato(fb, x, y, 1.0f, t); break;
+    case PROP_POTATO: potato(fb, x, y, 1.0f, t, 0.0f); break; /* flying: dead bulb, tumbling */
     case PROP_PLANE: {
         float dirx = cosf(fabsf(t)) * (t < 0.0f ? -1.0f : 1.0f), diry = -sinf(fabsf(t)) * 0.8f;
         float n = sqrtf(dirx * dirx + diry * diry);

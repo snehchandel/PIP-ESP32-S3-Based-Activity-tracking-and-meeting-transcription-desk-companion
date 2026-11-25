@@ -1840,38 +1840,54 @@ static void x_mainframe(mascot_pose_t *p, float t, float D, int v, float s, int 
 
 static void e_potato(mascot_pose_t *p, float t, float D, int v, float s, int mood)
 {
-    /* upset: grumbles at the potato in its hand, then hurls it off the screen and dusts off its hands */
+    /* upset, with a potato battery that won't work: squints at the feeble bulb, shakes it, it flares and dies,
+     * a glare - and the potato goes flying off the screen. Dusts off its hands, sulks, feels better. */
     float in = win(t, 0.0f, D, 0.6f);
-    const float wind0 = 2.4f, rel = 3.1f, land = 4.4f;
-    p->eyes = EYE_ANGLED;
-    p->mouth = MOUTH_WAVY;
+    const float shake0 = 2.4f, dead = 3.1f, wind0 = 3.5f, rel = 4.1f, land = 5.4f;
     if (t < rel) {
         p->held = PROP_POTATO;
-        p->held_t = t;
+        float flicker = fmodf(t * 6.0f, 1.0f) < 0.45f ? 0.35f : 0.0f;
+        p->held_t = t < shake0 ? flicker : (t < dead ? (t > shake0 + 0.25f && t < dead - 0.15f ? 1.0f : 0.35f) : 0.0f);
+        float shake = win(t, shake0, dead, 0.1f);
         float wind = seg(t, wind0, rel - 0.1f);
-        p->arm_r = mixf(40.0f * in, 165.0f, wind);
-        p->yaw = mixf(10.0f, -40.0f, wind);
-        p->lean = -4.0f * wind;
-        p->look_x = -0.6f * wind;
-        emote(p, t < wind0 ? EMOTE_SWEAT : EMOTE_EXCLAIM, t, t < wind0 ? 0.3f : wind0);
+        p->arm_r = mixf(110.0f * in + 18.0f * sinf(t * 32.0f) * shake, 165.0f, wind);
+        p->lean = 2.5f * sinf(t * 32.0f) * shake - 4.0f * wind;
+        p->yaw = mixf(10.0f * in, -40.0f, wind);
+        p->look_x = mixf(0.5f, -0.6f, wind);
+        p->look_y = mixf(-0.6f, 0.0f, wind);
+        if (t < shake0) {
+            p->eyes = EYE_PILL;
+            p->mouth = MOUTH_FLAT;
+            emote(p, EMOTE_QUESTION, t, 0.8f);
+        } else if (t < wind0) {
+            p->eyes = t < dead ? EYE_WIDE : EYE_ANGLED;
+            p->mouth = t < dead ? MOUTH_O : MOUTH_WAVY;
+            emote(p, EMOTE_SWEAT, t, shake0);
+        } else {
+            p->eyes = EYE_ANGLED;
+            p->mouth = MOUTH_WAVY;
+            emote(p, EMOTE_EXCLAIM, t, wind0);
+        }
     } else {
-        float u = seg(t, rel, land);
+        float u = (t - rel) / (land - rel);
         p->obj = t < land ? PROP_POTATO : PROP_NONE;
         p->obj_t = t * 9.0f; /* tumbling */
-        p->obj_x = mixf(18.0f, -190.0f, (t - rel) / (land - rel));
-        p->obj_y = -70.0f - 70.0f * sinf(PI_F * fminf2(1.0f, (t - rel) / (land - rel)) * 0.8f);
+        p->obj_x = mixf(18.0f, -190.0f, u);
+        p->obj_y = -70.0f - 70.0f * sinf(PI_F * fminf2(1.0f, u) * 0.8f);
         p->arm_r = mixf(165.0f, 30.0f, seg(t, rel, rel + 0.5f));
         p->yaw = mixf(-40.0f, 0.0f, seg(t, rel + 0.3f, rel + 1.2f));
-        p->look_x = -1.0f + u;
-        float dust = bump(t, land + 0.3f, land + 2.0f); /* claps the dust off */
+        p->look_x = -1.0f + seg(t, rel, land);
+        p->eyes = EYE_ANGLED;
+        p->mouth = MOUTH_WAVY;
+        float dust = bump(t, land + 0.2f, land + 1.6f); /* claps the dust off */
         p->arm_l = 70.0f * dust;
         p->arm_r = mixf(p->arm_r, 70.0f + 12.0f * sinf(t * 22.0f), dust);
-        if (t > land + 0.3f) {
+        if (t > land + 0.2f) {
             p->eyes = EYE_CLOSED;
             p->mouth = MOUTH_FLAT;
-            emote(p, EMOTE_DOTS, t, land + 0.3f);
+            emote(p, EMOTE_DOTS, t, land + 0.2f);
         }
-        if (t > D - 2.0f) {
+        if (t > D - 1.8f) {
             p->eyes = EYE_PILL;
             p->mouth = MOUTH_SMILE; /* better now */
             p->emote = EMOTE_NONE;

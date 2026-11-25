@@ -22,7 +22,7 @@
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
 #define APP_INDOOR_HOLD_MS (5u * 60u * 1000u) /* keep showing the last good indoor reading this long */
-#define APP_FW_VERSION "1.5.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_FW_VERSION "1.5.1" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum { CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM } chime_id_t;
 
