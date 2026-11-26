@@ -489,3 +489,24 @@ random picks from a library.
 - **Verified on hardware:** the dial, handshake and sealed records (plain TCP over the LAN). **Not verified:** the TLS
   path through a real Funnel, a dial from a foreign network, picking between two networks in range.
 
+## ADR-036 — Meeting summaries by another AI agent (export with a prompt, upload the reply)
+- **Why:** the user wants to summarise a meeting with an AI assistant of their choice (Claude, ChatGPT, ...) and keep
+  the result in PIP, without PIP calling that service itself.
+- **Out:** export format `ai` (`GET /meetings/{id}/export?format=ai`, `..._for_AI.md`) = the prompt, the meeting's
+  facts (date, duration, speakers, vocabulary, notes) and every speaker turn as `[mm:ss] **Name**: words`.
+  `GET /meetings/summary-prompt` returns the prompt alone, for use with the ordinary Markdown export. The prompt asks
+  for a fixed Markdown layout (`# title`, `## Outcome`, `## Summary`, `## Key points`, `## Topics`, `## Decisions`,
+  `## Action items` as `- [ ] [mm:ss] task | Owner: ... | Due: ...`) and reuses the local summariser's definitions of a
+  decision and an action item (`summarize.DEFINITIONS`), so the result matches what PIP makes itself.
+- **In:** `POST /meetings/{id}/summary/upload?source=<name>` (raw text, 512 KB max). `meetings/handoff.py`
+  `parse_summary_md()` reads it leniently, because agents rarely follow a layout exactly: any heading level or a bold
+  or plain label, synonyms (*Next steps* = action items, *TL;DR* = summary), checkboxes or bullets, `Owner:`/`Due:` in
+  any order and separator or on nested lines, stamps with or without brackets, a fenced reply, YAML front matter, or a
+  JSON object. Text with no summary, key points, decisions or action items is refused (422). `summarize.clean()` then
+  tidies it like any summary, and `_save_summary()` stores it: action items keep what the user already decided, due
+  dates are resolved, the calendar and the Obsidian note update, and a default title takes the summary's title.
+  `summary_engine` = `upload` or `upload/<name>` (shown as "another AI (name)").
+- **Conflicts:** a local summary waiting in the queue is dropped (it would overwrite the upload); while one is being
+  made the upload is refused (409).
+- **Rejected:** calling other AI services from PIP (more keys to keep and costs to meter; ADR-013 keeps Kimi as the
+  one cloud AI PIP itself calls). The user moves the files.

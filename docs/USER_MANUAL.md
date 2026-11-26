@@ -196,6 +196,14 @@ host**.
   transcript in `Transcripts/`, a **Meetings index** and a list of all **Action items**. Write your own thoughts
   under **My notes** in a meeting's note — PIP keeps them when it updates the note, and an action item you tick in
   Obsidian shows as done in PIP. Deleting a meeting in PIP leaves its note in the vault.
+- **Summarise with another AI.** In a meeting's **Summary** card, press **Another AI**. (1) **Transcript for AI
+  (.md)** downloads the transcript with instructions for the AI at the top. (2) Give that file to any AI assistant
+  (Claude, ChatGPT, ...). If it ignores the instructions, **Copy prompt** and paste that too; the prompt also works
+  with the ordinary **Markdown** export. (3) Paste the AI's reply into the box, or **Choose file…** if it gave you a
+  `.md` file, optionally type which AI it was, and press **Use this summary**. It replaces the meeting's summary:
+  action items, due dates, the calendar and the Obsidian note update as usual, and action items you already decided
+  on keep your choice. If PIP says the text doesn't look like a summary, ask the AI to answer in the format from the
+  prompt (headings such as *## Summary* and *## Action items*).
 - **Asking with other AI tools.** The vault is laid out so any AI assistant can read it cheaply: the index first,
   then the meeting notes, and a transcript only for exact wording (see `_About these notes.md` in the folder).
 

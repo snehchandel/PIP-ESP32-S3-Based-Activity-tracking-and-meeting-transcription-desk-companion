@@ -154,7 +154,18 @@ export const api = {
   convertActions: (id: string, items: { index: number; as: "task" | "reminder" | "park"; date?: string; time?: string }[]) =>
     req<{ made: { index: number; as: string; id: string }[] }>("POST", `/meetings/${id}/actions/convert`, { items }),
   archiveMeeting: (id: string, archived: boolean) => req<unknown>("POST", `/meetings/${id}/archive`, { archived }),
-  meetingExportUrl: (id: string, format: "md" | "txt" | "srt" | "json") => `${BASE}/meetings/${id}/export?format=${format}`,
+  meetingExportUrl: (id: string, format: "md" | "txt" | "srt" | "json" | "ai") => `${BASE}/meetings/${id}/export?format=${format}`,
+  summaryPrompt: () => req<{ prompt: string }>("GET", "/meetings/summary-prompt"),
+  uploadSummary: async (id: string, text: string, source: string): Promise<MeetingSummary> => {
+    const res = await fetch(`${BASE}/meetings/${id}/summary/upload?source=${encodeURIComponent(source)}`,
+      { method: "POST", headers: { "Content-Type": "text/markdown; charset=utf-8" }, body: text });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail; } catch { /* non-JSON */ }
+      throw new ApiError(res.status, String(detail));
+    }
+    return (await res.json()) as MeetingSummary;
+  },
   meetingAudioUrl: (id: string, download = false) => `${BASE}/meetings/${id}/audio${download ? "?download=true" : ""}`,
   importMeeting: async (file: File, title: string): Promise<{ id: string }> => {
     const res = await fetch(`${BASE}/meetings/import?filename=${encodeURIComponent(file.name)}&title=${encodeURIComponent(title)}`,

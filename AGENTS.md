@@ -62,7 +62,7 @@ alarms it already knows, offline event log) and reconciles idempotently when the
 
 | Path | What lives there |
 |---|---|
-| `host/service/meetings/` | Meeting recorder/transcriber + the one worker that also runs summaries (`service.py`), speaker detection + remembered voices (`diarize.py`, numpy only), storage + FTS5 search index (`store.py`), exports md/txt/srt/json (`export.py`), local AI client for Ollama (`local_ai.py`) + the model catalog matched to the PC's GPU/RAM (`models.py`), summaries (`summarize.py`: one pass up to ~1 h; careful mode = think + scan + check + write-up), deadline words -> dates (`due.py`), action-item triage + calendar items (`actions.py`), Obsidian vault writer (`obsidian.py`), questions by retrieval (`ask.py`). Recordings: `data/meetings/<id>.wav`. |
+| `host/service/meetings/` | Meeting recorder/transcriber + the one worker that also runs summaries (`service.py`), speaker detection + remembered voices (`diarize.py`, numpy only), storage + FTS5 search index (`store.py`), exports md/txt/srt/json (`export.py`), local AI client for Ollama (`local_ai.py`) + the model catalog matched to the PC's GPU/RAM (`models.py`), summaries (`summarize.py`: one pass up to ~1 h; careful mode = think + scan + check + write-up), summaries by another AI agent (`handoff.py`: transcript + prompt out, Markdown reply parsed back in, ADR-036), deadline words -> dates (`due.py`), action-item triage + calendar items (`actions.py`), Obsidian vault writer (`obsidian.py`), questions by retrieval (`ask.py`). Recordings: `data/meetings/<id>.wav`. |
 | `firmware/main/` | ESP-IDF app. `app_main.c` = FreeRTOS wiring (tasks, adapters, link routing). `app_controller.c/.h`, `app_gestures.c`, `app_frames.c`, `app_report.c` = **portable** state coordinator (also compiled into the simulator and C tests). `dev_config.c` (NVS settings), `net_link.c` (Wi-Fi + TCP server + mDNS + HMAC auth), `dev_ota.c` (firmware updates), `dev_wake.c` (wake word) are ESP-only. |
 | `firmware/components/ui_core/` | 1-bit renderer: primitives (`ui_draw*.c`), fonts (`fonts_gen.c`, generated), icons, header/bar chrome (`ui_chrome.c`), screens (`ui_screens_a/b/c.c`), PIP rig drawing (`ui_mascot.c`), props (`ui_props.c`), slide transitions (`ui_slide.c`), animated weather icons (`ui_weather.c`), layout constants (`include/ui_layout.h`), the UI model (`include/ui_model.h`). |
 | `firmware/components/mascot_renderer/` | PIP rig geometry + scene engine (`mascot.c`) and choreography (`mascot_acts.c`): per-screen act libraries, 2-hour no-repeat history, reactions. Pure C, no drawing. |
@@ -237,6 +237,8 @@ on 20 ms idle with a partial frame.
   dated items as kind 3 (`others=true` for other people's). Ollama needs `OLLAMA_FLASH_ATTENTION=1` and
   `OLLAMA_KV_CACHE_TYPE=q8_0` (user env) for the 16k context on the 8 GB GPU. Meeting speech: `large-v3-turbo` on the
   GPU (CUDA wheels `nvidia-cublas-cu12`/`nvidia-cudnn-cu12`, DLL path set in `speech/stt.py`).
+  Another AI agent (ADR-036): `GET /meetings/{id}/export?format=ai` (prompt + transcript), `GET /meetings/summary-prompt`,
+  `POST /meetings/{id}/summary/upload?source=` (Markdown reply -> the summary, engine `upload/<source>`).
   `GET /meetings/search` (FTS5, no AI), `POST /meetings/ask` (retrieval, ~1.5k tokens), `GET /meetings/graph`
   (`meetings/graph.py`: meeting/summary/person/topic nodes, the Obsidian links; drawn by the Meetings -> Graph tab,
   `components/MeetingGraph.tsx` + `lib/forceLayout.ts`, no graph library), `GET /meetings/actions`,

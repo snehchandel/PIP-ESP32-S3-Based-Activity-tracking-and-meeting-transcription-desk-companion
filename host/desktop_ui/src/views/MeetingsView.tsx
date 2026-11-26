@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Cpu, Download, LayoutList, Loader2, Pencil, RefreshCw, Search, Sparkles, Trash2, Upload, UserPlus, Users, Waypoints } from "lucide-react";
+import { Archive, ArchiveRestore, Bot, Cpu, Download, LayoutList, Loader2, Pencil, RefreshCw, Search, Sparkles, Trash2, Upload, UserPlus, Users, Waypoints } from "lucide-react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -7,6 +7,7 @@ import { useLive } from "../api/live";
 import type { MeetingAnswer, MeetingDetail, MeetingHit, MeetingList, MeetingListItem, Segment, Speaker } from "../api/types";
 import { ActionItems } from "../components/ActionItems";
 import { MeetingGraphView, meetingOf } from "../components/MeetingGraph";
+import { SummaryHandoff } from "../components/SummaryHandoff";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { Badge, Card, CardTitle, Empty, Input, Label, PageHeader, Select, Textarea } from "../components/ui/primitives";
@@ -137,6 +138,7 @@ function MeetingPanel({ id, onDeleted, onShowInGraph }: { id: string; onDeleted:
   const [count, setCount] = useState("auto");
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [handoff, setHandoff] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
 
   const reload = useCallback(() => {
@@ -252,7 +254,10 @@ function MeetingPanel({ id, onDeleted, onShowInGraph }: { id: string; onDeleted:
               <Button size="sm" variant="ghost" disabled={busy !== null || summarizing} title="Uses your AI budget"
                 onClick={() => void act("kimi", () => api.summarizeMeeting(m.id, "kimi"))}>
                 {busy === "kimi" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Sparkles size={14} aria-hidden />}
-                Kimi</Button></div>}>Summary</CardTitle>
+                Kimi</Button>
+              <Button size="sm" variant="ghost" disabled={busy !== null || m.summary_status === "SUMMARIZING"}
+                title="Give the transcript to another AI assistant and upload its summary" onClick={() => setHandoff(true)}>
+                <Bot size={14} aria-hidden /> Another AI</Button></div>}>Summary</CardTitle>
             {summarizing && (
               <p role="status" className="mb-3 flex items-center gap-2 text-sm text-muted">
                 <Loader2 size={14} className="animate-spin" aria-hidden />
@@ -283,11 +288,14 @@ function MeetingPanel({ id, onDeleted, onShowInGraph }: { id: string; onDeleted:
                 <ActionItems key={JSON.stringify(m.summary.action_items.map((a) => [a.status, a.due_date, a.due_time]))}
                   m={m} onSeek={seek} reload={reload} />
                 <p className="text-xs text-muted">Summary by {m.summary_engine?.startsWith("local/")
-                  ? `this PC (${m.summary_engine.slice(6)})` : m.summary_engine ?? "AI"}
+                  ? `this PC (${m.summary_engine.slice(6)})`
+                  : m.summary_engine === "upload" ? "another AI (uploaded)"
+                    : m.summary_engine?.startsWith("upload/") ? `another AI (${m.summary_engine.slice(7)})`
+                      : m.summary_engine ?? "AI"}
                   {m.vault_note && <> · in Obsidian: <span className="break-all">{m.vault_note}</span></>}</p>
               </div>
             ) : !summarizing && <Empty>Summaries are made on this PC after each transcription (Settings → Meetings).
-              Kimi is there if you want a second opinion (uses your AI budget).</Empty>}
+              Kimi is there if you want a second opinion (uses your AI budget), or use another AI assistant and upload its summary.</Empty>}
             <div className="mt-4">
               <Label htmlFor="mt-notes">Your notes</Label>
               <Textarea id="mt-notes" value={notes} placeholder="Anything to remember about this meeting…"
@@ -310,6 +318,7 @@ function MeetingPanel({ id, onDeleted, onShowInGraph }: { id: string; onDeleted:
           )}
         </Card>
       )}
+      <SummaryHandoff meetingId={m.id} open={handoff} onOpenChange={setHandoff} onSaved={reload} />
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete} title="Delete this meeting?"
         description="The recording and its transcript are removed from this PC. This can't be undone.">
         <div className="flex justify-end gap-2">

@@ -43,6 +43,7 @@ from . import actions as act_mod
 from . import ask as ask_mod
 from . import diarize
 from .export import FORMATS, filename, render
+from .handoff import handoff_md, parse_summary_md
 from .local_ai import LocalAI, LocalAIError
 from .obsidian import ObsidianVault
 from .store import MeetingRepo, speaker_label
@@ -619,6 +620,23 @@ class MeetingService:
         data = summary.model_dump() if hasattr(summary, "model_dump") else dict(summary)
         return self._save_summary(mid, clean(data, m["title"]), str(getattr(planner, "model", "kimi")))
 
+    def upload_summary(self, mid: str, text: str, source: str = "") -> dict[str, Any]:
+        """A summary written by another AI agent from the "ai" export (handoff.py) becomes this meeting's summary,
+        exactly like one made here: action items keep what the user did with them, dates, calendar, Obsidian."""
+        m = self.repo.get(mid)
+        if m is None:
+            raise KeyError(mid)
+        if m["status"] != "READY":
+            raise RuntimeError("the meeting isn't transcribed yet")
+        with self._lock:
+            if m.get("summary_status") == "SUMMARIZING":
+                raise RuntimeError("PIP is summarising this meeting right now - wait for it to finish, then upload")
+            if mid in self._sq:  # a queued local summary would overwrite the uploaded one
+                self._sq.remove(mid)
+        data = clean(parse_summary_md(text), m["title"], [sp["name"] for sp in m.get("speakers", [])])
+        source = " ".join(source.split())[:40]
+        return self._save_summary(mid, data, f"upload/{source}" if source else "upload")
+
     def _save_summary(self, mid: str, data: dict[str, Any], engine: str) -> dict[str, Any]:
         m = self.repo.get(mid)
         if m is None:
@@ -829,6 +847,9 @@ class MeetingService:
         m = self.repo.get(mid)
         if m is None:
             raise KeyError(mid)
+        if fmt == "ai":  # transcript + the prompt, for another AI agent to summarise
+            name = filename(m, "md").removesuffix(".md") + "_for_AI.md"
+            return handoff_md(m, self.repo.segments(mid), self.vocabulary()), FORMATS[fmt], name
         return render(m, self.repo.segments(mid), fmt, self.vocabulary()), FORMATS[fmt], filename(m, fmt)
 
     def delete(self, mid: str) -> bool:

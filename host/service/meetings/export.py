@@ -7,7 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-FORMATS = {"md": "text/markdown", "txt": "text/plain", "srt": "application/x-subrip", "json": "application/json"}
+FORMATS = {"md": "text/markdown", "txt": "text/plain", "srt": "application/x-subrip", "json": "application/json",
+           "ai": "text/markdown"}  # "ai": transcript + prompt for another AI agent (handoff.py, rendered by the service)
 
 
 def clock(sec: float) -> str:

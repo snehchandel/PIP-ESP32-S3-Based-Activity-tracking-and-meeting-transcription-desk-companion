@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..meetings import models as model_catalog
 from ..meetings.graph import build_graph
+from ..meetings.handoff import PROMPT as SUMMARY_PROMPT
 from ..meetings.local_ai import LocalAIError
 from ..meetings.obsidian import DEFAULT_FOLDER, detected_vaults
 from ..meetings.service import SUMMARY_MODES
@@ -87,6 +88,12 @@ def vault_sync(req: Request) -> dict[str, Any]:
     if s.vault() is None:
         raise HTTPException(409, "choose an Obsidian vault in Settings first")
     return {"written": s.meetings.sync_vault_all()}
+
+
+@router.get("/meetings/summary-prompt")
+def summary_prompt() -> dict[str, str]:
+    """The prompt to give another AI agent with a transcript; its Markdown reply can be uploaded back (ADR-036)."""
+    return {"prompt": SUMMARY_PROMPT}
 
 
 @router.get("/meetings/{mid}")
@@ -215,6 +222,29 @@ async def summarize(mid: str, req: Request, engine: str = "local") -> dict[str, 
     except PlannerError as e:
         raise HTTPException(502, f"Kimi couldn't summarize: {e}") from e
     except (ValueError, RuntimeError) as e:
+        raise HTTPException(409, str(e)) from e
+
+
+MAX_SUMMARY_BYTES = 512 * 1024
+
+
+@router.post("/meetings/{mid}/summary/upload")
+async def upload_summary(mid: str, req: Request, source: str = "") -> dict[str, Any]:
+    """A summary another AI agent wrote (Markdown, raw request body) becomes the meeting's summary."""
+    _meeting(req, mid)
+    raw = await req.body()
+    if len(raw) > MAX_SUMMARY_BYTES:
+        raise HTTPException(413, "that file is too large for a summary (512 KB max)")
+    text = raw.decode("utf-8", errors="replace")
+    if not text.strip():
+        raise HTTPException(422, "empty upload")
+    try:
+        return await asyncio.to_thread(svc(req).meetings.upload_summary, mid, text, source)
+    except KeyError as e:
+        raise HTTPException(404, "meeting not found") from e
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except RuntimeError as e:
         raise HTTPException(409, str(e)) from e
 
 
