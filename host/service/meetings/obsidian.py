@@ -72,13 +72,23 @@ def topics_for(meeting: dict[str, Any], segments: list[dict[str, Any]], vocabula
     return list(out.values())[:12]
 
 
+STATUS_NOTE = {"task": "task in PIP", "reminder": "reminder in PIP", "parked": "parked in PIP", "dismissed": "dismissed"}
+
+
 def _action_line(a: dict[str, Any], done: bool) -> str:
+    """"- [ ] Send the deck — [[Jordan]], due Friday 📅 2026-11-27 (task in PIP)": the date in the Obsidian Tasks
+    plugin's format, so the item shows up in Tasks queries and calendars too."""
     extra = []
     if a.get("owner"):
         extra.append(link(a["owner"]) if is_person(a["owner"]) else a["owner"])
     if a.get("due"):
         extra.append(f"due {a['due']}")
-    return f"- [{'x' if done else ' '}] {a['task']}" + (f" — {', '.join(extra)}" if extra else "")
+    line = f"- [{'x' if done else ' '}] {a['task']}" + (f" — {', '.join(extra)}" if extra else "")
+    if a.get("due_date"):
+        line += f" 📅 {a['due_date']}"
+    if STATUS_NOTE.get(a.get("status") or ""):
+        line += f" ({STATUS_NOTE[a['status']]})"
+    return line
 
 
 def render_note(meeting: dict[str, Any], segments: list[dict[str, Any]], vocabulary: list[str],
@@ -100,6 +110,8 @@ def render_note(meeting: dict[str, Any], segments: list[dict[str, Any]], vocabul
     fm += ["attendees:", *[f"  - {q(link(p))}" for p in people]] if people else ["attendees: []"]
     fm += ["topics:", *[f"  - {q(link(t))}" for t in topics]] if topics else ["topics: []"]
     fm += ["tags:", "  - meeting", "  - pip"]
+    if meeting.get("archived"):
+        fm.append("archived: true")
     if summary:
         fm.append(f"summary_by: {q(meeting.get('summary_engine') or 'unknown')}")
         fm.append(f"open_actions: {sum(1 for a in actions if not a.get('done'))}")
@@ -119,6 +131,10 @@ def render_note(meeting: dict[str, Any], segments: list[dict[str, Any]], vocabul
         md += ["Topics: " + ", ".join(link(t) for t in topics), ""]
     if summary:
         md += ["## Summary", "", summary.get("summary", ""), ""]
+        if summary.get("outcome"):
+            md += [f"**Outcome:** {summary['outcome']}", ""]
+        if summary.get("key_points"):
+            md += ["## Key points", "", *[f"- {k}" for k in summary["key_points"]], ""]
         if summary.get("decisions"):
             md += ["## Decisions", "", *[f"- {d}" for d in summary["decisions"]], ""]
         if actions:
@@ -268,7 +284,7 @@ class ObsidianVault:
 
     def write_overview(self, meetings: list[dict[str, Any]], now: datetime) -> None:
         """meetings: newest first, each with summary, speakers and vault_note."""
-        listed = [m for m in meetings if m.get("vault_note")]
+        listed = [m for m in meetings if m.get("vault_note") and not m.get("archived")]
         _atomic_write(self.dir / "Meetings index.md", render_index(listed, now))
         _atomic_write(self.dir / "Action items.md", render_actions(listed, now))
         _atomic_write(self.dir / "_About these notes.md", ABOUT)

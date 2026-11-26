@@ -66,10 +66,12 @@ class Services:
         root = Path(__file__).resolve().parents[2]
         self.firmware = FirmwareUpdater(self.link, data_dir, root / "firmware" / "build" / "pip_firmware.bin")
         self.local_ai = LocalAI(settings.pip_local_ai_url, model=self.local_ai_model, on_usage=self.cost.record)
-        self.meetings = MeetingService(self.manager, data_dir, settings.pip_meeting_model, self.hub.publish,
+        self.meetings = MeetingService(self.manager, data_dir, self.meeting_stt_model(), self.hub.publish,
                                        summarizer=self.planner, local_ai=self.local_ai,
                                        summary_mode=self.meeting_summary_mode, vault=self.vault,
-                                       vocabulary=self.vocabulary, voice_busy=self._voice_busy)
+                                       vocabulary=self.vocabulary, voice_busy=self._voice_busy,
+                                       summary_quality=self.meeting_summary_quality, my_name=self.my_name,
+                                       refine_task=self.refine_task_steps)
         self.voice.meetings = self.meetings
         self.stt.vocabulary = self.meetings.stt.vocabulary = self.vocabulary()
         self.nudges = NudgeScheduler(self.manager)
@@ -111,6 +113,30 @@ class Services:
         """After each transcription: "local" (default, on this PC), "kimi" (uses the AI budget) or "off"."""
         mode = str(self.settings.prefs().get("meeting_summary") or "local")
         return mode if mode in SUMMARY_MODES else "local"
+
+    def meeting_summary_quality(self) -> str:
+        """"careful" (default: thinks, scans for commitments, checks them, writes up) or "fast" (one pass)."""
+        q = str(self.settings.prefs().get("meeting_summary_quality") or "careful")
+        return q if q in ("careful", "fast") else "careful"
+
+    def my_name(self) -> str:
+        """The user's name as a meeting speaker (Settings), else the remembered voice in most meetings."""
+        name = str(self.settings.prefs().get("my_name") or "").strip()
+        if name:
+            return name
+        from .meetings.actions import guess_my_name
+        return guess_my_name(self.meetings.repo.all_with_summaries()) if hasattr(self, "meetings") else ""
+
+    MEETING_STT_MODELS = ("auto", "small.en", "medium.en", "large-v3-turbo", "large-v3")
+
+    def meeting_stt_model(self) -> str:
+        """Speech model for meetings. "auto": large-v3-turbo when the GPU works (an hour in ~1-2 min, far fewer
+        mis-heard words), else the configured CPU model (small.en)."""
+        pick = str(self.settings.prefs().get("meeting_stt_model") or "auto")
+        if pick != "auto" and pick in self.MEETING_STT_MODELS:
+            return pick
+        from .speech.stt import cuda_usable
+        return "large-v3-turbo" if cuda_usable() else self.settings.pip_meeting_model
 
     def vault(self) -> ObsidianVault | None:
         p = self.settings.prefs()

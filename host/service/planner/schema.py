@@ -136,8 +136,18 @@ class ActionItem(BaseModel):
     task: str = Field(min_length=2, max_length=200)
     owner: str | None = Field(default=None, max_length=60)
     due: str | None = Field(default=None, max_length=60)
-    done: bool = False    # ticked in the meeting's Obsidian note
-    parked: bool = False  # sent to PIP's parked tangents
+    said_at: str | None = Field(default=None, max_length=10)  # "mm:ss" where it was said (jump to the audio)
+    done: bool = False    # ticked in the meeting's Obsidian note (or in PIP)
+    parked: bool = False  # sent to PIP's parked tangents (kept for older summaries; see status)
+    # filled by PIP, not by the model: the deadline as a date (meetings/due.py, user can edit), what the user made
+    # of the item, and whether it is the user's own
+    due_date: str | None = None   # YYYY-MM-DD
+    due_time: str | None = None   # HH:MM when a time was said
+    due_exact: bool = True        # False for soft deadlines ("next week")
+    due_user: bool = False        # the user set the date: a re-summary keeps it
+    status: str = "new"           # new | task | reminder | parked | dismissed
+    ref_id: str | None = None     # the task / reminder / parked note made from it
+    mine: bool = False            # owned by the user (Settings -> Meetings -> your name)
 
 
 class MeetingSummary(BaseModel):
@@ -147,3 +157,5 @@ class MeetingSummary(BaseModel):
     decisions: list[str] = Field(default_factory=list)
     action_items: list[ActionItem] = Field(default_factory=list)
     topics: list[str] = Field(default_factory=list)  # subjects discussed: Obsidian links + search
+    key_points: list[str] = Field(default_factory=list)  # "[mm:ss] who - what", in meeting order
+    outcome: str = Field(default="", max_length=600)  # how the meeting ended: what was concluded or agreed

@@ -366,3 +366,47 @@ random picks from a library.
   harvesting tasks) point an assistant such as Claude Code at the vault folder: index -> notes -> transcripts only
   when needed. Next step if this is used a lot: a small MCP server over `/meetings/search`, `/meetings/actions` and
   park-actions so assistants query the index instead of reading files, and create tasks through PIP.
+
+## ADR-032 — Local summaries tuned toward Kimi quality; action items you decide on; archived meetings
+- **Measured gap (qwen3:8b vs kimi-k3 on real meetings):** decisions repeated action items; detail lost across
+  4 parts; topics only from the first half; placeholders ("Not specified"); the main conclusion missed.
+- **Fewer parts:** Ollama runs with `OLLAMA_FLASH_ATTENTION=1` + `OLLAMA_KV_CACHE_TYPE=q8_0` (user environment), so a
+  16k context fits qwen3:8b fully on the 8 GB GPU (measured 5.85 GB); `num_ctx` is sized to each prompt. Up to ~10k
+  transcript tokens (~1 hour) are read in one pass; fillers/stutters are stripped (`tidy`); 4.2 chars/token.
+- **Prompt:** one shared system prompt with strict definitions (decision vs action item, cue words, owner rules, no
+  invented facts), placeholders instead of example names (a named example leaked into a real summary), the
+  transcript marked in ~5-minute sections with key points required from every section, fields written in order
+  (key points -> topics -> decisions -> action items with `said_at` -> outcome -> summary -> title). New fields:
+  `key_points`, `outcome`, `action_items[].said_at`.
+- **Careful mode (default; Settings "Summary quality"):** main pass with thinking; a commitments scan sharing the
+  same prompt prefix (Ollama reuses the cached prefix); every decision/action item checked in batches of 8 against
+  the 2 minutes of transcript where it was said (scan-only items must be confirmed, main-pass items survive a failed
+  check; lists capped at 12 actions / 8 decisions); a final write-up of outcome + summary from the checked notes and
+  the last ~5k characters. Code removes placeholders, statements posing as tasks/decisions ("X confirms ...",
+  "The printer issue ..."), "no decision was made", duplicates; broken JSON is retried once. Sampling: 0.2 / top_p 0.85
+  without thinking, Qwen's 0.6 / 0.95 / top_k 20 with it (greedy decoding loops). About 2 minutes per meeting
+  (fast: about 40 s).
+- **Result on the Kimi-reference meeting (careful, several runs):** key points span the whole meeting, the meeting's
+  main conclusion appears in most runs (was 0/2), Kimi's three action items are each found in most runs, owners
+  corrected. Still below Kimi: run-to-run variance, occasional facts listed as decisions. Next levers: qwen3:14b
+  (GPU + RAM, ~3x slower) or a hybrid (local notes -> Kimi write-up).
+- **The user's Google suggestions, checked:** explicit num_ctx, flash attention + q8_0 cache, Q4_K_M, temperature
+  0.1-0.2 / top_p 0.85 and two-pass chunking were adopted (chunking only above ~1 hour, where an 8B model loses the
+  middle); a Modelfile is not needed (options go per request); repeat_penalty was not used (it can corrupt JSON);
+  thinking off everywhere was rejected for quality - it stays on for the main, check and write-up steps.
+- **Speech:** CUDA 12 cuBLAS + cuDNN 9 wheels (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`) are put on the DLL path by
+  `speech/stt.py`, so faster-whisper runs on the GPU (`small.en` loads in 1.7 s). Meetings use `large-v3-turbo` on
+  the GPU when it works (a 5-minute meeting in 5.5 s, fewer dropped and mis-heard words), else `small.en` on the CPU
+  (Settings "Meeting speech-to-text", prefs `meeting_stt_model`).
+- **Action items (`meetings/actions.py`, `due.py`):** deadline words -> a date relative to the meeting's own date
+  (code, not the model; soft deadlines flagged `due_exact=false`); `mine` from Settings "Your name in meetings" (else
+  the named voice in most meetings). Each item is `new` until the user picks: task (on its date), reminder (date +
+  time, 09:00 default), parked, or "not for me"; one at a time or ticked in bulk (yours pre-ticked). Undecided items
+  with a date show on the Calendar as dashed "from meeting" blocks (yours + unowned; others' behind a toggle), can be
+  dragged to another day and decided there; decided ones become real tasks/reminders (no duplicates). Obsidian
+  lines carry `📅 YYYY-MM-DD` (Tasks plugin) and what the item became. Why not "park all": a meeting yields other
+  people's commitments too, and for an ADHD planner the useful question is "which are mine, and when"; other
+  people's items are better as follow-up reminders than as tasks.
+- **Archive:** `meetings.archived` (migration 008). Archived meetings keep transcript, summary, audio and note but
+  leave search/questions, action lists, the calendar and the Obsidian index (the note gets `archived: true`);
+  restore any time.

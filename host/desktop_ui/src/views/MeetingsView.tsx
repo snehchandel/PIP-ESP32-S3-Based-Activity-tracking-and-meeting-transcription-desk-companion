@@ -1,8 +1,9 @@
-import { CircleCheck, CircleParking, Cpu, Download, Loader2, Pencil, RefreshCw, Search, Sparkles, Trash2, Upload, UserPlus, Users } from "lucide-react";
+import { Archive, ArchiveRestore, Cpu, Download, Loader2, Pencil, RefreshCw, Search, Sparkles, Trash2, Upload, UserPlus, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
 import type { MeetingAnswer, MeetingDetail, MeetingHit, MeetingList, MeetingListItem, Segment, Speaker } from "../api/types";
+import { ActionItems } from "../components/ActionItems";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { Badge, Card, CardTitle, Empty, Input, Label, PageHeader, Select, Textarea } from "../components/ui/primitives";
@@ -192,6 +193,7 @@ function MeetingPanel({ id, onDeleted }: { id: string; onDeleted: () => void }) 
               {m.source === "IMPORT" ? " · imported" : " · recorded on PIP"}
               {m.gaps_s > 0 && ` · ${Math.round(m.gaps_s)} s lost to link drops`}</p>
           </div>
+          {m.archived ? <Badge>Archived</Badge> : null}
           <StatusBadge m={m} />
         </div>
         {m.status === "TRANSCRIBING" && (
@@ -218,7 +220,11 @@ function MeetingPanel({ id, onDeleted }: { id: string; onDeleted: () => void }) 
           ))}
           {m.status !== "RECORDING" && <Button size="sm" asChild><a href={api.meetingAudioUrl(m.id, true)} download>
             <Download size={14} aria-hidden /> Audio</a></Button>}
-          <Button size="sm" variant="danger" className="ml-auto" disabled={m.status === "RECORDING"}
+          <Button size="sm" className="ml-auto" disabled={m.status === "RECORDING"}
+            title={m.archived ? "Bring it back into search, questions and the calendar" : "Keep it, but leave it out of search, questions, action lists and the calendar"}
+            onClick={() => void act("archive", () => api.archiveMeeting(m.id, !m.archived))}>
+            {m.archived ? <><ArchiveRestore size={14} aria-hidden /> Restore</> : <><Archive size={14} aria-hidden /> Archive</>}</Button>
+          <Button size="sm" variant="danger" disabled={m.status === "RECORDING"}
             onClick={() => setConfirmDelete(true)}><Trash2 size={14} aria-hidden /> Delete</Button>
         </div>
       </Card>
@@ -267,21 +273,23 @@ function MeetingPanel({ id, onDeleted }: { id: string; onDeleted: () => void }) 
             )}
             {m.summary ? (
               <div className="space-y-3 text-sm">
+                {m.summary.outcome && <p className="rounded-lg bg-paper-2 px-3 py-2 leading-relaxed"><b>Outcome: </b>{m.summary.outcome}</p>}
                 <p className="leading-relaxed">{m.summary.summary}</p>
+                {(m.summary.key_points?.length ?? 0) > 0 && (
+                  <details><summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted">
+                    Key points ({m.summary.key_points?.length})</summary>
+                    <ul className="mt-1.5 space-y-1">{m.summary.key_points?.map((k, i) => {
+                      const at = k.match(/^\[?(\d{1,2}:\d{2})\]?/);
+                      return <li key={i} className="flex gap-2">{at && <button className="tabular shrink-0 text-xs font-semibold text-muted hover:text-ink"
+                        onClick={() => seek(Number(at[1].split(":")[0]) * 60 + Number(at[1].split(":")[1]))}>{at[1]}</button>}
+                        <span>{at ? k.slice(at[0].length).replace(/^[\s:\-–]+/, "") : k}</span></li>;
+                    })}</ul></details>)}
                 {(m.summary.topics?.length ?? 0) > 0 && <div className="flex flex-wrap gap-1.5">
                   {m.summary.topics?.map((t) => <Badge key={t}>{t}</Badge>)}</div>}
                 {m.summary.decisions.length > 0 && (<div><Label>Decisions</Label>
                   <ul className="list-disc space-y-0.5 pl-5">{m.summary.decisions.map((d, i) => <li key={i}>{d}</li>)}</ul></div>)}
-                {m.summary.action_items.length > 0 && (<div><Label>Action items</Label>
-                  <ul className="space-y-1">{m.summary.action_items.map((a, i) => (
-                    <li key={i} className={cn("rounded-lg border border-line bg-white/60 px-2.5 py-1.5", a.done && "text-muted line-through")}>
-                      {a.done && <CircleCheck size={13} className="mr-1 inline text-sage" aria-label="done" />}{a.task}
-                      {(a.owner || a.due) && <span className="text-xs text-muted"> — {[a.owner, a.due && `due ${a.due}`].filter(Boolean).join(", ")}</span>}
-                      {a.parked && <Badge className="ml-2">parked</Badge>}
-                    </li>))}</ul>
-                  <Button size="sm" className="mt-2" disabled={m.summary.action_items.every((a) => a.parked || a.done)}
-                    onClick={() => void act("park", () => api.parkMeetingActions(m.id))}>
-                    <CircleParking size={14} aria-hidden /> Park action items</Button></div>)}
+                <ActionItems key={JSON.stringify(m.summary.action_items.map((a) => [a.status, a.due_date, a.due_time]))}
+                  m={m} onSeek={seek} reload={reload} />
                 <p className="text-xs text-muted">Summary by {m.summary_engine?.startsWith("local/")
                   ? `this PC (${m.summary_engine.slice(6)})` : m.summary_engine ?? "AI"}
                   {m.vault_note && <> · in Obsidian: <span className="break-all">{m.vault_note}</span></>}</p>
@@ -408,8 +416,10 @@ export default function MeetingsView() {
     if (meetingEvt.n > 0 && !tick) load();
   }, [meetingEvt, tick, load]);
 
-  const items: MeetingListItem[] = (list?.meetings ?? []).map((m) => (tick && m.id === meetingEvt.id
+  const all: MeetingListItem[] = (list?.meetings ?? []).map((m) => (tick && m.id === meetingEvt.id
     ? { ...m, status: "TRANSCRIBING", progress: meetingEvt.progress ?? m.progress } : m));
+  const items = all.filter((m) => !m.archived);
+  const archived = all.filter((m) => m.archived);
   return (
     <>
       <PageHeader title="Meetings"
@@ -439,6 +449,18 @@ export default function MeetingsView() {
                   </li>
                 ))}
               </ul>
+            )}
+            {archived.length > 0 && (
+              <details className="mt-3 border-t border-line pt-2">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted">
+                  Archived ({archived.length})</summary>
+                <p className="mt-1 text-xs text-muted">Kept, but left out of search, questions, action lists and the calendar.</p>
+                <ul className="mt-1.5 space-y-1">{archived.map((m) => (
+                  <li key={m.id}><button onClick={() => setSel(m.id)} aria-pressed={sel === m.id}
+                    className={cn("w-full rounded-lg border px-2.5 py-1.5 text-left text-sm", sel === m.id ? "border-ink bg-white" : "border-line bg-white/40")}>
+                    <span className="block truncate">{m.title}</span>
+                    <span className="text-xs text-muted">{when(m)}</span></button></li>))}</ul>
+              </details>
             )}
             {list && list.status.queued > 0 && <p className="mt-2 text-xs text-muted">{list.status.queued} waiting to be transcribed.</p>}
             {list && list.status.summaries_queued > 0 && <p className="mt-1 text-xs text-muted">

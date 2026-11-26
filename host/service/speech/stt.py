@@ -1,11 +1,48 @@
 """faster-whisper speech-to-text (D10): lazy model load, CUDA when usable, else CPU int8."""
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
+import sys
 import threading
 from typing import Any
 
 log = logging.getLogger("pip.stt")
+
+
+def _add_cuda_dlls() -> None:
+    """faster-whisper (CTranslate2 4.x) needs CUDA 12 cuBLAS + cuDNN 9 for the GPU. On Windows they come as pip
+    wheels (nvidia-cublas-cu12, nvidia-cudnn-cu12) whose DLLs sit in site-packages/nvidia/*/bin - not on the DLL
+    search path, so CUDA fell back to the CPU ("cublas64_12.dll is not found"). Put them there before loading."""
+    if sys.platform != "win32":
+        return
+    try:
+        import nvidia  # namespace package from the wheels
+    except ImportError:
+        return
+    for base in getattr(nvidia, "__path__", []):
+        for sub in ("cublas", "cudnn", "cuda_nvrtc"):
+            dll_dir = os.path.join(base, sub, "bin")
+            if os.path.isdir(dll_dir) and dll_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
+                with contextlib.suppress(OSError):
+                    os.add_dll_directory(dll_dir)
+
+
+_add_cuda_dlls()
+
+
+def cuda_usable() -> bool:
+    """A CUDA GPU CTranslate2 can see, and no failed CUDA load in this process."""
+    if "cuda" in _DEVICE_FAILED:
+        return False
+    try:
+        import ctranslate2
+
+        return int(ctranslate2.get_cuda_device_count()) > 0
+    except Exception:
+        return False
 # Once CUDA has failed in this process, never try it again: a second CUDA attempt after a failed one (missing
 # cuBLAS) hung inside ctranslate2 forever, which froze the meeting transcriber's model load.
 _DEVICE_FAILED: set[str] = set()

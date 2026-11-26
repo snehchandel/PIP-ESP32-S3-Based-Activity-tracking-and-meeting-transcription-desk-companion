@@ -1,4 +1,4 @@
-import { AlarmClock, Bell, ListTodo, Repeat } from "lucide-react";
+import { AlarmClock, Bell, ListTodo, Repeat, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { CalItem, DayItems } from "../api/types";
@@ -11,12 +11,13 @@ import { cn, todayIso } from "../lib/utils";
 const HOUR_PX = 64;
 const SNAP = 15;
 const DRAG_START_PX = 4;
-const KIND_ICON = [ListTodo, Bell, AlarmClock];
-const KIND_NAME = ["Task", "Reminder", "Alarm"];
+const KIND_ICON = [ListTodo, Bell, AlarmClock, Users];
+const KIND_NAME = ["Task", "Reminder", "Alarm", "From a meeting (not decided yet)"];
 const KIND_STYLE = [
   "border-l-ink bg-[#eef0f3] text-ink",
   "border-l-sage bg-sage-soft text-ink",
   "border-l-amber bg-amber-soft text-amber-ink",
+  "border border-dashed border-[#8b7fd6] border-l-[#6d5fc7] bg-white text-ink",
 ];
 const ALLDAY_SHOWN = 3;
 

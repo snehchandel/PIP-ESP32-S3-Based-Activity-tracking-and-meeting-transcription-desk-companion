@@ -28,7 +28,8 @@ class MeetingRepo:
 
     def update(self, mid: str, **fields: Any) -> bool:
         allowed = {"title", "ended_at", "duration_s", "status", "progress", "error", "notes", "summary_json", "gaps_s",
-                   "audio_path", "summary_status", "summary_engine", "summary_error", "vault_note"}
+                   "audio_path", "summary_status", "summary_engine", "summary_error", "vault_note", "archived",
+                   "archived_at"}
         cols = {k: v for k, v in fields.items() if k in allowed}
         if not cols:
             return False
@@ -110,7 +111,7 @@ class MeetingRepo:
 
     def search(self, match: str, limit: int = 20, meeting_id: str | None = None) -> list[dict[str, Any]]:
         """FTS5 query `match` -> best hits first (summary parts weigh more than a single line of talk)."""
-        where = "meeting_fts MATCH ?" + (" AND meeting_fts.meeting_id = ?" if meeting_id else "")
+        where = "meeting_fts MATCH ? AND m.archived = 0" + (" AND meeting_fts.meeting_id = ?" if meeting_id else "")
         args: tuple[Any, ...] = (match, meeting_id, limit) if meeting_id else (match, limit)
         rows = self.db.query(
             "SELECT meeting_fts.meeting_id AS meeting_id, meeting_fts.kind AS kind, meeting_fts.start_s AS start_s, "

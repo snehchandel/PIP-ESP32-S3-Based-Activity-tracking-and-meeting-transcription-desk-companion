@@ -130,7 +130,14 @@ host**.
   add a missed speaker, or tell PIP how many people were there and **Detect again**. Right after transcription the
   PC writes a **summary**, decisions, action items and topics itself (local AI, free, nothing leaves the PC; see
   *Meetings: summaries, Obsidian and questions* below). **Redo on this PC** makes it again; **Kimi** asks Kimi
-  instead (uses your AI budget). **Park action items** puts the ones not yet parked or done in Parked tangents.
+  instead (uses your AI budget). The summary starts with the **Outcome** (how the meeting ended) and has **Key
+  points** with times you can click. **Action items:** each shows whose it is (*yours* when the owner is you —
+  Settings → Meetings → *Your name in meetings*), the deadline as said and the date PIP worked out from the meeting's
+  date (change it if it's wrong). Tick items (yours are pre-ticked) and choose **Make tasks** (on that date),
+  **Reminders** (a ping at that date and time), **Park**, or **Not for me**. Items with a date also appear on the
+  **Calendar** as dashed "from meeting" blocks until you decide — click one to decide there, or drag it to another
+  day. **Archive** keeps a meeting but leaves it out of search, questions, action items and the calendar (Restore
+  brings it back); archived meetings are listed at the bottom.
   **Ask your meetings** (top of the page) answers questions across every meeting — *"Who is sending the Q3 budget?"*
   — with links to where it was said; **Find** just lists the matching lines (no AI at all).
   **Export** as Markdown, TXT, SRT subtitles or JSON, or download the audio. **Import audio** transcribes a recording
@@ -158,7 +165,10 @@ host**.
   download finishes; **Use** switches between downloaded models; the bin removes one from disk (not the one in
   use). Any other model from ollama.com/library can be typed in below the list. Until then summaries show *"local AI not running"* and
   you can still use **Kimi** per meeting. **After each transcription** can be set to *Summarise on this PC*
-  (default), *Summarise with Kimi* or *Don't summarise*. PIP never switches to Kimi by itself.
+  (default), *Summarise with Kimi* or *Don't summarise*. PIP never switches to Kimi by itself. **Summary quality:**
+  *Careful* (default, about 2 minutes per meeting: it double-checks every action item against what was said) or
+  *Fast* (one pass, about 40 seconds). **Meeting speech-to-text:** *Automatic* uses the most accurate model your
+  GPU can run (`large-v3-turbo` on an NVIDIA card).
 - **Several things at once.** Transcriptions always go first: a summary waits for them, and a long meeting is
   summarised in parts so it can pause between parts and continue later without redoing work. While PIP is
   listening to or transcribing a voice command, summaries wait too. A one-hour meeting takes about a minute on a

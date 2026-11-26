@@ -62,9 +62,9 @@ async def ask_meetings(body: AskIn, req: Request) -> dict[str, Any]:
 
 
 @router.get("/meetings/actions")
-def meeting_actions(req: Request) -> dict[str, Any]:
-    """Every action item from every summarised meeting, open first."""
-    return {"items": svc(req).meetings.action_items()}
+def meeting_actions(req: Request, archived: bool = False) -> dict[str, Any]:
+    """Every action item from every summarised meeting: undecided first, mine first."""
+    return {"items": svc(req).meetings.action_items(include_archived=archived), "my_name": svc(req).my_name()}
 
 
 @router.post("/meetings/vault/sync")
@@ -204,22 +204,75 @@ async def summarize(mid: str, req: Request, engine: str = "local") -> dict[str, 
         raise HTTPException(409, str(e)) from e
 
 
+class ParkIn(BaseModel):
+    indexes: list[int] | None = None  # which action items; default: every undecided one
+
+
 @router.post("/meetings/{mid}/park-actions")
-def park_actions(mid: str, req: Request) -> dict[str, Any]:
-    """Send the summary's action items to Parked tangents, so nothing promised in the meeting gets lost."""
+def park_actions(mid: str, req: Request, body: ParkIn | None = None) -> dict[str, Any]:
+    """Send chosen (default: all undecided) action items to Parked tangents - each one only once."""
     s = svc(req)
     m = _meeting(req, mid)
     items = (m.get("summary") or {}).get("action_items") or []
     if not items:
         raise HTTPException(409, "summarize the meeting first")
-    todo = [(i, a) for i, a in enumerate(items) if not a.get("parked") and not a.get("done")]  # never twice
-    ids = [s.manager.tasks.park(str(a["task"])[:64], f"From meeting '{m['title']}': {a['task']}"
-                                + (f" (owner: {a['owner']})" if a.get("owner") else "")
-                                + (f" (due: {a['due']})" if a.get("due") else "")) for _, a in todo]
-    if todo:
-        s.meetings.mark_parked(mid, [i for i, _ in todo])
-        s.manager.changed()
-    return {"parked_ids": ids}
+    wanted = body.indexes if body and body.indexes is not None else range(len(items))
+    picks = [{"index": i, "as": "park"} for i in wanted
+             if 0 <= i < len(items) and items[i].get("status", "new") == "new" and not items[i].get("parked")
+             and not items[i].get("done")]
+    made = s.meetings.convert_actions(mid, picks)
+    return {"parked_ids": [x["id"] for x in made]}
+
+
+class ActionPatch(BaseModel):
+    task: str | None = Field(default=None, min_length=2, max_length=200)
+    owner: str | None = Field(default=None, max_length=60)
+    due_date: str | None = Field(default=None, pattern=r"^(\d{4}-\d{2}-\d{2})?$")  # "" clears it
+    due_time: str | None = Field(default=None, pattern=r"^(\d{2}:\d{2})?$")
+    status: str | None = Field(default=None, pattern="^(new|dismissed)$")  # task/reminder/parked come from convert
+    done: bool | None = None
+
+
+@router.patch("/meetings/{mid}/actions/{index}")
+def patch_action(mid: str, index: int, body: ActionPatch, req: Request) -> dict[str, Any]:
+    _meeting(req, mid)
+    fields = {k: (v or None) if k in ("due_date", "due_time", "owner") else v
+              for k, v in body.model_dump(exclude_unset=True).items()}
+    try:
+        return svc(req).meetings.update_action(mid, index, **fields)
+    except KeyError as e:
+        raise HTTPException(404, "action item not found") from e
+
+
+class Pick(BaseModel):
+    index: int = Field(ge=0)
+    as_: str = Field(alias="as", pattern="^(task|reminder|park)$")
+    date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+
+
+class ConvertIn(BaseModel):
+    items: list[Pick] = Field(min_length=1, max_length=50)
+
+
+@router.post("/meetings/{mid}/actions/convert")
+def convert_actions(mid: str, body: ConvertIn, req: Request) -> dict[str, Any]:
+    """Make chosen action items into tasks (on their date), reminders (date + time) or parked tangents."""
+    _meeting(req, mid)
+    picks = [{"index": p.index, "as": p.as_, "date": p.date, "time": p.time} for p in body.items]
+    return {"made": svc(req).meetings.convert_actions(mid, picks)}
+
+
+class ArchiveIn(BaseModel):
+    archived: bool = True
+
+
+@router.post("/meetings/{mid}/archive")
+def archive_meeting(mid: str, body: ArchiveIn, req: Request) -> dict[str, Any]:
+    """Archive (or restore) a meeting: kept on the PC, left out of search, questions, action lists, calendar."""
+    _meeting(req, mid)
+    svc(req).meetings.archive(mid, body.archived)
+    return {"archived": body.archived}
 
 
 @router.get("/meetings/{mid}/export")
@@ -293,7 +346,12 @@ def _meeting_settings(req: Request) -> dict[str, Any]:
     s = svc(req)
     p = s.settings.prefs()
     vault = str(p.get("obsidian_vault") or "")
+    from ..speech.stt import cuda_usable
     return {"summary_mode": s.meeting_summary_mode(), "summary_modes": list(SUMMARY_MODES),
+            "summary_quality": s.meeting_summary_quality(), "my_name": s.my_name(),
+            "my_name_set": bool(str(p.get("my_name") or "").strip()),
+            "speech_model": str(p.get("meeting_stt_model") or "auto"), "speech_model_active": s.meeting_stt_model(),
+            "speech_models": list(s.MEETING_STT_MODELS), "gpu_speech": cuda_usable(),
             "local_ai": s.local_ai.status(),
             "obsidian": {"vault": vault, "folder": str(p.get("obsidian_folder") or DEFAULT_FOLDER),
                          "enabled": s.vault() is not None, "detected": detected_vaults()}}
@@ -309,6 +367,9 @@ class MeetingSettingsIn(BaseModel):
     local_ai_model: str | None = Field(default=None, min_length=2, max_length=80, pattern=r"^[\w.:/-]+$")
     obsidian_vault: str | None = Field(default=None, max_length=400)  # "" turns the vault off
     obsidian_folder: str | None = Field(default=None, min_length=1, max_length=60)
+    summary_quality: str | None = Field(default=None, pattern="^(careful|fast)$")
+    my_name: str | None = Field(default=None, max_length=60)  # "" = guess from the voices
+    speech_model: str | None = Field(default=None, pattern="^(auto|small.en|medium.en|large-v3-turbo|large-v3)$")
 
 
 @router.put("/settings/meetings")
@@ -328,6 +389,17 @@ def set_meeting_settings(body: MeetingSettingsIn, req: Request) -> dict[str, Any
         s.settings.save_prefs(meeting_summary=body.summary_mode)
     if body.local_ai_model is not None:
         s.settings.save_prefs(local_ai_model=body.local_ai_model)
+    if body.summary_quality is not None:
+        s.settings.save_prefs(meeting_summary_quality=body.summary_quality)
+    if body.speech_model is not None:
+        s.settings.save_prefs(meeting_stt_model=body.speech_model)
+        stt = s.meetings.stt
+        if getattr(stt, "model_name", None) != s.meeting_stt_model():
+            stt.unload()  # loaded again, with the new model, by the next transcription
+            stt.model_name = s.meeting_stt_model()
+    if body.my_name is not None:
+        s.settings.save_prefs(my_name=" ".join(body.my_name.split()) or "")
+        threading.Thread(target=s.meetings.reenrich_all, name="pip-mine", daemon=True).start()
     if vault_changed and s.vault() is not None:  # write every meeting there now, in the background
         threading.Thread(target=s.meetings.sync_vault_all, name="pip-vault-sync", daemon=True).start()
     return _meeting_settings(req)

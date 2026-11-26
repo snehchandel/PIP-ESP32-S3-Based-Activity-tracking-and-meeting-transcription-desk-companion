@@ -1,0 +1,4 @@
+# Optional: NVIDIA GPU speech-to-text on Windows (faster-whisper / CTranslate2 4.x needs CUDA 12 cuBLAS + cuDNN 9).
+# ~1 GB. speech/stt.py puts their DLL folders on the search path; without them Whisper runs on the CPU.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10

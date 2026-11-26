@@ -187,11 +187,22 @@ def dismiss(req: Request) -> dict[str, bool]:
 
 
 @router.get("/calendar")
-def calendar(req: Request, start: date, days: int = 7) -> list[dict[str, Any]]:
-    m = svc(req).manager
+def calendar(req: Request, start: date, days: int = 7, others: bool = False) -> list[dict[str, Any]]:
+    """Tasks, reminders, alarms - plus meeting action items that have a date and are still undecided (kind 3:
+    the user's own and unowned ones; `others=true` adds other people's)."""
+    from ..meetings.actions import calendar_items
+
+    s = svc(req)
+    m = s.manager
+    days = min(days, 42)
     tasks, rems, alarms = m.tasks.list_tasks(), m.tasks.reminders(include_done=True), m.alarms.list()
-    return [{"date": (start + timedelta(days=i)).isoformat(),
-             "items": day_items(tasks, rems, alarms, start + timedelta(days=i), m.tz)} for i in range(min(days, 42))]
+    from_meetings = calendar_items(s.meetings.repo.all_with_summaries(), start, days, others)
+    out = []
+    for i in range(days):
+        d = start + timedelta(days=i)
+        items = day_items(tasks, rems, alarms, d, m.tz) + from_meetings.get(d.isoformat(), [])
+        out.append({"date": d.isoformat(), "items": items})
+    return out
 
 
 @router.get("/device/framebuffer.png")

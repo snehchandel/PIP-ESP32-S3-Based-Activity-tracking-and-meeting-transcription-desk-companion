@@ -93,10 +93,14 @@ How to break a task into steps (hard rules):
 JSON schema: {schema}"""
 
 MEETING_PROMPT = """You read meeting transcripts for an ADHD-friendly assistant. Reply with ONE JSON object only:
-{"title": "<what the meeting was about, max 60 chars>", "summary": "<3-6 plain sentences: purpose, what was
-discussed, outcome>", "decisions": ["<each decision made>"], "action_items": [{"task": "<concrete next action>",
-"owner": "<speaker name if said, else null>", "due": "<deadline if said, else null>"}],
-"topics": ["<2-6 short noun phrases naming the subjects discussed, not people>"]}
+{"key_points": ["<[mm:ss] who said or concluded what - 6-12 points covering the whole meeting>"],
+"topics": ["<3-7 short noun phrases naming the subjects discussed, not people>"],
+"decisions": ["<each thing agreed, concluded or ruled out - not facts, not tasks>"],
+"action_items": [{"said_at": "<mm:ss>", "task": "<concrete next action: verb + object>",
+"owner": "<who will do it, else null>", "due": "<deadline words exactly as said, else null>"}],
+"outcome": "<1-2 sentences: how the meeting ended, what was concluded>",
+"summary": "<4-7 plain sentences: purpose, main threads with who said what, outcome>",
+"title": "<what the meeting was about, max 60 chars>"}
 Use the speaker names from the transcript. Only include decisions and action items that were actually said.
 No markdown, no emojis."""
 

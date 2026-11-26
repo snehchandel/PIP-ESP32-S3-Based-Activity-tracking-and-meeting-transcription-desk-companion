@@ -6,15 +6,37 @@ answer HTTP 400 to the "think" switch like Ollama does for models that don't rea
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 SUMMARY = {"title": "Budget review", "summary": "The team went over the Q3 budget and agreed next steps.",
-           "decisions": ["Present to the client on Friday"],
-           "action_items": [{"task": "Send the Q3 budget", "owner": "Sam", "due": "Friday"}],
-           "topics": ["Q3 budget", "Client deck"]}
+           "decisions": [{"said_at": "00:02", "decision": "Present to the client on Friday"}],
+           "action_items": [{"said_at": "00:02", "task": "Send the Q3 budget", "owner": "Sam", "due": "Friday"}],
+           "topics": ["Q3 budget", "Client deck"], "key_points": ["[00:02] Sam will send the Q3 budget"],
+           "outcome": "They agreed to present on Friday."}
+
+
+def answer(schema: dict[str, Any] | None, user: str) -> dict[str, Any] | str:
+    """What a model would return for each step: summary, part notes, commitments scan, check, write-up."""
+    if schema is None:
+        return "Sam will send the Q3 budget by Friday [Budget chat @ 00:02]."
+    props = set(schema.get("properties", {}))
+    if "checks" in props:  # keep every candidate, owner as given
+        return {"checks": [{"id": int(m.group(1)), "keep": True, "text": "",
+                            "owner": (re.search(r"owner: (\w+)", m.group(0)) or [None, None])[1], "due": None}
+                           for m in re.finditer(r"Candidate (\d+) \((?:action|decision)\):[^\n]*", user)]}
+    if props == {"decisions", "action_items"}:
+        return {"decisions": [], "action_items": []}
+    if "outcome" in props and "key_points" not in props:
+        return {"outcome": SUMMARY["outcome"], "summary": SUMMARY["summary"], "title": SUMMARY["title"]}
+    if "summary" not in props:  # notes on one part of a long meeting
+        first = next((ln for ln in user.splitlines() if ln.startswith("[")), "")
+        return {"key_points": [first[:60]], "decisions": [], "topics": ["Q3 budget"],
+                "action_items": [{"said_at": first[1:6], "task": "Send the Q3 budget", "owner": "Sam", "due": None}]}
+    return dict(SUMMARY)
 
 
 class FakeOllama:
@@ -77,17 +99,9 @@ class FakeOllama:
                 fake.chats.append(req)
                 if fake.delay:
                     time.sleep(fake.delay)
-                fmt = req.get("format")
                 user = req["messages"][-1]["content"]
-                if fmt is None:  # a question
-                    content = "Sam will send the Q3 budget by Friday [Budget chat @ 00:02]."
-                elif "points" in fmt.get("properties", {}):  # notes on one part of a long meeting
-                    first = next((ln for ln in user.splitlines() if ln.startswith("[")), "")
-                    content = json.dumps({"points": [f"{first[:60]}"], "decisions": [],
-                                          "action_items": [{"task": "Send the Q3 budget", "owner": "Sam", "due": None}],
-                                          "topics": ["Q3 budget"]})
-                else:
-                    content = json.dumps(SUMMARY)
+                out = answer(req.get("format"), user)
+                content = out if isinstance(out, str) else json.dumps(out)
                 self._send(200, {"message": {"role": "assistant", "content": content}, "done": True,
                                  "prompt_eval_count": len(user) // 4, "eval_count": len(content) // 4})
 

@@ -23,14 +23,22 @@ export interface Parked {
 export type MeetingStatus = "RECORDING" | "QUEUED" | "TRANSCRIBING" | "READY" | "FAILED";
 export interface Speaker { key: string; name: string; profile_id: string | null; auto: boolean; segments: number; talk_s: number }
 export interface Segment { id: number; idx: number; start_s: number; end_s: number; text: string; speaker_key: string }
-export interface ActionItem { task: string; owner: string | null; due: string | null; done?: boolean; parked?: boolean }
-export interface MeetingSummary { title: string; summary: string; decisions: string[]; action_items: ActionItem[]; topics?: string[] }
+export type ActionStatus = "new" | "task" | "reminder" | "parked" | "dismissed";
+export interface ActionItem {
+  task: string; owner: string | null; due: string | null; said_at?: string | null; done?: boolean; parked?: boolean;
+  due_date?: string | null; due_time?: string | null; due_exact?: boolean; due_user?: boolean;
+  status?: ActionStatus; ref_id?: string | null; mine?: boolean;
+}
+export interface MeetingSummary {
+  title: string; summary: string; decisions: string[]; action_items: ActionItem[]; topics?: string[];
+  key_points?: string[]; outcome?: string;
+}
 export type SummaryStatus = "NONE" | "QUEUED" | "SUMMARIZING" | "READY" | "FAILED";
 export interface Meeting {
   id: string; title: string; started_at: string; ended_at: string | null; duration_s: number; timezone: string;
   status: MeetingStatus; source: "DEVICE" | "IMPORT"; progress: number; error: string | null; notes: string | null;
   gaps_s: number; summary_status: SummaryStatus; summary_engine: string | null; summary_error: string | null;
-  vault_note: string | null;
+  vault_note: string | null; archived?: number;
 }
 export interface MeetingListItem extends Meeting { has_summary: boolean; speaker_names: string[]; segment_count: number }
 export interface MeetingList {
@@ -66,6 +74,8 @@ export interface MeetingSettings {
   local_ai: { running: boolean; url: string; model: string; model_ready: boolean; models: string[]; detail: string;
     pull: { active: boolean; model: string; status: string; error: string } };
   obsidian: { vault: string; folder: string; enabled: boolean; detected: string[] };
+  summary_quality: "careful" | "fast"; my_name: string; my_name_set: boolean;
+  speech_model: string; speech_model_active: string; speech_models: string[]; gpu_speech: boolean;
 }
 export interface VoiceProfile { id: string; name: string; samples: number; updated_at: string }
 export interface Reminder { id: string; title: string; due_utc: string; timezone: string; done: number }
@@ -115,6 +125,8 @@ export interface PlanResult {
 export interface CalItem {
   id: string; title: string; hhmm: string; kind: number; done: boolean; active: boolean;
   duration_min: number; recurring?: boolean;
+  // kind 3: an undecided action item from a meeting
+  meeting_id?: string; meeting?: string; index?: number; owner?: string | null; mine?: boolean; exact?: boolean;
 }
 export interface DayItems { date: string; items: CalItem[] }
 

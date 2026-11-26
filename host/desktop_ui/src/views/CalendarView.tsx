@@ -11,7 +11,7 @@ import { Badge, Card, Input, Label, PageHeader, Select } from "../components/ui/
 import { cn, todayIso } from "../lib/utils";
 
 type Mode = "month" | "week" | "day";
-const KIND = ["Task", "Reminder", "Alarm"];
+const KIND = ["Task", "Reminder", "Alarm", "From meeting"];
 
 function addDays(iso: string, n: number): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -30,6 +30,50 @@ function rangeFor(mode: Mode, anchor: string): [string, number] {
 
 /* The editor sits at the top of the sticky side panel, right next to the grid (on narrow windows it floats over the
    bottom of the screen), so the block being edited stays in view: no scrolling away from the calendar. */
+/* An action item from a meeting that has a date but no decision yet: move its date, or make it a task, a reminder
+   or a parked tangent, or dismiss it - right here on the calendar. */
+function MeetingItemEditor({ item, date, onDone }: { item: CalItem; date: string; onDone: () => void }) {
+  const { run } = useLive();
+  const nav = useNavigate();
+  const [d, setD] = useState(date);
+  const [t, setT] = useState(item.hhmm);
+  const mid = item.meeting_id ?? "";
+  const idx = item.index ?? 0;
+  const make = async (as: "task" | "reminder" | "park") => {
+    await run(() => api.convertActions(mid, [{ index: idx, as, date: d, ...(t ? { time: t } : {}) }]));
+    onDone();
+  };
+  return (
+    <section aria-label={`Decide ${item.title}`} className="rounded-2xl border border-dashed border-[#6d5fc7] bg-white p-4
+      max-xl:fixed max-xl:inset-x-4 max-xl:bottom-4 max-xl:z-40 max-xl:mx-auto max-xl:max-w-lg max-xl:shadow-xl">
+      <div className="mb-1 flex items-center gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">From a meeting</p>
+        {item.mine ? <Badge tone="sage">yours</Badge> : item.owner ? <Badge>{item.owner}</Badge> : <Badge>no owner</Badge>}
+        <Button size="icon" variant="ghost" className="ml-auto -mr-2 -mt-1 h-7 w-7" aria-label="Close" onClick={onDone}>
+          <X size={15} aria-hidden /></Button>
+      </div>
+      <p className="mb-1 break-words font-semibold leading-snug">{item.title}</p>
+      <p className="mb-3 text-xs text-muted">{item.meeting}{item.exact === false ? " · approximate date" : ""}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div><Label htmlFor="mi-date">Date</Label><Input id="mi-date" type="date" value={d} onChange={(e) => setD(e.target.value)} /></div>
+        <div><Label htmlFor="mi-time">Time (optional)</Label><Input id="mi-time" type="time" value={t} onChange={(e) => setT(e.target.value)} /></div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button size="sm" variant="primary" onClick={() => void make("task")}>Make task</Button>
+        <Button size="sm" onClick={() => void make("reminder")}>Make reminder</Button>
+        <Button size="sm" onClick={() => void make("park")}>Park</Button>
+        {(d !== date || t !== item.hhmm) && <Button size="sm" variant="ghost" onClick={async () => {
+          await run(() => api.patchAction(mid, idx, { due_date: d, due_time: t })); onDone(); }}>Just move it</Button>}
+      </div>
+      <div className="mt-2 flex gap-2 border-t border-line pt-2">
+        <Button size="sm" variant="ghost" onClick={async () => { await run(() => api.patchAction(mid, idx, { status: "dismissed" })); onDone(); }}>
+          Not for me</Button>
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => nav("/meetings")}>Open meetings</Button>
+      </div>
+    </section>
+  );
+}
+
 function ItemEditor({ item, date, onDone }: { item: CalItem; date: string; onDone: () => void }) {
   const { run } = useLive();
   const nav = useNavigate();
@@ -95,9 +139,10 @@ export default function CalendarView() {
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<"task" | "reminder">("task");
   const [time, setTime] = useState("");
+  const [others, setOthers] = useState(false);
   const [start, count] = rangeFor(mode, anchor);
 
-  const load = useCallback(() => api.calendar(start, count).then(setDays).catch(() => undefined), [start, count]);
+  const load = useCallback(() => api.calendar(start, count, others).then(setDays).catch(() => undefined), [start, count, others]);
   useEffect(() => { void load(); }, [load, state?.revision]);
 
   const step = mode === "month" ? 30 : mode === "week" ? 7 : 1;
@@ -110,6 +155,8 @@ export default function CalendarView() {
       await run(() => api.patchTask(item.id, { target_date: date, start_hhmm: hhmm, ...(resized ? { block_min: minutes } : {}) }));
     } else if (item.kind === 1) {
       await run(() => api.patchReminder(item.id, { due_local: `${date}T${hhmm}` }));
+    } else if (item.kind === 3 && item.meeting_id) {
+      await run(() => api.patchAction(item.meeting_id ?? "", item.index ?? 0, { due_date: date, due_time: hhmm }));
     }
     setSelected(date);
     void load();
@@ -139,6 +186,9 @@ export default function CalendarView() {
           <Button size="icon" aria-label="Previous" onClick={() => setAnchor(addDays(anchor, -step))}><ChevronLeft size={16} /></Button>
           <Button size="sm" onClick={() => { setAnchor(todayIso()); setSelected(todayIso()); }}>Today</Button>
           <Button size="icon" aria-label="Next" onClick={() => setAnchor(addDays(anchor, step))}><ChevronRight size={16} /></Button>
+          <label className="ml-2 flex items-center gap-1.5 text-xs text-muted" title="Action items from meetings that belong to other people">
+            <input type="checkbox" aria-label="Show other people's action items from meetings" checked={others}
+              onChange={(e) => setOthers(e.target.checked)} /> Others' meeting items</label>
         </div>} />
       {/* Outlook-style: the grid and a sticky side panel (editor, the selected day, add) sit side by side in every mode,
           so editing an event never means scrolling away from the calendar. */}
@@ -159,7 +209,8 @@ export default function CalendarView() {
                       {d.items.slice(0, 4).map((i) => (
                         <span key={i.id} title={i.title}
                           className={cn("block truncate rounded-[4px] border-l-[3px] px-1 py-px text-xs",
-                            ["border-l-ink bg-[#eef0f3]", "border-l-sage bg-sage-soft", "border-l-amber bg-amber-soft"][i.kind],
+                            ["border-l-ink bg-[#eef0f3]", "border-l-sage bg-sage-soft", "border-l-amber bg-amber-soft",
+                              "border border-dashed border-[#8b7fd6] border-l-[#6d5fc7] bg-white"][i.kind],
                             i.done && "text-muted line-through opacity-60")}>
                           {i.hhmm ? <span className="tabular font-semibold">{i.hhmm} </span> : null}{i.title}</span>))}
                       {d.items.length > 4 && <span className="block text-xs font-semibold text-muted">+{d.items.length - 4} more</span>}
@@ -176,8 +227,11 @@ export default function CalendarView() {
           )}
         </Card>
         <aside aria-label="Day details" className="min-w-0 space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
-          {editing && <ItemEditor key={`${editing.item.id}|${editing.date}|${editing.item.hhmm}`} item={editing.item}
-            date={editing.date} onDone={closeEditor} />}
+          {editing && (editing.item.kind === 3
+            ? <MeetingItemEditor key={`${editing.item.id}|${editing.date}|${editing.item.hhmm}`} item={editing.item}
+                date={editing.date} onDone={closeEditor} />
+            : <ItemEditor key={`${editing.item.id}|${editing.date}|${editing.item.hhmm}`} item={editing.item}
+                date={editing.date} onDone={closeEditor} />)}
           <Card aria-label="Selected day" className="p-4">
             <h2 className="mb-3 text-[15px] font-bold">{new Date(`${selected}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
               <span className="ml-2 text-xs font-normal text-muted">{sel?.items.length ?? 0} item{(sel?.items.length ?? 0) === 1 ? "" : "s"}</span></h2>
@@ -208,7 +262,8 @@ export default function CalendarView() {
                 <Button type="submit" variant="primary" disabled={!title.trim()}><Plus size={16} aria-hidden /> Add</Button>
               </div>
               <p className="text-xs text-muted">Tip: click any hour in Week or Day view to schedule there. Click a block to
-                edit it here; drag it to move it; drag a task's top or bottom edge to change its length.</p>
+                edit it here; drag it to move it; drag a task's top or bottom edge to change its length. Dashed blocks are
+                action items from meetings you haven't decided on yet.</p>
             </form>
           </Card>
         </aside>

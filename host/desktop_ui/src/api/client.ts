@@ -64,7 +64,8 @@ export const api = {
   dismissParked: (id: string) => req<unknown>("DELETE", `/parked/${id}`),
   confirm: () => req<unknown>("POST", "/confirmation/confirm", {}),
   dismissConfirm: () => req<unknown>("POST", "/confirmation/dismiss"),
-  calendar: (start: string, days: number) => req<DayItems[]>("GET", `/calendar?start=${start}&days=${days}`),
+  calendar: (start: string, days: number, others = false) =>
+    req<DayItems[]>("GET", `/calendar?start=${start}&days=${days}${others ? "&others=true" : ""}`),
   simulateButton: (button: "KEY" | "BOOT", gesture: "SHORT" | "DOUBLE" | "HOLD", hold_ms = 0) =>
     req<unknown>("POST", "/device/simulate-button", { button, gesture, hold_ms }),
   diagnostics: () => req<{ linked: boolean; transport: string; diag: Record<string, unknown> | null }>(
@@ -131,12 +132,19 @@ export const api = {
   meetingActions: () => req<{ items: MeetingActionRow[] }>("GET", "/meetings/actions"),
   syncVault: () => req<{ written: number }>("POST", "/meetings/vault/sync"),
   meetingSettings: () => req<MeetingSettings>("GET", "/settings/meetings"),
-  setMeetingSettings: (body: { summary_mode?: string; local_ai_model?: string; obsidian_vault?: string; obsidian_folder?: string }) =>
+  setMeetingSettings: (body: { summary_mode?: string; local_ai_model?: string; obsidian_vault?: string; obsidian_folder?: string;
+    summary_quality?: string; my_name?: string; speech_model?: string }) =>
     req<MeetingSettings>("PUT", "/settings/meetings", body),
   localModels: () => req<LocalModels>("GET", "/settings/local-ai/models"),
   pullLocalModel: (model: string, use: boolean) => req<LocalModels>("POST", "/settings/local-ai/pull", { model, use }),
   removeLocalModel: (name: string) => req<LocalModels>("DELETE", `/settings/local-ai/models?name=${encodeURIComponent(name)}`),
-  parkMeetingActions: (id: string) => req<{ parked_ids: string[] }>("POST", `/meetings/${id}/park-actions`),
+  parkMeetingActions: (id: string, indexes?: number[]) =>
+    req<{ parked_ids: string[] }>("POST", `/meetings/${id}/park-actions`, indexes ? { indexes } : undefined),
+  patchAction: (id: string, index: number, body: { task?: string; owner?: string; due_date?: string; due_time?: string;
+    status?: "new" | "dismissed"; done?: boolean }) => req<unknown>("PATCH", `/meetings/${id}/actions/${index}`, body),
+  convertActions: (id: string, items: { index: number; as: "task" | "reminder" | "park"; date?: string; time?: string }[]) =>
+    req<{ made: { index: number; as: string; id: string }[] }>("POST", `/meetings/${id}/actions/convert`, { items }),
+  archiveMeeting: (id: string, archived: boolean) => req<unknown>("POST", `/meetings/${id}/archive`, { archived }),
   meetingExportUrl: (id: string, format: "md" | "txt" | "srt" | "json") => `${BASE}/meetings/${id}/export?format=${format}`,
   meetingAudioUrl: (id: string, download = false) => `${BASE}/meetings/${id}/audio${download ? "?download=true" : ""}`,
   importMeeting: async (file: File, title: string): Promise<{ id: string }> => {

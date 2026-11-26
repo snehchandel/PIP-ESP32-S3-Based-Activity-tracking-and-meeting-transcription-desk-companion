@@ -177,6 +177,10 @@ storage are Windows-specific.
    ```powershell
    python -m venv .venv; .\.venv\Scripts\pip install -r host/requirements.txt
    ```
+   With an NVIDIA GPU, also install the CUDA libraries so speech-to-text runs on the GPU (about 1 GB):
+   ```powershell
+   .\.venv\Scripts\pip install -r host/requirements-gpu.txt
+   ```
    ```powershell
    cd host/desktop_ui; npm install; npm run build; cd ../..
    ```

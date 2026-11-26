@@ -61,7 +61,7 @@ alarms it already knows, offline event log) and reconciles idempotently when the
 
 | Path | What lives there |
 |---|---|
-| `host/service/meetings/` | Meeting recorder/transcriber + the one worker that also runs summaries (`service.py`), speaker detection + remembered voices (`diarize.py`, numpy only), storage + FTS5 search index (`store.py`), exports md/txt/srt/json (`export.py`), local AI client for Ollama (`local_ai.py`) + the model catalog matched to the PC's GPU/RAM (`models.py`), part-by-part summaries (`summarize.py`), Obsidian vault writer (`obsidian.py`), questions by retrieval (`ask.py`). Recordings: `data/meetings/<id>.wav`. |
+| `host/service/meetings/` | Meeting recorder/transcriber + the one worker that also runs summaries (`service.py`), speaker detection + remembered voices (`diarize.py`, numpy only), storage + FTS5 search index (`store.py`), exports md/txt/srt/json (`export.py`), local AI client for Ollama (`local_ai.py`) + the model catalog matched to the PC's GPU/RAM (`models.py`), summaries (`summarize.py`: one pass up to ~1 h; careful mode = think + scan + check + write-up), deadline words -> dates (`due.py`), action-item triage + calendar items (`actions.py`), Obsidian vault writer (`obsidian.py`), questions by retrieval (`ask.py`). Recordings: `data/meetings/<id>.wav`. |
 | `firmware/main/` | ESP-IDF app. `app_main.c` = FreeRTOS wiring (tasks, adapters, link routing). `app_controller.c/.h`, `app_gestures.c`, `app_frames.c`, `app_report.c` = **portable** state coordinator (also compiled into the simulator and C tests). `dev_config.c` (NVS settings), `net_link.c` (Wi-Fi + TCP server + mDNS + HMAC auth), `dev_ota.c` (firmware updates), `dev_wake.c` (wake word) are ESP-only. |
 | `firmware/components/ui_core/` | 1-bit renderer: primitives (`ui_draw*.c`), fonts (`fonts_gen.c`, generated), icons, header/bar chrome (`ui_chrome.c`), screens (`ui_screens_a/b/c.c`), PIP rig drawing (`ui_mascot.c`), props (`ui_props.c`), slide transitions (`ui_slide.c`), animated weather icons (`ui_weather.c`), layout constants (`include/ui_layout.h`), the UI model (`include/ui_model.h`). |
 | `firmware/components/mascot_renderer/` | PIP rig geometry + scene engine (`mascot.c`) and choreography (`mascot_acts.c`): per-screen act libraries, 2-hour no-repeat history, reactions. Pure C, no drawing. |
@@ -219,12 +219,18 @@ on 20 ms idle with a partial frame.
   and yield between parts to a new transcription or a voice command (overlay LISTENING/TRANSCRIBING). A failed
   local summary never falls back to Kimi. Each meeting is written to the Obsidian vault (prefs `obsidian_vault`,
   `obsidian_folder`): note + transcript + index + action items; user text under the marker and ticks survive.
+  Careful mode (default), action-item triage and archive: ADR-032. Action items: `PATCH /meetings/{id}/actions/{i}`,
+  `POST /meetings/{id}/actions/convert` (task/reminder/park), `POST /meetings/{id}/archive`; `/calendar` adds undecided
+  dated items as kind 3 (`others=true` for other people's). Ollama needs `OLLAMA_FLASH_ATTENTION=1` and
+  `OLLAMA_KV_CACHE_TYPE=q8_0` (user env) for the 16k context on the 8 GB GPU. Meeting speech: `large-v3-turbo` on the
+  GPU (CUDA wheels `nvidia-cublas-cu12`/`nvidia-cudnn-cu12`, DLL path set in `speech/stt.py`).
   `GET /meetings/search` (FTS5, no AI), `POST /meetings/ask` (retrieval, ~1.5k tokens), `GET /meetings/actions`,
   Settings `GET/PUT /settings/meetings`, `POST /settings/local-ai/pull`. Tests use `tests/support/fake_ollama.py`
   and conftest points `PIP_LOCAL_AI_URL` at a closed port so a real Ollama is never touched.
 - **Nudges** (`alarms/nudges.py`, ADR-029): due reminders and task start times -> toast + chime + speech.
   Personal vocabulary (prefs `vocabulary`) feeds Whisper `hotwords` and the Kimi request.
-- **Speech:** faster-whisper `small.en` (CPU int8; CUDA falls back), Piper voices in `data/voices`. Spoken alarms
+- **Speech:** faster-whisper `small.en` for voice (CUDA float16 when the cuBLAS/cuDNN wheels load, else CPU int8),
+  Piper voices in `data/voices`. Spoken alarms
   are pre-rendered to `data/alarm_audio/` at creation; ring sequence = device chime → script → chimes every
   2.5 s for 60 s, aborted the moment the alarm is dismissed.
 - **Device link** (`device/link.py`): `make_transport()` → `AutoTransport` (USB when plugged in, else Wi-Fi to the
@@ -239,7 +245,7 @@ on 20 ms idle with a partial frame.
   Kimi model, preferences), ai (usage, budget, prices), weather, device (diagnostics, framebuffer.png, network,
   wifi, wake, wake/test, simulate-button), firmware (status, upload, update), error/dismiss, diagnostics/export.
   WebSocket: `/ws/events`.
-- **DB:** SQLite WAL, migrations `storage/migrations/NNN_*.sql` applied in order (current: 001–007). Add a new
+- **DB:** SQLite WAL, migrations `storage/migrations/NNN_*.sql` applied in order (current: 001–008). Add a new
   numbered file; never edit an applied one.
 
 ---
@@ -347,9 +353,10 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
   end-of-speech timing in a real room, a slide transition and a full prop trip watched on the panel (needs a
   real button press / a minute of idle play; `simulate-button` is simulator-only).
-- Local meeting summaries / Obsidian / questions (ADR-031): verified with unit tests and the Playwright flow against a
-  fake Ollama (`tests/support/fake_ollama.py`). Not yet run against a real Ollama model on this PC (Ollama is not
-  installed here); summary quality of an 8B model on a real meeting is untested.
+- Local meeting summaries / Obsidian / questions (ADR-031/032): unit tests + Playwright against a fake Ollama, and
+  tuned on two real meetings with Ollama 0.40 + qwen3:8b on the RTX 3070 (careful ~2 min per meeting). Quality is
+  close to Kimi's but varies run to run (ADR-032). `test_voices_are_told_apart[voices2]` fails about 1 run in 4:
+  Piper synthesis is random (noise sampling), not a diarization change.
 - To exercise the app over Wi-Fi while the cable stays plugged in, start the host with `PIP_TRANSPORT=wifi`.
 - Wake word: stock Espressif words only; a custom "Hey PIP" needs a trained model (paid service) or a PC-side
   detector (rejected by the user in favour of on-device privacy).

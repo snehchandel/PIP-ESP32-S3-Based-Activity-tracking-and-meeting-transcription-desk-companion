@@ -19,7 +19,8 @@ import httpx
 log = logging.getLogger("pip.local_ai")
 DEFAULT_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen3:8b"
-NUM_CTX = 8192          # tokens of context per call: fits an 8B model + its cache in 8 GB of VRAM
+NUM_CTX = 8192          # default tokens of context per call (callers size it to the prompt, up to MAX_CTX)
+MAX_CTX = 16384         # an 8B model + a 16k q8_0 cache fit fully in 8 GB of VRAM (OLLAMA_KV_CACHE_TYPE=q8_0)
 KEEP_ALIVE = "2m"       # Ollama frees the model this long after the last call (VRAM back for Whisper)
 UsageSink = Callable[[str, str, dict[str, Any]], None]
 
@@ -82,15 +83,19 @@ class LocalAI:
 
     # ---- calls -------------------------------------------------------------------------------------
     def _chat(self, messages: list[dict[str, str]], purpose: str, fmt: dict[str, Any] | None,
-              max_out: int) -> str:
+              max_out: int, num_ctx: int = NUM_CTX, think: bool = False) -> str:
+        # Sampling: factual and steady without thinking (temperature 0.2, top_p 0.85); with thinking, Qwen's own
+        # advice (0.6 / 0.95 / top_k 20) - greedy decoding makes reasoning models loop.
+        opts = ({"temperature": 0.6, "top_p": 0.95, "top_k": 20} if think else
+                {"temperature": 0.2, "top_p": 0.85, "top_k": 20})
         body: dict[str, Any] = {
             "model": self.model, "messages": messages, "stream": False, "keep_alive": KEEP_ALIVE,
-            "options": {"temperature": 0.2, "num_ctx": NUM_CTX, "num_predict": max_out},
+            "options": {**opts, "num_ctx": min(MAX_CTX, max(2048, num_ctx)), "num_predict": max_out},
         }
         if fmt is not None:
             body["format"] = fmt
         if self.model not in self._no_think:
-            body["think"] = False  # reasoning models (qwen3...) answer straight away: faster, far fewer tokens
+            body["think"] = think  # off: reasoning models (qwen3...) answer at once - faster, far fewer tokens
         try:
             r = self.client.post(f"{self.base_url}/api/chat", json=body)
             if r.status_code == 400 and "think" in body and "think" in r.text.lower():
@@ -119,20 +124,29 @@ class LocalAI:
         return content
 
     def chat_json(self, system: str, user: str, schema: dict[str, Any], purpose: str,
-                  max_out: int = 1200) -> dict[str, Any]:
+                  max_out: int = 1200, num_ctx: int = NUM_CTX, think: bool = False) -> dict[str, Any]:
         content = self._chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                             purpose, schema, max_out)
+                             purpose, schema, max_out, num_ctx, think)
+        if think and not content.strip():  # thinking used up the token budget: answer without it
+            content = self._chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
+                                 purpose, schema, max_out, num_ctx, False)
         try:
             out = json.loads(content)
-        except ValueError as e:
-            raise LocalAIError("local AI returned broken JSON") from e
+        except ValueError:
+            # cut off or looping (seen once in ~20 real runs): one more try, without thinking, a little more room
+            content = self._chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
+                                 purpose, schema, int(max_out * 1.3), num_ctx, False)
+            try:
+                out = json.loads(content)
+            except ValueError as e:
+                raise LocalAIError("local AI returned broken JSON") from e
         if not isinstance(out, dict):
             raise LocalAIError("local AI returned JSON that is not an object")
         return out
 
-    def chat_text(self, system: str, user: str, purpose: str, max_out: int = 700) -> str:
+    def chat_text(self, system: str, user: str, purpose: str, max_out: int = 700, num_ctx: int = NUM_CTX) -> str:
         return self._chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                          purpose, None, max_out).strip()
+                          purpose, None, max_out, num_ctx).strip()
 
     def unload(self) -> None:
         """Free the model's (V)RAM now instead of after KEEP_ALIVE (best effort)."""

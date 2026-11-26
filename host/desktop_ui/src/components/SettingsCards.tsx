@@ -195,6 +195,26 @@ export function MeetingAiCard() {
         <option value="kimi">Summarise with Kimi (uses your AI budget)</option>
         <option value="off">Don't summarise</option>
       </Select>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div><Label htmlFor="sum-quality">Summary quality (on this PC)</Label>
+          <Select id="sum-quality" value={m.summary_quality} onChange={(e) => void save({ summary_quality: e.target.value })}>
+            <option value="careful">Careful (~2 min, checks items)</option>
+            <option value="fast">Fast (~40 s, one pass)</option>
+          </Select></div>
+        <div><Label htmlFor="my-name">Your name in meetings</Label>
+          <Input id="my-name" defaultValue={m.my_name_set ? m.my_name : ""} placeholder={m.my_name ? `${m.my_name} (guessed)` : "e.g. Alex"}
+            onBlur={(e) => { if (e.target.value.trim() !== (m.my_name_set ? m.my_name : "")) void save({ my_name: e.target.value.trim() }, "Updated which action items are yours."); }} /></div>
+      </div>
+      <p className="mt-1 text-xs text-muted">Your own action items are marked "yours", pre-selected and shown on the Calendar.</p>
+      <div className="mt-3"><Label htmlFor="speech-model">Meeting speech-to-text</Label>
+        <Select id="speech-model" value={m.speech_model} onChange={(e) => void save({ speech_model: e.target.value })}>
+          <option value="auto">Automatic ({m.speech_model === "auto" ? m.speech_model_active : "best for this PC"})</option>
+          <option value="large-v3-turbo">large-v3-turbo (most accurate; GPU)</option>
+          <option value="medium.en">medium.en</option>
+          <option value="small.en">small.en (fastest on CPU)</option>
+        </Select>
+        <p className="mt-1 text-xs text-muted">{m.gpu_speech ? "Your NVIDIA GPU is used for speech: an hour of meeting in about 1-2 minutes."
+          : "No usable GPU for speech: transcription runs on the CPU."}</p></div>
       <div className="mt-3 rounded-xl border border-line bg-paper-2 p-3 text-sm">
         <p className="flex flex-wrap items-center gap-2">
           <span className="font-semibold">Local AI</span>

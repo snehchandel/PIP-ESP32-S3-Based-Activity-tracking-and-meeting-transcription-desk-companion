@@ -35,8 +35,10 @@ import numpy as np
 
 from .. import errors
 from ..calendar.agenda import day_items
+from ..planner.step_templates import steps_for
 from ..speech.stt import SpeechToText
 from ..state.manager import DeviceStateManager
+from . import actions as act_mod
 from . import ask as ask_mod
 from . import diarize
 from .export import FORMATS, filename, render
@@ -157,7 +159,10 @@ class MeetingService:
                  local_ai: LocalAI | None = None, summary_mode: Callable[[], str] = lambda: "off",
                  vault: Callable[[], ObsidianVault | None] = lambda: None,
                  vocabulary: Callable[[], list[str]] | None = None,
-                 voice_busy: Callable[[], bool] = lambda: False) -> None:
+                 voice_busy: Callable[[], bool] = lambda: False,
+                 summary_quality: Callable[[], str] = lambda: "careful",
+                 my_name: Callable[[], str] = lambda: "",
+                 refine_task: Callable[[str, str], None] = lambda tid, title: None) -> None:
         self.m = manager
         self.repo = MeetingRepo(manager.db)
         self.dir = data_dir / "meetings"
@@ -169,6 +174,9 @@ class MeetingService:
         self.vault = vault            # the Obsidian vault to write meetings into, or None
         self.vocabulary = vocabulary or (lambda: list(getattr(self.stt, "vocabulary", [])))
         self.voice_busy = voice_busy  # a voice command is being captured / transcribed right now
+        self.summary_quality = summary_quality  # "careful" (default: think + check + write-up) | "fast"
+        self.my_name = my_name        # the user's name as a speaker: whose action items are "mine"
+        self.refine_task = refine_task  # a task made from an action item gets Kimi's steps (like any new task)
         self._rec: dict[int, _Recording] = {}
         self._q: queue.Queue[tuple[str, int | None]] = queue.Queue()  # transcriptions (always first)
         self._sq: list[str] = []      # local summaries waiting for the transcriptions to finish
@@ -431,15 +439,18 @@ class MeetingService:
         data = summarize_local(self.local_ai, m, self.repo.segments(mid), self._context(m),
                                notes=self._partial.setdefault(mid, {}),
                                should_yield=lambda: not self._q.empty() or (patient and self.voice_busy()),
-                               on_progress=progress)
+                               on_progress=progress, careful=self.summary_quality() != "fast",
+                               user_name=self.my_name())
         self._save_summary(mid, data, self.local_ai.engine)
         log.info("meeting %s summarised on this PC (%s)", mid, self.local_ai.engine)
 
     def _context(self, m: dict[str, Any]) -> str:
         people = [sp["name"] for sp in m.get("speakers", [])]
         words = self.vocabulary()
+        day = act_mod.meeting_day(m)
         return "\n".join(x for x in (f"Speakers: {', '.join(people)}" if people else "",
-                                     f"Words the user uses (spellings): {', '.join(words)}" if words else "") if x)
+                                     f"Spellings of names and terms: {', '.join(words)}" if words else "",
+                                     f"Meeting date: {day.strftime('%A %Y-%m-%d')}") if x)
 
     def _read(self, path: Path, start_s: float, end_s: float) -> np.ndarray:
         a, b = int(start_s * SR), int(end_s * SR)
@@ -592,11 +603,16 @@ class MeetingService:
         m = self.repo.get(mid)
         if m is None:
             return data
-        old = {a["task"].strip().lower(): a for a in (m.get("summary") or {}).get("action_items") or []}
-        for a in data.get("action_items") or []:  # a redone summary keeps what was ticked or parked
-            prev = old.get(a["task"].strip().lower())
+        old = (m.get("summary") or {}).get("action_items") or []
+        for a in data.get("action_items") or []:  # a redone summary keeps what the user did with an item
+            prev = next((o for o in old if o["task"].strip().lower() == a["task"].strip().lower()), None)
             if prev:
-                a["done"], a["parked"] = bool(prev.get("done")), bool(prev.get("parked"))
+                for k in ("done", "parked", "status", "ref_id"):
+                    if prev.get(k) is not None:
+                        a[k] = prev[k]
+                if prev.get("due_user"):
+                    a.update(due_user=True, due_date=prev.get("due_date"), due_time=prev.get("due_time"))
+        act_mod.enrich(data, m, self.my_name())
         self.repo.update(mid, summary_json=json.dumps(data), summary_status="READY", summary_engine=engine,
                          summary_error=None)
         if data.get("title") and m["title"].startswith("Meeting · "):
@@ -676,14 +692,94 @@ class MeetingService:
         out["engine"] = local.engine
         return out
 
-    def action_items(self) -> list[dict[str, Any]]:
-        """Every action item of every meeting (open first, newest meeting first)."""
+    def action_items(self, include_archived: bool = False) -> list[dict[str, Any]]:
+        """Every action item of every meeting: undecided first, mine first, newest meeting first."""
         out = []
         for m in self.repo.all_with_summaries():
+            if m.get("archived") and not include_archived:
+                continue
             for i, a in enumerate((m.get("summary") or {}).get("action_items") or []):
                 out.append({**a, "index": i, "meeting_id": m["id"], "meeting": m["title"],
                             "started_at": m["started_at"]})
-        return sorted(out, key=lambda a: bool(a.get("done")))
+        return sorted(out, key=lambda a: (bool(a.get("done")), a.get("status", "new") != "new", not a.get("mine")))
+
+    def update_action(self, mid: str, index: int, **fields: Any) -> dict[str, Any]:
+        """Edit one action item: task, owner, due_date/due_time (marks it as set by the user), status, done."""
+        m = self.repo.get(mid)
+        items = ((m or {}).get("summary") or {}).get("action_items") or []
+        if m is None or not 0 <= index < len(items):
+            raise KeyError(index)
+        a = items[index]
+        if "due_date" in fields or "due_time" in fields:
+            a["due_user"] = True
+        for k in ("task", "owner", "due_date", "due_time", "status", "done"):
+            if k in fields:
+                a[k] = fields[k]
+        if "owner" in fields:
+            a["mine"] = act_mod.is_mine(a.get("owner"), self.my_name())
+        self.repo.update(mid, summary_json=json.dumps(m["summary"]))
+        self.notify("meeting_updated", {"id": mid, "status": m["status"]})
+        self.touched(mid)
+        self.m.changed()  # the calendar shows dated items
+        return a
+
+    def convert_actions(self, mid: str, picks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Turn chosen action items into a task (on its date, else today), a reminder (date + time, 09:00 when no
+        time was said) or a parked tangent. picks: {index, as: task|reminder|park, date?, time?}. Each item is
+        converted once; returns what was made."""
+        m = self.repo.get(mid)
+        items = ((m or {}).get("summary") or {}).get("action_items") or []
+        if m is None:
+            raise KeyError(mid)
+        tz = self.m.tz
+        made = []
+        for p in picks:
+            i, kind = int(p["index"]), str(p["as"])
+            if not 0 <= i < len(items) or items[i].get("status", "new") not in ("new", "dismissed"):
+                continue
+            a = items[i]
+            day = str(p.get("date") or a.get("due_date") or datetime.now(tz).date().isoformat())
+            hhmm = p.get("time") or a.get("due_time")
+            note = f"From meeting '{m['title']}'" + (f" (owner: {a['owner']})" if a.get("owner") else "") + \
+                (f" (due: {a['due']})" if a.get("due") else "")
+            if kind == "task":
+                ref = self.m.tasks.create_task(a["task"][:120], steps_for(a["task"]), day, tz.key, start_hhmm=hhmm or None)
+                self.refine_task(ref, a["task"])
+            elif kind == "reminder":
+                local = datetime.fromisoformat(f"{day}T{hhmm or '09:00'}").replace(tzinfo=tz)
+                ref = self.m.tasks.add_reminder(a["task"][:120], utc_iso(local), tz.key, note)
+            elif kind == "park":
+                ref = self.m.tasks.park(a["task"][:64], f"{note}: {a['task']}")
+                a["parked"] = True
+            else:
+                continue
+            a.update(status={"park": "parked"}.get(kind, kind), ref_id=ref)
+            if p.get("date"):
+                a.update(due_date=day, due_user=True)
+            made.append({"index": i, "as": kind, "id": ref})
+        if made:
+            self.repo.update(mid, summary_json=json.dumps(m["summary"]))
+            self.m.changed()
+            self.notify("meeting_updated", {"id": mid, "status": m["status"]})
+            self.touched(mid)
+        return made
+
+    def reenrich_all(self) -> None:
+        """"Your name" changed: recompute which action items are mine (dates the user set stay)."""
+        for m in self.repo.all_with_summaries():
+            if m.get("summary"):
+                act_mod.enrich(m["summary"], m, self.my_name())
+                self.repo.update(m["id"], summary_json=json.dumps(m["summary"]))
+        self.m.changed()
+
+    def archive(self, mid: str, archived: bool = True) -> None:
+        """Archived meetings keep everything but leave search, questions, action lists and the calendar."""
+        if self.repo.get(mid) is None:
+            raise KeyError(mid)
+        self.repo.update(mid, archived=int(archived), archived_at=utc_iso(datetime.now(UTC)) if archived else None)
+        self.touched(mid)
+        self.m.changed()
+        self.notify("meeting_updated", {"id": mid, "status": "READY", "archived": archived})
 
     def mark_parked(self, mid: str, indexes: list[int]) -> None:
         m = self.repo.get(mid)

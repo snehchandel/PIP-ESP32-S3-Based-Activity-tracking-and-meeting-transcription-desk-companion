@@ -16,7 +16,7 @@ from service.meetings.local_ai import LocalAI
 from service.meetings.obsidian import MARK, ObsidianVault, safe_name
 from service.meetings.service import MeetingService, wav_header
 
-from tests.support.fake_ollama import SUMMARY, FakeOllama
+from tests.support.fake_ollama import SUMMARY, FakeOllama, answer
 from tests.support.meeting_audio import ScriptedSegmentsSTT
 
 
@@ -25,6 +25,7 @@ class ScriptedLLM:  # test double for LocalAI: records calls, answers like a mod
 
     def __init__(self, on_call: Any = None) -> None:
         self.calls: list[tuple[str, str]] = []  # (purpose, user text)
+        self.ctx: list[int] = []
         self.on_call = on_call
         self.unloads = 0
 
@@ -34,16 +35,17 @@ class ScriptedLLM:  # test double for LocalAI: records calls, answers like a mod
     def unload(self) -> None:
         self.unloads += 1
 
-    def chat_json(self, system: str, user: str, schema: dict[str, Any], purpose: str, max_out: int = 1200) -> dict[str, Any]:
+    def chat_json(self, system: str, user: str, schema: dict[str, Any], purpose: str, max_out: int = 1200,
+                  num_ctx: int = 8192, think: bool = False) -> dict[str, Any]:
         self.calls.append((purpose, user))
+        self.ctx.append(num_ctx)
         if self.on_call:
             self.on_call(len(self.calls), purpose)
-        if "points" in schema["properties"]:
-            return {"points": [user.splitlines()[3][:50]], "decisions": [], "topics": ["Q3 budget"],
-                    "action_items": [{"task": "Send the Q3 budget", "owner": "Sam", "due": None}]}
-        return dict(SUMMARY)
+        out = answer(schema, user)
+        assert isinstance(out, dict)
+        return out
 
-    def chat_text(self, system: str, user: str, purpose: str, max_out: int = 700) -> str:
+    def chat_text(self, system: str, user: str, purpose: str, max_out: int = 700, num_ctx: int = 8192) -> str:
         self.calls.append((purpose, user))
         return "Sam sends the Q3 budget [Budget chat @ 00:02]."
 
@@ -59,7 +61,7 @@ def _meeting(svc: MeetingService, title: str, lines: list[tuple[str, str]], gap:
     return mid
 
 
-def _long(n: int = 150) -> list[tuple[str, str]]:
+def _long(n: int = 260) -> list[tuple[str, str]]:  # ~62k characters: more than one pass holds
     words = "we went through the numbers for the quarter and what each team needs next " * 3
     return [("Ana" if i % 2 else "Sam", f"Point {i}: {words}") for i in range(n)]
 
@@ -78,26 +80,44 @@ def test_chunks_follow_turns_and_clean_repairs_model_output() -> None:
                       "action_items": [{"task": "Do it", "owner": "null", "due": ""}, {"task": "do it"}, "junk"],
                       "topics": ["#Budget", "budget", "[[Hiring]]"]}, "Weekly")
     assert out["title"] == "Weekly" and out["summary"] == "Fine." and out["decisions"] == ["Ship it"]
-    assert out["action_items"] == [{"task": "Do it", "owner": None, "due": None, "done": False, "parked": False}]
+    a = out["action_items"]
+    assert len(a) == 1 and {k: a[0][k] for k in ("task", "owner", "due", "status")} == \
+        {"task": "Do it", "owner": None, "due": None, "status": "new"}
     assert out["topics"] == ["Budget", "Hiring"]
+    # placeholders, owners matched to speakers, decisions that only repeat a task, statements posing as tasks
+    out = summ.clean({"title": "Sync", "summary": "Short.", "decisions": ["Send the deck to Lee", "Morgan confirms the scope",
+                                                                  "No formal decision was made", "Ship on Friday"],
+                      "action_items": [{"task": "send the deck to Lee", "owner": "jordan", "due": "Not specified"},
+                                       {"task": "The printer issue does not affect customers", "owner": "Lee"},
+                                       {"task": "Alex should consider a new tool", "owner": "Alex"},
+                                       {"task": "Book the room", "owner": "team", "due": "Friday"}]}, "Sync", ["Jordan"])
+    assert [(x["task"], x["owner"], x["due"]) for x in out["action_items"]] == \
+        [("Send the deck to Lee", "Jordan", None), ("Book the room", "Everyone", "Friday")]
+    assert out["decisions"] == ["Ship on Friday"]
+    assert summ.tidy("um so we we we uh need the, uh, deck") == "so we need the, deck"
 
 
 def test_long_meeting_is_summarised_part_by_part_then_merged(manager, tmp_path) -> None:  # type: ignore[no-untyped-def]
     llm = ScriptedLLM()
     svc = _service(manager, tmp_path, llm)
     mid = _meeting(svc, "Planning", _long())
-    data = summ.summarize(llm, svc.repo.get(mid), svc.repo.segments(mid))
+    data = summ.summarize(llm, svc.repo.get(mid), svc.repo.segments(mid), careful=False)
     purposes = [p for p, _ in llm.calls]
     assert purposes[:-1] == ["meeting_notes"] * (len(purposes) - 1) and purposes[-1] == "meeting_summary"
-    assert len(purposes) >= 4  # >= 3 parts + the merge
-    assert all(len(u) < summ.CHUNK_CHARS + 300 for _, u in llm.calls)  # each call fits a small model's context
+    assert len(purposes) >= 3  # >= 2 parts + the merge
+    assert all(c <= summ.CTX_MAX for c in llm.ctx)  # every call fits the 16k context on the GPU
     merge = llm.calls[-1][1]
     assert "Part 1/" in merge and len(merge) < 3000  # the merge reads notes, not the transcript
     assert data["title"] == "Budget review" and data["topics"] == ["Q3 budget", "Client deck"]
+    # careful (the default): one pass, then the commitments scan, the check against the transcript, the write-up
     short = _meeting(svc, "Quick", [("Ana", "Hi"), ("Sam", "I'll send the Q3 budget.")])
     llm.calls.clear()
-    summ.summarize(llm, svc.repo.get(short), svc.repo.segments(short))
-    assert [p for p, _ in llm.calls] == ["meeting_summary"]  # short meetings: one call
+    llm.ctx.clear()
+    out = summ.summarize(llm, svc.repo.get(short), svc.repo.segments(short))
+    assert [p for p, _ in llm.calls] == ["meeting_summary", "meeting_scan", "meeting_verify", "meeting_writeup"]
+    assert llm.calls[0][1].split("TASK")[0] == llm.calls[1][1].split("TASK")[0]  # shared prefix: cached by Ollama
+    assert "### Section 1" in llm.calls[0][1] and llm.ctx[0] < summ.CTX_MAX  # sized to the prompt
+    assert out["outcome"] == "They agreed to present on Friday." and out["action_items"][0]["said_at"] == "00:02"
 
 
 # ---- sharing the machine ----------------------------------------------------------------------------------
@@ -114,7 +134,7 @@ def test_new_transcription_goes_first_and_the_summary_resumes_where_it_stopped(m
             box["b"] = svc.import_audio(wav, "Meeting B", datetime(2026, 11, 24, 16, tzinfo=UTC))
 
     llm = ScriptedLLM(on_call)
-    svc = _service(manager, tmp_path, llm, summary_mode=lambda: "local")
+    svc = _service(manager, tmp_path, llm, summary_mode=lambda: "local", summary_quality=lambda: "fast")
     stt = svc.stt
     orig = stt.transcribe_segments
 
@@ -241,7 +261,10 @@ def test_app_summarises_on_this_pc_writes_obsidian_and_answers(tmp_path) -> None
         m = c.get(f"/api/v1/meetings/{mid}").json()
         assert m["summary_status"] == "READY" and m["summary_engine"] == "local/qwen3:8b"
         assert m["summary"]["topics"] == ["Q3 budget", "Client deck"]
-        assert ollama.chats[-1]["think"] is False and ollama.chats[-1]["format"]["required"][0] == "title"
+        main = next(c for c in ollama.chats if "key_points" in c["format"]["properties"])
+        scan = next(c for c in ollama.chats if set(c["format"]["properties"]) == {"decisions", "action_items"})
+        assert main["think"] is True and scan["think"] is False  # careful: thinks once, the scan is quick
+        assert main["options"]["num_ctx"] <= 16384 and main["options"]["temperature"] == 0.6
         assert (vault / m["vault_note"]).exists() and (vault / "PIP Meetings/Meetings index.md").exists()
         hits = c.get("/api/v1/meetings/search?q=budget").json()["hits"]
         assert hits[0]["meeting_id"] == mid
