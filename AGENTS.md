@@ -2,7 +2,7 @@
 
 Read this before changing anything. It is the map of the project for an AI coding agent (or a new developer):
 what PIP is, how the pieces fit, how to build/test/flash, the rules that must not be broken, and the lessons
-already paid for. Deeper references: `docs/decisions.md` (ADRs), `debugging_log.md` (BUG-xxx post-mortems),
+already paid for. Deeper references: `docs/decisions.md` (ADRs), `debugging_log.md` (BUG-xxx post-mortems; local only, like `development_journal.md`),
 `docs/USER_MANUAL.md` (user-facing behaviour), `esp32-s3-rlcd-development-plan-v6.md` (original spec; local only, not in the repository).
 
 ---

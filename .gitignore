@@ -37,5 +37,7 @@ tools/pip.ico
 artifacts/rlcd/hardware/
 artifacts/firmware_size.txt
 
-# Original development plan - kept locally, never committed
+# Original development plan, development journal, debugging log - kept locally, never committed
 esp32-s3-rlcd-development-plan*.md
+development_journal.md
+debugging_log.md

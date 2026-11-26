@@ -260,5 +260,4 @@ Most preferences are set in the app (saved in `data/settings.json`). Environment
 | `python tools/verify_desktop_ui.py` | Playwright end-to-end tests of the app against the simulator |
 | `python tools/check_guardrails.py --skip-builds` | no mocks in production code, no secrets, every protocol frame tested |
 
-For contributors and AI coding agents: start with [AGENTS.md](AGENTS.md). Bug history is in
-[debugging_log.md](debugging_log.md).
+For contributors and AI coding agents: start with [AGENTS.md](AGENTS.md).
