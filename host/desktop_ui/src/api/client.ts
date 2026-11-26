@@ -1,4 +1,4 @@
-import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingActionRow, MeetingAnswer, MeetingDetail, MeetingHit, MeetingList, MeetingSettings, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
+import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingActionRow, MeetingAnswer, MeetingDetail, MeetingHit, MeetingList, MeetingSettings, LocalModels, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
 
 const BASE = "/api/v1";
 
@@ -133,7 +133,9 @@ export const api = {
   meetingSettings: () => req<MeetingSettings>("GET", "/settings/meetings"),
   setMeetingSettings: (body: { summary_mode?: string; local_ai_model?: string; obsidian_vault?: string; obsidian_folder?: string }) =>
     req<MeetingSettings>("PUT", "/settings/meetings", body),
-  pullLocalModel: () => req<MeetingSettings>("POST", "/settings/local-ai/pull"),
+  localModels: () => req<LocalModels>("GET", "/settings/local-ai/models"),
+  pullLocalModel: (model: string, use: boolean) => req<LocalModels>("POST", "/settings/local-ai/pull", { model, use }),
+  removeLocalModel: (name: string) => req<LocalModels>("DELETE", `/settings/local-ai/models?name=${encodeURIComponent(name)}`),
   parkMeetingActions: (id: string) => req<{ parked_ids: string[] }>("POST", `/meetings/${id}/park-actions`),
   meetingExportUrl: (id: string, format: "md" | "txt" | "srt" | "json") => `${BASE}/meetings/${id}/export?format=${format}`,
   meetingAudioUrl: (id: string, download = false) => `${BASE}/meetings/${id}/audio${download ? "?download=true" : ""}`,

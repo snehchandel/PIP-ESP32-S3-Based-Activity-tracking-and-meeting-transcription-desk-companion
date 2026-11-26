@@ -258,3 +258,58 @@ def test_app_summarises_on_this_pc_writes_obsidian_and_answers(tmp_path) -> None
         assert m["summary_status"] == "FAILED" and m["summary"]["title"] == "Budget review"  # the old one stays
         assert c.post("/api/v1/meetings/ask", json={"question": "Who sends the budget?"}).status_code == 503
     ollama.close()
+
+
+# ---- choosing the local model ---------------------------------------------------------------------------
+def test_model_catalog_is_matched_to_the_pc() -> None:
+    from service.meetings import models
+    laptop = {"gpu": "RTX laptop", "vram_gb": 8.0, "ram_gb": 14.0}
+    rows = {r["name"]: r for r in models.listing([{"name": "qwen3:8b", "size": 5_200_000_000}], "qwen3:8b", laptop)["catalog"]}
+    assert rows["qwen3:8b"]["fit"] == "gpu" and rows["qwen3:8b"]["installed"] and rows["qwen3:8b"]["in_use"]
+    assert rows["qwen3:8b"]["recommended"] and rows["qwen3:14b"]["fit"] == "mixed" and rows["qwen3:32b"]["fit"] == "too_big"
+    assert models.listing([], "x", {"gpu": "", "vram_gb": 0, "ram_gb": 16})["recommended"] == "qwen3:4b"  # CPU: small
+    assert models.listing([], "x", {"gpu": "big", "vram_gb": 24, "ram_gb": 64})["recommended"] == "qwen3:14b"
+    other = models.listing([{"name": "mistral:latest", "size": 0}, {"name": "my-model:q4", "size": 0}], "my-model:q4", laptop)
+    assert [(o["name"], o["in_use"]) for o in other["other_installed"]] == [("mistral:latest", False), ("my-model:q4", True)]
+    assert {r["name"]: r for r in other["catalog"]}["mistral:7b"]["installed"] is False
+    assert models.same_model("mistral", "mistral:latest") and not models.same_model("qwen3:8b", "qwen3:4b")
+
+
+def test_user_picks_downloads_switches_and_removes_models(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    ollama = FakeOllama(models=["qwen3:8b", "my-model:q4"])
+    s = Settings(pip_db_path=str(tmp_path / "t.db"), pip_transport="none", pip_use_keyring=False,
+                 pip_stt_preload=False, pip_weather=False, pip_prefs_path=str(tmp_path / "prefs.json"),
+                 pip_local_ai_url=ollama.url)
+    with TestClient(create_app(s)) as c:
+        d = c.get("/api/v1/settings/local-ai/models").json()
+        assert d["running"] and d["current"] == "qwen3:8b" and len(d["catalog"]) >= 15
+        assert [o["name"] for o in d["other_installed"]] == ["my-model:q4"]
+        assert {"gpu", "vram_gb", "ram_gb"} <= set(d["hardware"])
+        # download another model and switch to it once it is there
+        assert c.post("/api/v1/settings/local-ai/pull", json={"model": "qwen3:4b", "use": True}).status_code == 200
+        deadline = time.monotonic() + 10
+        while c.get("/api/v1/settings/local-ai/models").json()["pull"]["active"] and time.monotonic() < deadline:
+            time.sleep(0.05)
+        d = c.get("/api/v1/settings/local-ai/models").json()
+        assert d["current"] == "qwen3:4b" and d["pull"]["percent"] == 100
+        assert {r["name"]: r for r in d["catalog"]}["qwen3:4b"]["in_use"]
+        assert c.post("/api/v1/settings/local-ai/pull", json={"model": "bad name!"}).status_code == 422
+        # the model in use can't be removed; another one can
+        assert c.delete("/api/v1/settings/local-ai/models?name=qwen3:4b").status_code == 409
+        assert c.delete("/api/v1/settings/local-ai/models?name=qwen3:8b").status_code == 200
+        assert ollama.deleted == ["qwen3:8b"]
+        assert c.delete("/api/v1/settings/local-ai/models?name=qwen3:8b").status_code == 409  # already gone
+        # switch to a downloaded model outside the catalog
+        assert c.put("/api/v1/settings/meetings", json={"local_ai_model": "my-model:q4"}).json()["local_ai"]["model_ready"]
+    ollama.close()
+
+
+def test_models_without_a_think_switch_still_work() -> None:
+    ollama = FakeOllama(models=["llama3.1:8b"])
+    ollama.no_think.add("llama3.1:8b")
+    ai = LocalAI(ollama.url, "llama3.1:8b")
+    assert ai.chat_json("sys", "user", summ.SUMMARY_SCHEMA, "t")["title"] == "Budget review"
+    assert "think" not in ollama.chats[-1]
+    ai.chat_text("sys", "q", "t")  # remembered: no failed first try any more
+    assert len(ollama.chats) == 2 and "think" not in ollama.chats[-1]
+    ollama.close()

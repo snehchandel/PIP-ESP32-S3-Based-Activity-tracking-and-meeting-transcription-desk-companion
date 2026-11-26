@@ -50,6 +50,17 @@ export interface MeetingAnswer {
   sources: { meeting_id: string; title: string; date: string; kind: string; start_s: number | null; at: string }[];
 }
 export interface MeetingActionRow extends ActionItem { index: number; meeting_id: string; meeting: string; started_at: string }
+export type LocalModelFit = "gpu" | "mixed" | "cpu" | "too_big";
+export interface LocalModel {
+  name: string; family: string; params: string; size_gb: number; quality: number; note: string;
+  installed: boolean; fit: LocalModelFit; in_use: boolean; recommended: boolean;
+}
+export interface LocalModels {
+  catalog: LocalModel[]; other_installed: { name: string; size_gb: number; in_use: boolean; fit: LocalModelFit }[];
+  recommended: string | null; current: string; running: boolean;
+  hardware: { gpu: string; vram_gb: number; ram_gb: number };
+  pull: { active: boolean; model: string; status: string; error: string; percent: number | null };
+}
 export interface MeetingSettings {
   summary_mode: "local" | "kimi" | "off"; summary_modes: string[];
   local_ai: { running: boolean; url: string; model: string; model_ready: boolean; models: string[]; detail: string;

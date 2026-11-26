@@ -3,6 +3,7 @@ questions across meetings, action items, Obsidian vault, exports, audio, voices;
 from __future__ import annotations
 
 import asyncio
+import re
 import tempfile
 import threading
 from pathlib import Path
@@ -12,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from ..meetings import models as model_catalog
 from ..meetings.local_ai import LocalAIError
 from ..meetings.obsidian import DEFAULT_FOLDER, detected_vaults
 from ..meetings.service import SUMMARY_MODES
@@ -331,12 +333,50 @@ def set_meeting_settings(body: MeetingSettingsIn, req: Request) -> dict[str, Any
     return _meeting_settings(req)
 
 
-@router.post("/settings/local-ai/pull")
-def pull_local_model(req: Request) -> dict[str, Any]:
-    """Download the chosen local AI model through Ollama (several GB; progress in GET /settings/meetings)."""
+MODEL_NAME = r"^[\w][\w.:/-]{1,79}$"  # an Ollama model name, e.g. qwen3:8b or hf.co/org/model:Q4_K_M
+
+
+@router.get("/settings/local-ai/models")
+def local_models(req: Request) -> dict[str, Any]:
+    """Models to choose from: the curated catalog marked downloaded / fits this PC / recommended / in use, plus any
+    other downloaded model, the PC's GPU and RAM, and the download in progress."""
     s = svc(req)
+    try:
+        installed, running = s.local_ai.installed(), True
+    except LocalAIError:
+        installed, running = [], False
+    out = model_catalog.listing(installed, s.local_ai.model, model_catalog.hardware())
+    return {**out, "running": running, "pull": dict(s.local_ai.pull_state)}
+
+
+class PullIn(BaseModel):
+    model: str | None = Field(default=None, pattern=MODEL_NAME)  # default: the model in use
+    use: bool = False  # switch to it once it is downloaded
+
+
+@router.post("/settings/local-ai/pull")
+def pull_local_model(req: Request, body: PullIn | None = None) -> dict[str, Any]:
+    """Download a local AI model through Ollama (GBs; progress in GET /settings/local-ai/models)."""
+    s = svc(req)
+    model = (body.model if body and body.model else s.local_ai.model).strip()
     if not s.local_ai.status()["running"]:
         raise HTTPException(409, "Ollama is not running on this PC - install it from ollama.com first")
-    if not s.local_ai.pull(s.local_ai.model):
+    use = bool(body and body.use)
+    if not s.local_ai.pull(model, on_done=(lambda m: s.settings.save_prefs(local_ai_model=m)) if use else None):
         raise HTTPException(409, "a download is already running")
-    return _meeting_settings(req)
+    return local_models(req)
+
+
+@router.delete("/settings/local-ai/models")
+def remove_local_model(req: Request, name: str) -> dict[str, Any]:
+    """Delete a downloaded model from disk (the one in use can't be removed - pick another first)."""
+    s = svc(req)
+    if not re.match(MODEL_NAME, name):
+        raise HTTPException(422, "not a model name")
+    if model_catalog.same_model(name, s.local_ai.model):
+        raise HTTPException(409, "that model is in use - choose another one first")
+    try:
+        s.local_ai.delete(name)
+    except LocalAIError as e:
+        raise HTTPException(409, str(e)) from e
+    return local_models(req)

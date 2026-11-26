@@ -151,8 +151,12 @@ host**.
 
 ## 5a. Meetings: summaries, Obsidian and questions
 - **Local AI.** Summaries and questions use a model running on your PC through **Ollama** (free, from ollama.com).
-  Install it once, then open **Settings → Meetings** and click **Download model** (`qwen3:8b`, about 5 GB; a GPU
-  with 8 GB is ideal, `qwen3:4b` suits smaller machines). Until then summaries show *"local AI not running"* and
+  Install it once, then open **Settings → Meetings** and choose a model from the list. Each one shows what it is
+  good for, its download size, a quality rating (●●●●○) and whether it fits your PC: *Fits your GPU* (fast),
+  *GPU + RAM, slower*, *CPU only, slow* or *Too big* (hidden unless you ask). PIP marks one as **Recommended** for
+  your PC (an 8 GB laptop GPU: `qwen3:8b`, about 5 GB). **Download & use** fetches it and switches to it when the
+  download finishes; **Use** switches between downloaded models; the bin removes one from disk (not the one in
+  use). Any other model from ollama.com/library can be typed in below the list. Until then summaries show *"local AI not running"* and
   you can still use **Kimi** per meeting. **After each transcription** can be set to *Summarise on this PC*
   (default), *Summarise with Kimi* or *Don't summarise*. PIP never switches to Kimi by itself.
 - **Several things at once.** Transcriptions always go first: a summary waits for them, and a long meeting is

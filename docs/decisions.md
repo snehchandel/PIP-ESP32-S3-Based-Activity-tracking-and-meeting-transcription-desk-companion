@@ -354,6 +354,14 @@ random picks from a library.
   call; else the hits +- one turn, grouped per meeting with its summary, capped at 6,000 chars, go to one call that
   cites `[Meeting @ mm:ss]`. Local by default, Kimi on request. `GET /meetings/search` (no AI), `POST
   /meetings/ask`, `GET /meetings/actions`; park-actions parks each action item once (`parked`).
+- **Choosing the model** (`meetings/models.py`): Ollama has no API to browse its online library, so Settings shows a
+  curated catalog (17 general chat models, 1.4-20 GB, that follow a JSON schema; reasoning-only models whose thinking
+  can't be turned off, like gpt-oss, are left out) plus anything already downloaded and a free-text name for any
+  other. Each entry is matched to the PC (NVIDIA GPU memory via `nvidia-smi`, RAM): gpu / mixed (Ollama splits GPU +
+  RAM) / cpu / too_big; the recommendation is the best that fits the GPU, else a <= 3.5 GB model. The user decides:
+  `GET /settings/local-ai/models`, `POST /settings/local-ai/pull {model, use}` (switches when the download
+  succeeds), `DELETE /settings/local-ai/models?name=` (never the model in use). `think: false` is sent so reasoning
+  models answer directly; a model that rejects the switch (HTTP 400) is asked again without it and remembered.
 - **Outside AI tools:** for deep cross-meeting analysis (trends, "what did we promise the client across November",
   harvesting tasks) point an assistant such as Claude Code at the vault folder: index -> notes -> transcripts only
   when needed. Next step if this is used a lot: a small MCP server over `/meetings/search`, `/meetings/actions` and

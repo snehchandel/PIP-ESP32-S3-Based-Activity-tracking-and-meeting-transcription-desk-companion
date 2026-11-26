@@ -36,7 +36,8 @@ class LocalAI:
         self._model = model
         self.on_usage = on_usage
         self.client = client or httpx.Client(timeout=httpx.Timeout(timeout, connect=3.0))
-        self.pull_state: dict[str, Any] = {"active": False, "model": "", "status": "", "error": ""}
+        self.pull_state: dict[str, Any] = {"active": False, "model": "", "status": "", "error": "", "percent": None}
+        self._no_think: set[str] = set()  # models that reject the "think" switch (they don't reason anyway)
 
     @property
     def model(self) -> str:
@@ -47,13 +48,18 @@ class LocalAI:
         return f"local/{self.model}"
 
     # ---- status ----------------------------------------------------------------------------------
-    def models(self) -> list[str]:
+    def installed(self) -> list[dict[str, Any]]:
+        """Downloaded models as Ollama lists them: name + size in bytes."""
         try:
             r = self.client.get(f"{self.base_url}/api/tags", timeout=3.0)
             r.raise_for_status()
-            return sorted(str(m.get("name", "")) for m in r.json().get("models", []))
+            return [{"name": str(m.get("name", "")), "size": int(m.get("size") or 0)}
+                    for m in r.json().get("models", [])]
         except (httpx.HTTPError, ValueError) as e:
             raise LocalAIError(f"local AI not running at {self.base_url} ({type(e).__name__})") from e
+
+    def models(self) -> list[str]:
+        return sorted(m["name"] for m in self.installed())
 
     def has_model(self, models: list[str]) -> bool:
         want = self.model
@@ -78,13 +84,19 @@ class LocalAI:
     def _chat(self, messages: list[dict[str, str]], purpose: str, fmt: dict[str, Any] | None,
               max_out: int) -> str:
         body: dict[str, Any] = {
-            "model": self.model, "messages": messages, "stream": False, "think": False, "keep_alive": KEEP_ALIVE,
+            "model": self.model, "messages": messages, "stream": False, "keep_alive": KEEP_ALIVE,
             "options": {"temperature": 0.2, "num_ctx": NUM_CTX, "num_predict": max_out},
         }
         if fmt is not None:
             body["format"] = fmt
+        if self.model not in self._no_think:
+            body["think"] = False  # reasoning models (qwen3...) answer straight away: faster, far fewer tokens
         try:
             r = self.client.post(f"{self.base_url}/api/chat", json=body)
+            if r.status_code == 400 and "think" in body and "think" in r.text.lower():
+                self._no_think.add(self.model)  # a model without the switch: ask again without it
+                body.pop("think")
+                r = self.client.post(f"{self.base_url}/api/chat", json=body)
         except httpx.HTTPError as e:
             raise LocalAIError(f"local AI unreachable ({type(e).__name__})") from e
         if r.status_code >= 400:
@@ -131,11 +143,23 @@ class LocalAI:
             pass
 
     # ---- model download (started by the user in Settings) ---------------------------------------------
-    def pull(self, model: str) -> bool:
-        """Download `model` through Ollama in the background. False if a download is already running."""
+    def delete(self, model: str) -> None:
+        """Remove a downloaded model from disk (Ollama /api/delete)."""
+        try:
+            r = self.client.request("DELETE", f"{self.base_url}/api/delete", json={"model": model}, timeout=30.0)
+        except httpx.HTTPError as e:
+            raise LocalAIError(f"local AI unreachable ({type(e).__name__})") from e
+        if r.status_code == 404:
+            raise LocalAIError(f"{model} is not downloaded")
+        if r.status_code >= 400:
+            raise LocalAIError(f"could not remove {model} (HTTP {r.status_code})")
+
+    def pull(self, model: str, on_done: Callable[[str], None] | None = None) -> bool:
+        """Download `model` through Ollama in the background; `on_done(model)` after it succeeded. False if a
+        download is already running."""
         if self.pull_state["active"]:
             return False
-        self.pull_state = {"active": True, "model": model, "status": "starting", "error": ""}
+        self.pull_state = {"active": True, "model": model, "status": "starting", "error": "", "percent": None}
 
         def run() -> None:
             try:
@@ -151,8 +175,12 @@ class LocalAI:
                             raise LocalAIError(str(ev["error"])[:160])
                         done, total = ev.get("completed"), ev.get("total")
                         pct = f" {100 * done / total:.0f}%" if done and total else ""
+                        if done and total:
+                            self.pull_state["percent"] = round(100 * done / total)
                         self.pull_state["status"] = f"{ev.get('status', '')}{pct}"
-                self.pull_state.update(active=False, status="done")
+                if on_done:
+                    on_done(model)
+                self.pull_state.update(active=False, status="done", percent=100)
             except Exception as e:
                 log.warning("pulling %s failed: %s", model, e)
                 self.pull_state.update(active=False, status="failed", error=str(e)[:160])
