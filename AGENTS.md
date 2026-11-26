@@ -374,6 +374,9 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
 - **Not yet verified on hardware:** an actual rollback (needs a deliberately broken image), hands-free recording
   end-of-speech timing in a real room, a slide transition and a full prop trip watched on the panel (needs a
   real button press / a minute of idle play; `simulate-button` is simulator-only).
+- Packaged app (ADR-034) 1.0.0: `smoke_exe.py` passes (also `--gpu`: Whisper on cuda/float16 with the add-on DLLs),
+  window + in-app restart, silent install/uninstall. **Not yet:** the installed PIP.exe linked to the board (the
+  dev tray holds COM3; needs the switch-over with `--import-data`), the real 1.3 GB GPU pack download from PyPI.
 - Local meeting summaries / Obsidian / questions (ADR-031/032): unit tests + Playwright against a fake Ollama, and
   tuned on two real meetings with Ollama 0.40 + qwen3:8b on the RTX 3070 (careful ~2 min per meeting). Quality is
   close to Kimi's but varies run to run (ADR-032). `test_voices_are_told_apart[voices2]` fails about 1 run in 4:
