@@ -214,22 +214,9 @@ words are not lost: they're saved as a parked note you can promote later.
   password (2.4 GHz) and press **Connect PIP to Wi-Fi**. This also pairs PIP with this PC. Afterwards PIP can sit
   anywhere and run from any USB charger; the app finds it on your network by itself and switches back to the cable
   whenever you plug it in. The password goes to PIP only and is never stored on the PC.
-- **More than one Wi-Fi:** PIP remembers up to 5 networks (home, office, your phone's hotspot) and joins the
-  strongest one in range. Add each with **Add network** while PIP is on the cable or on Wi-Fi with this PC, *before*
-  you take it there. The **x** next to a saved network forgets it; *Forget all networks* clears the list.
-- **Away from home (another Wi-Fi):** when PIP is on a network where this PC cannot see it, PIP calls this PC over
-  the internet instead. The PC must be on with PIP running, and reachable from outside:
-  1. *Tailscale Funnel* (free, no router changes): install Tailscale on this PC, turn on Funnel for your tailnet, then
-     run `tailscale funnel --bg --tls-terminated-tcp=10000 tcp://localhost:18423` (Funnel only offers public ports
-     443, 8443 and 10000). Your public address is this PC's `*.ts.net` name, e.g. `my-pc.tail1234.ts.net`.
-  2. *Or a router port forward:* forward a TCP port on your router to this PC's port 18423, and use your public IP or a
-     dynamic-DNS name.
-  Then open **Device → Away from home**, pick how the PC is reachable, enter the public address and port and press
-  **Turn on** (with PIP connected, so it learns the address). Windows may ask once to let PIP through the firewall:
-  allow it. PIP calls only when it is neither on the cable nor reached over the home Wi-Fi for 10 seconds, retries
-  every few seconds up to once a minute, and the card shows "Connected over the internet" once it is through. The
-  link is encrypted with the key PIP shares with this PC alone, so the tunnel or router never sees your words or
-  audio, and nobody else can drive PIP or pretend to be it. Over a slower connection speech and screenshots may lag a little.
+- **More than one Wi-Fi:** PIP remembers up to 5 networks and joins the strongest one in range. See **6c**.
+- **Away from home (another Wi-Fi):** PIP can reach this PC over the internet from the office, a café or your phone's
+  hotspot. It needs a one-time setup: see **6c. Using PIP away from home**.
 - **Firmware updates:** **Device → Firmware** shows the version on PIP and any newer build on this PC (or upload a
   `.bin`). Press **Update PIP**: about 25 seconds over USB or Wi-Fi, PIP restarts by itself. If a new version ever
   fails to start properly, PIP goes back to the previous one automatically.
@@ -246,6 +233,109 @@ If anything goes wrong or gets stuck (for example "Planning…" never finishes),
 short explanation instead of freezing, flashing briefly to get your attention. **Press any button to dismiss.**
 The same message appears in the app with a Dismiss button. Details are written to `data/logs/errors.log`.
 
+## 6c. Using PIP away from home
+At home the app finds PIP on your Wi-Fi by itself. On another network (the office, a café, your phone's hotspot) the
+PC cannot see PIP, so **PIP calls the PC over the internet** instead. You set this up once, at home:
+
+1. Save the other Wi-Fi networks on PIP (**A**).
+2. Make this PC reachable from the internet (**B** or **C**).
+3. Turn on **Away from home** in the app (**D**).
+
+**This PC must stay on, with PIP Companion running and connected to the internet.** PIP only calls *this* PC (the
+one it was paired with over USB).
+
+### A. Save the networks PIP will use
+Do this at home, with PIP on the USB cable or on the home Wi-Fi:
+1. Open **Device → Connection**.
+2. Type the network's **Wi-Fi name** and **Password** and press **Add network**. PIP saves it and stays on the
+   network it is on now, so you add networks before you get there.
+3. Repeat for each place, up to **5 networks** in all. They appear under *Saved networks*.
+
+PIP keeps its current network as long as it works. When it loses it (you carried PIP away), it looks around and
+joins the strongest saved network in range. To remove one, press the **x** next to its name.
+*Forget all networks* clears the list (PIP then has no Wi-Fi until you add one again).
+
+> **Phone hotspot:** PIP only uses **2.4 GHz** Wi-Fi. On an iPhone turn on **Settings → Personal Hotspot →
+> Maximize Compatibility**; on Android pick the **2.4 GHz** band for the hotspot. Type the hotspot's name exactly
+> as the phone shows it.
+>
+> **Café and hotel Wi-Fi** with a sign-in page (you have to tick a box in a browser) does **not** work: PIP has no
+> browser. Use your phone's hotspot there instead.
+
+### B. Make this PC reachable — with Tailscale Funnel (recommended)
+Tailscale Funnel is free and needs no router changes. It gives this PC a fixed public name such as
+`my-pc.tail1234.ts.net`.
+1. Install **Tailscale** on this PC from tailscale.com and sign in (a free personal account is enough).
+2. Open **PowerShell** and run:
+   ```powershell
+   tailscale funnel --bg --tls-terminated-tcp=10000 tcp://localhost:18423
+   ```
+   The first time, Tailscale opens a web page asking you to **enable Funnel** (and HTTPS) for your account. Approve
+   it, then run the command again if needed. `--bg` keeps Funnel running after a restart of the PC.
+3. Find this PC's public name:
+   ```powershell
+   tailscale funnel status
+   ```
+   It lists this PC's name ending in **`.ts.net`** (for example `my-pc.tail1234.ts.net`) with port **10000**. The
+   name is the **public address** and **10000** the **public port**. The same name is shown for this PC in the
+   Tailscale app and on the *Machines* page of the Tailscale website. (Funnel only allows the public ports 443, 8443
+   and 10000. If you use 443 or 8443 instead, use that number in the command and in the app.)
+
+To stop Funnel later, run the same command with `off` at the end:
+```powershell
+tailscale funnel --tls-terminated-tcp=10000 tcp://localhost:18423 off
+```
+
+### C. Make this PC reachable — with a port forward on your router (alternative)
+Use this only if you cannot use Tailscale and you know your way around your router.
+1. Give this PC a fixed address on your home network (in the router: "DHCP reservation" or "static lease").
+2. In the router's **port forwarding** page, forward a **TCP** port of your choice (for example **18423**) to this
+   PC's address, port **18423**.
+3. Find your **public address**: the WAN or internet IP shown in the router. Most home connections get a new public
+   IP from time to time, so a free **dynamic DNS** name (many routers have this built in) is better than the bare IP.
+4. When Windows asks whether PIP Companion may communicate on networks, allow **Private networks**.
+
+> If the WAN address shown in your router differs from the address a "what is my IP" website shows, your provider
+> shares one public address among many customers (CGNAT) and a port forward **cannot** work. Use Tailscale (**B**).
+
+### D. Turn it on in the app
+1. With PIP connected (cable or home Wi-Fi), open **Device → Away from home**.
+2. **How this PC is reachable:** pick *Tailscale Funnel* (for **B**) or *Port forward on my router* (for **C**).
+3. **Public address:** the `….ts.net` name (B) or your public IP / dynamic-DNS name (C). Only the name, without
+   `https://`. (Pasting `my-pc.tail1234.ts.net:10000` into this field also works: the app splits off the port.)
+4. **Public port:** 10000 (B), or the port you forwarded on the router (C).
+5. **Local port:** leave **18423** unless you changed it in the Funnel command or the port forward.
+6. Press **Turn on**. The card shows *This PC: Listening on port 18423*, and PIP learns the address right away.
+
+**Try it once before you rely on it:** power PIP from a power bank, turn on your phone's hotspot (saved in **A**)
+and take PIP out of reach of your home Wi-Fi (or try it at the office). About half a minute after PIP joins the
+other network, the **Connection** badge in the app reads **Away link**.
+
+### What you see
+| Where | Shows | Meaning |
+|---|---|---|
+| Connection badge | **USB cable** / **Wi-Fi** | PIP is at home; the away link is not used. |
+| Connection badge | **Away link** | PIP is linked over the internet. Everything works as at home. |
+| Away card, *This PC* | *Listening on port 18423* | The PC is ready for PIP's call. |
+| Away card, *PIP* | *Standing by* | PIP has the address and is on the cable or home Wi-Fi: it does not need to call. *Off* means PIP has no address yet. |
+| Away card, *PIP* | *Connected over the internet* | Linked over the internet. |
+| Away card, *Last call* | date and time | When PIP last got through. |
+| Away card | *Refused: n unauthenticated connections* | Strangers (internet scanners) knocked and were turned away. Normal on a public address; nothing to do. |
+| PIP's screen | **OFFLINE**, then linked again | Until the call gets through, PIP keeps working offline (see **7**). |
+
+While PIP is away and *not* connected, the app cannot hear from it, so the card shows what PIP last reported.
+
+**When PIP calls:** only when it has had neither the USB cable nor the home Wi-Fi link to this PC for **10
+seconds**. It tries again after 2 seconds, then waits longer each time, up to once a minute. Back at home, plug it
+in or let it join the home Wi-Fi: the app switches back by itself.
+
+**Privacy and safety:** everything between PIP and this PC is encrypted with the key PIP shares with this PC alone
+(set over the USB cable). Tailscale, your router or the café network cannot read your words, audio or tasks, and
+nobody else can control PIP or pretend to be it. Over a slow connection, speech and screen captures may lag a
+little. Do firmware updates at home, on the cable or the home Wi-Fi.
+
+**To turn it off:** **Device → Away from home → Turn off**, then stop Funnel (**B**) or remove the port forward (**C**).
+
 ## 7. Unplugged (offline) use
 PIP keeps counting, lets you finish/cut steps, and rings alarms it already knows about (offline it plays chimes
 for a minute; the spoken script needs the PC). The top bar says
@@ -259,6 +349,19 @@ After 15 idle minutes offline PIP rests (sleep screen); press any button to wake
 - **Voice not understood:** speak after the Listening screen appears; check Settings → Speech-to-text = Ready.
 - **"AI has left the device":** check Settings → Kimi API key → *Test saved key*, and your internet connection.
 - **Weather missing:** Settings → Temperature & weather → pick your city.
+- **PIP won't join a saved network away from home:** it must be 2.4 GHz (see the phone-hotspot tip in **6c A**),
+  the name and password must be exact (add it again to correct the password), and sign-in-page Wi-Fi does not work.
+- **Away from home: PIP stays OFFLINE and the badge never reads *Away link*:**
+  1. Is PIP on a saved network? (See the entry above.) Is this PC on, awake (not asleep) and online, with PIP
+     Companion running, and does the Away card say *This PC: Listening*?
+  2. Tailscale: run `tailscale funnel status` — it must list port 10000 (or yours) forwarding to
+     `tcp://localhost:18423`. If not, run the command in **6c B** again. Check that the address in the app matches.
+  3. Port forward: the router rule must point to this PC's current address; your public IP may have changed (use a
+     dynamic-DNS name); and Windows Firewall must allow PIP Companion on private networks.
+  4. *This PC: cannot listen on port 18423* in the card: another program uses that port. Pick another **Local port**
+     in the app and use the same number in the Funnel command or port forward.
+  5. The Away card's *PIP* line says *Off*: PIP never received the address (it only learns it while connected).
+     Connect PIP at home, press **Turn on** again and check that the line changes to *Standing by*.
 - **Logs:** `data/logs/pip.log` (everything) and `data/logs/errors.log` (only problems).
   **Restore Waveshare demo firmware:** see README.
 
