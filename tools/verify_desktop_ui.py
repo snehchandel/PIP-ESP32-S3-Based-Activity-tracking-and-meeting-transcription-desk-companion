@@ -242,6 +242,19 @@ def meeting_review(page: Page, stack: Stack, base: str) -> list[str]:
     page.get_by_role("button", name="Ask", exact=True).click()
     page.get_by_text("Answered by this PC").wait_for()
     page.screenshot(path=str(OUT / "1440x900/meeting_review.png"), full_page=True)
+    # Graph tab: the meeting, its summary and Priya are nodes; meeting -> transcript, summary, person -> back to the list
+    page.get_by_role("button", name="Show in graph").click()
+    page.get_by_role("tab", name="Graph", selected=True).wait_for()
+    page.get_by_label("Transcript", exact=True).get_by_text("pricing", exact=False).first.wait_for()
+    page.get_by_role("button", name="Summary", exact=True).click()
+    page.get_by_text("Summary by this PC").wait_for()
+    page.get_by_label("Find a meeting, person or topic").fill("Priya")
+    page.get_by_label("Find a meeting, person or topic").press("Enter")
+    page.get_by_text("In 1 meeting").wait_for()
+    page.screenshot(path=str(OUT / "1440x900/meeting_graph.png"))
+    page.get_by_role("button", name="Launch check", exact=False).first.click()
+    page.get_by_role("button", name="Open meeting").click()
+    page.get_by_role("tab", name="List", selected=True).wait_for()
     md = stack.http.get(f"/api/v1/meetings/{mid}/export?format=md").text
     assert "**Priya**" in md and "pricing" in md.lower()
     stack.http.delete(f"/api/v1/meetings/{mid}")
@@ -249,7 +262,8 @@ def meeting_review(page: Page, stack: Stack, base: str) -> list[str]:
         if v["name"] == "Priya":
             stack.http.delete(f"/api/v1/voices/{v['id']}")
     return [("meetings: imported 2-voice recording -> Whisper transcript with 2 speakers -> named in the UI -> "
-             "summarised on this PC (fake local AI) -> question answered -> exported")]
+             "summarised on this PC (fake local AI) -> question answered -> graph: transcript, summary, person, "
+             "back to the list -> exported")]
 
 
 def main() -> int:

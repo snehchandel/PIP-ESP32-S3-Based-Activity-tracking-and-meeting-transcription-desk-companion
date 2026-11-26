@@ -1,32 +1,22 @@
-import { Archive, ArchiveRestore, Cpu, Download, Loader2, Pencil, RefreshCw, Search, Sparkles, Trash2, Upload, UserPlus, Users } from "lucide-react";
+import { Archive, ArchiveRestore, Cpu, Download, LayoutList, Loader2, Pencil, RefreshCw, Search, Sparkles, Trash2, Upload, UserPlus, Users, Waypoints } from "lucide-react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
 import type { MeetingAnswer, MeetingDetail, MeetingHit, MeetingList, MeetingListItem, Segment, Speaker } from "../api/types";
 import { ActionItems } from "../components/ActionItems";
+import { MeetingGraphView, meetingOf } from "../components/MeetingGraph";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { Badge, Card, CardTitle, Empty, Input, Label, PageHeader, Select, Textarea } from "../components/ui/primitives";
+import { clock, speakerColor, when } from "../lib/meetingFormat";
 import { cn } from "../lib/utils";
 
 /* Meetings recorded on PIP ("Meeting" in the voice menu) or imported: transcribed on this PC with speakers told
    apart. Speakers PIP doesn't know yet are "Speaker 01, 02..." - name them once and PIP remembers the voice. */
 
-const SPEAKER_COLORS = ["#2563eb", "#d97706", "#059669", "#9333ea", "#dc2626", "#0891b2", "#65a30d", "#db2777"];
-const color = (key: string) => SPEAKER_COLORS[(Number(key.slice(1)) - 1 + SPEAKER_COLORS.length) % SPEAKER_COLORS.length];
-
-function clock(sec: number): string {
-  const s = Math.max(0, Math.floor(sec));
-  const mmss = `${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-  return s >= 3600 ? `${Math.floor(s / 3600)}:${mmss}` : mmss;
-}
-
-function when(m: { started_at: string; ended_at: string | null }): string {
-  const a = new Date(m.started_at);
-  const day = a.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-  const t = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return `${day} · ${t(a)}${m.ended_at ? `–${t(new Date(m.ended_at))}` : ""}`;
-}
+const color = speakerColor;
 
 function StatusBadge({ m }: { m: { status: string; progress: number } }) {
   if (m.status === "RECORDING") return <Badge tone="amber"><span className="h-2 w-2 animate-pulse rounded-full bg-[#c0392b]" />Recording</Badge>;
@@ -137,7 +127,7 @@ function SegmentRow({ m, seg, speakers, playing, onSeek, reload }: {
   );
 }
 
-function MeetingPanel({ id, onDeleted }: { id: string; onDeleted: () => void }) {
+function MeetingPanel({ id, onDeleted, onShowInGraph }: { id: string; onDeleted: () => void; onShowInGraph: () => void }) {
   const { run, meetingEvt } = useLive();
   const [data, setM] = useState<MeetingDetail | null>(null);
   const [title, setTitle] = useState("");
@@ -195,6 +185,8 @@ function MeetingPanel({ id, onDeleted }: { id: string; onDeleted: () => void }) 
           </div>
           {m.archived ? <Badge>Archived</Badge> : null}
           <StatusBadge m={m} />
+          <Button size="sm" variant="ghost" className="-mt-0.5" onClick={onShowInGraph}
+            title="See who and what this meeting connects to"><Waypoints size={14} aria-hidden /> Show in graph</Button>
         </div>
         {m.status === "TRANSCRIBING" && (
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-paper-2" role="progressbar" aria-label="Transcription progress"
@@ -402,6 +394,21 @@ export default function MeetingsView() {
   const { meetingEvt, run } = useLive();
   const [list, setList] = useState<MeetingList | null>(null);
   const [sel, setSel] = useState<string | null>(null);
+  const [node, setNode] = useState<string | null>(null); // the graph's selection (a meeting, summary, person or topic)
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("view") === "graph" ? "graph" : "list";
+  const setTab = (t: "list" | "graph") => setParams(t === "graph" ? { view: "graph" } : {}, { replace: true });
+  /** Picking a meeting in the list also selects it in the graph, so both tabs stay on the same meeting. */
+  const pick = (id: string | null) => { setSel(id); setNode(id ? `meeting:${id}` : null); };
+  const pickNode = (id: string | null) => { setNode(id); const mid = meetingOf(id); if (mid) setSel(mid); };
+  const openInList = (mid: string) => { setSel(mid); setTab("list"); window.scrollTo({ top: 0 }); };
+  const tabKeys = (e: ReactKeyboardEvent) => { // the ARIA tabs pattern: arrows move between tabs
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const next = tab === "list" ? "graph" : "list";
+    setTab(next);
+    document.getElementById(`meetings-tab-${next}`)?.focus();
+  };
   const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
   const load = useCallback(() => {
     void api.meetings().then((l) => {
@@ -424,8 +431,23 @@ export default function MeetingsView() {
     <>
       <PageHeader title="Meetings"
         subtitle="Hold KEY on PIP, pick Meeting, hold KEY again to record. Transcribed on this PC — nothing leaves it."
-        actions={<ImportButton onDone={(id) => { setSel(id); load(); }} />} />
-      <AskCard onOpen={setSel} />
+        actions={<ImportButton onDone={(id) => { pick(id); load(); }} />} />
+      <div role="tablist" aria-label="Meetings view" className="mb-5 inline-flex rounded-full border border-line bg-white/70 p-1"
+        onKeyDown={tabKeys}>
+        {([["list", "List", LayoutList], ["graph", "Graph", Waypoints]] as const).map(([t, name, Icon]) => (
+          <button key={t} id={`meetings-tab-${t}`} type="button" role="tab" aria-selected={tab === t} aria-controls={`meetings-panel-${t}`}
+            tabIndex={tab === t ? 0 : -1} onClick={() => setTab(t)}
+            className={cn("inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold transition-colors",
+              tab === t ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2")}>
+            <Icon size={14} aria-hidden /> {name}</button>))}
+      </div>
+      {tab === "graph" ? (
+        <div role="tabpanel" id="meetings-panel-graph" aria-labelledby="meetings-tab-graph">
+          <MeetingGraphView selected={node} onSelect={pickNode} onOpenMeeting={openInList} />
+        </div>
+      ) : (
+      <div role="tabpanel" id="meetings-panel-list" aria-labelledby="meetings-tab-list">
+      <AskCard onOpen={pick} />
       <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
         <div className="space-y-5">
           <Card aria-label="All meetings" className="p-3">
@@ -433,7 +455,7 @@ export default function MeetingsView() {
               <ul className="space-y-1.5">
                 {items.map((m) => (
                   <li key={m.id}>
-                    <button onClick={() => setSel(m.id)} aria-pressed={sel === m.id}
+                    <button onClick={() => pick(m.id)} aria-pressed={sel === m.id}
                       className={cn("w-full rounded-xl border px-3 py-2 text-left", sel === m.id ? "border-ink bg-white"
                         : "border-line bg-white/50 hover:bg-white")}>
                       <p className="truncate text-sm font-semibold">{m.title}</p>
@@ -456,7 +478,7 @@ export default function MeetingsView() {
                   Archived ({archived.length})</summary>
                 <p className="mt-1 text-xs text-muted">Kept, but left out of search, questions, action lists and the calendar.</p>
                 <ul className="mt-1.5 space-y-1">{archived.map((m) => (
-                  <li key={m.id}><button onClick={() => setSel(m.id)} aria-pressed={sel === m.id}
+                  <li key={m.id}><button onClick={() => pick(m.id)} aria-pressed={sel === m.id}
                     className={cn("w-full rounded-lg border px-2.5 py-1.5 text-left text-sm", sel === m.id ? "border-ink bg-white" : "border-line bg-white/40")}>
                     <span className="block truncate">{m.title}</span>
                     <span className="text-xs text-muted">{when(m)}</span></button></li>))}</ul>
@@ -481,9 +503,12 @@ export default function MeetingsView() {
             )}
           </Card>
         </div>
-        {sel ? <MeetingPanel key={sel} id={sel} onDeleted={() => { setSel(null); load(); }} />
+        {sel ? <MeetingPanel key={sel} id={sel} onDeleted={() => { pick(null); load(); }}
+          onShowInGraph={() => { setNode(`meeting:${sel}`); setTab("graph"); }} />
           : <Card><Empty>Pick a meeting to review its transcript.</Empty></Card>}
       </div>
+      </div>
+      )}
     </>
   );
 }

@@ -7,12 +7,11 @@ export interface SimNode {
   id: string; x: number; y: number; vx: number; vy: number; r: number;
   fx: number | null; fy: number | null; // pinned while dragged
 }
-export interface SimLink { s: number; t: number; len: number }
+export interface SimLink { s: number; t: number; len: number; k: number; bias: number }
 
 const REPEL = 320;        // charge strength
 const CUTOFF = 260;       // repulsion range (px); beyond it only the centre pull acts
 const CENTER = 0.035;
-const SPRING = 0.28;
 const DECAY = 0.58;       // velocity kept per tick
 const ALPHA_DECAY = 0.0228;
 export const ALPHA_MIN = 0.003;
@@ -23,7 +22,9 @@ export class ForceSim {
   links: SimLink[];
   private index = new Map<string, number>();
 
-  constructor(nodes: { id: string; r: number }[], links: { source: string; target: string; len: number }[],
+  /** links: `stiff` multiplies the spring (1 = normal); springs are weaker at busy nodes, as in d3-force, so hubs
+      don't drag their neighbours around and a node stays beside the one it belongs to. */
+  constructor(nodes: { id: string; r: number }[], links: { source: string; target: string; len: number; stiff?: number }[],
     previous?: Map<string, { x: number; y: number }>) {
     this.nodes = nodes.map((n, i) => {
       const p = previous?.get(n.id);
@@ -32,10 +33,14 @@ export class ForceSim {
       return { id: n.id, r: n.r, x: p?.x ?? rad * Math.cos(a), y: p?.y ?? rad * Math.sin(a), vx: 0, vy: 0, fx: null, fy: null };
     });
     this.nodes.forEach((n, i) => this.index.set(n.id, i));
-    this.links = links.flatMap((l) => {
+    const pairs = links.flatMap((l) => {
       const s = this.index.get(l.source), t = this.index.get(l.target);
-      return s === undefined || t === undefined ? [] : [{ s, t, len: l.len }];
+      return s === undefined || t === undefined ? [] : [{ s, t, len: l.len, stiff: l.stiff ?? 1 }];
     });
+    const deg = new Array<number>(this.nodes.length).fill(0);
+    for (const l of pairs) { deg[l.s]++; deg[l.t]++; }
+    this.links = pairs.map((l) => ({ s: l.s, t: l.t, len: l.len, k: Math.min(1, l.stiff / Math.min(deg[l.s], deg[l.t])),
+      bias: deg[l.s] / (deg[l.s] + deg[l.t]) }));
     // a new node with a placed neighbour starts beside it instead of on the spiral
     if (previous?.size) {
       for (const l of this.links) {
@@ -64,9 +69,9 @@ export class ForceSim {
       const a = nodes[l.s], b = nodes[l.t];
       let dx = b.x + b.vx - a.x - a.vx, dy = b.y + b.vy - a.y - a.vy;
       const d = Math.hypot(dx, dy) || 0.01;
-      const f = ((d - l.len) / d) * alpha * SPRING;
+      const f = ((d - l.len) / d) * alpha * l.k;
       dx *= f; dy *= f;
-      b.vx -= dx * 0.5; b.vy -= dy * 0.5; a.vx += dx * 0.5; a.vy += dy * 0.5;
+      b.vx -= dx * l.bias; b.vy -= dy * l.bias; a.vx += dx * (1 - l.bias); a.vy += dy * (1 - l.bias);
     }
     // repulsion + collision, only between nodes in neighbouring grid cells
     const grid = new Map<string, number[]>();

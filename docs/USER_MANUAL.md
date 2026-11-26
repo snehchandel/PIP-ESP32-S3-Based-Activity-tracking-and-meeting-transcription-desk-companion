@@ -140,6 +140,15 @@ host**.
   brings it back); archived meetings are listed at the bottom.
   **Ask your meetings** (top of the page) answers questions across every meeting — *"Who is sending the Q3 budget?"*
   — with links to where it was said; **Find** just lists the matching lines (no AI at all).
+  **Graph** (the tab beside **List**) draws your meetings like Obsidian's graph view: each meeting is a dark dot
+  (dashed while it is still being transcribed), its summary an orange diamond beside it, people green rings and
+  topics violet dots — a person or topic shared by several meetings links them. Click a dot to read it in the panel
+  on the right: a meeting shows its transcript (with a find box), a summary shows the outcome, decisions and action
+  items, a person or topic lists its meetings. Links in the panel move the graph to that dot. **Open meeting** (or
+  double-click a meeting) takes you to the List to edit it; **Show in graph** on a meeting comes back. Hover a dot to
+  light up its links; use the search box to find a meeting, person or topic; the chips hide or show summaries,
+  people and topics; **Include archived** adds archived meetings. Drag to pan, drag a dot to move it, scroll or
+  **+**/**−** to zoom, **0** fits everything, **Esc** clears the selection.
   **Export** as Markdown, TXT, SRT subtitles or JSON, or download the audio. **Import audio** transcribes a recording
   from elsewhere (wav, mp3, m4a...). Speaker detection is lightweight: clearly different voices separate well;
   similar voices may need a fix by hand.

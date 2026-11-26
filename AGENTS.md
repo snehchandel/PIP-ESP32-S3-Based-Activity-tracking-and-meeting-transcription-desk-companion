@@ -224,7 +224,9 @@ on 20 ms idle with a partial frame.
   dated items as kind 3 (`others=true` for other people's). Ollama needs `OLLAMA_FLASH_ATTENTION=1` and
   `OLLAMA_KV_CACHE_TYPE=q8_0` (user env) for the 16k context on the 8 GB GPU. Meeting speech: `large-v3-turbo` on the
   GPU (CUDA wheels `nvidia-cublas-cu12`/`nvidia-cudnn-cu12`, DLL path set in `speech/stt.py`).
-  `GET /meetings/search` (FTS5, no AI), `POST /meetings/ask` (retrieval, ~1.5k tokens), `GET /meetings/actions`,
+  `GET /meetings/search` (FTS5, no AI), `POST /meetings/ask` (retrieval, ~1.5k tokens), `GET /meetings/graph`
+  (`meetings/graph.py`: meeting/summary/person/topic nodes, the Obsidian links; drawn by the Meetings -> Graph tab,
+  `components/MeetingGraph.tsx` + `lib/forceLayout.ts`, no graph library), `GET /meetings/actions`,
   Settings `GET/PUT /settings/meetings`, `POST /settings/local-ai/pull`. Tests use `tests/support/fake_ollama.py`
   and conftest points `PIP_LOCAL_AI_URL` at a closed port so a real Ollama is never touched.
 - **Nudges** (`alarms/nudges.py`, ADR-029): due reminders and task start times -> toast + chime + speech.
