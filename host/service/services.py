@@ -71,7 +71,8 @@ class Services:
                                        summary_mode=self.meeting_summary_mode, vault=self.vault,
                                        vocabulary=self.vocabulary, voice_busy=self._voice_busy,
                                        summary_quality=self.meeting_summary_quality, my_name=self.my_name,
-                                       refine_task=self.refine_task_steps)
+                                       refine_task=self.refine_task_steps, cleanup=self.transcript_cleanup)
+        self.stt.cleanup = self.transcript_cleanup()
         self.voice.meetings = self.meetings
         self.stt.vocabulary = self.meetings.stt.vocabulary = self.vocabulary()
         self.nudges = NudgeScheduler(self.manager)
@@ -113,6 +114,10 @@ class Services:
         """After each transcription: "local" (default, on this PC), "kimi" (uses the AI budget) or "off"."""
         mode = str(self.settings.prefs().get("meeting_summary") or "local")
         return mode if mode in SUMMARY_MODES else "local"
+
+    def transcript_cleanup(self) -> bool:
+        """Drop "um"/"uh" and stutters from transcripts and voice commands (Settings; default on)."""
+        return bool(self.settings.prefs().get("transcript_cleanup", True))
 
     def meeting_summary_quality(self) -> str:
         """"careful" (default: thinks, scans for commitments, checks them, writes up) or "fast" (one pass)."""

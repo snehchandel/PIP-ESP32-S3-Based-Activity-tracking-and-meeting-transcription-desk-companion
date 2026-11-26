@@ -1,4 +1,4 @@
-import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingActionRow, MeetingAnswer, MeetingDetail, MeetingHit, MeetingList, MeetingSettings, LocalModels, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
+import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingActionRow, MeetingAnswer, MeetingDetail, MeetingGraph, MeetingHit, MeetingList, MeetingSettings, LocalModels, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
 
 const BASE = "/api/v1";
 
@@ -129,11 +129,13 @@ export const api = {
     req<MeetingSummary | { queued: boolean }>("POST", `/meetings/${id}/summarize?engine=${engine}`),
   searchMeetings: (q: string) => req<{ hits: MeetingHit[] }>("GET", `/meetings/search?q=${encodeURIComponent(q)}`),
   askMeetings: (question: string, engine: "local" | "kimi") => req<MeetingAnswer>("POST", "/meetings/ask", { question, engine }),
+  meetingGraph: (archived = false) => req<MeetingGraph>("GET", `/meetings/graph${archived ? "?archived=true" : ""}`),
   meetingActions: () => req<{ items: MeetingActionRow[] }>("GET", "/meetings/actions"),
   syncVault: () => req<{ written: number }>("POST", "/meetings/vault/sync"),
+  cleanTranscripts: () => req<{ lines_changed: number; lines_removed: number }>("POST", "/meetings/clean-transcripts"),
   meetingSettings: () => req<MeetingSettings>("GET", "/settings/meetings"),
   setMeetingSettings: (body: { summary_mode?: string; local_ai_model?: string; obsidian_vault?: string; obsidian_folder?: string;
-    summary_quality?: string; my_name?: string; speech_model?: string }) =>
+    summary_quality?: string; my_name?: string; speech_model?: string; transcript_cleanup?: boolean }) =>
     req<MeetingSettings>("PUT", "/settings/meetings", body),
   localModels: () => req<LocalModels>("GET", "/settings/local-ai/models"),
   pullLocalModel: (model: string, use: boolean) => req<LocalModels>("POST", "/settings/local-ai/pull", { model, use }),

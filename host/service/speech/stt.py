@@ -33,6 +33,19 @@ def _add_cuda_dlls() -> None:
 _add_cuda_dlls()
 
 
+# What Whisper "hears" in silence or noise (it was trained on captioned video). Dropped only when Whisper itself
+# says the stretch is probably not speech, so a real "Thank you." stays.
+_PHANTOMS = {"thank you.", "thank you", "thanks for watching!", "thanks for watching.", "thank you for watching.",
+             "please subscribe.", "you", "you.", "bye.", "subtitles by the amara.org community", "so.", "okay."}
+
+
+def phantom(seg: Any) -> bool:
+    nsp = float(getattr(seg, "no_speech_prob", 0.0) or 0.0)
+    if nsp > 0.6 and float(getattr(seg, "avg_logprob", 0.0) or 0.0) < -0.7:
+        return True
+    return nsp > 0.4 and str(getattr(seg, "text", "")).strip().lower() in _PHANTOMS
+
+
 def cuda_usable() -> bool:
     """A CUDA GPU CTranslate2 can see, and no failed CUDA load in this process."""
     if "cuda" in _DEVICE_FAILED:
@@ -58,6 +71,7 @@ class SpeechToText:
         self.loading = False
         self.error = ""
         self.vocabulary: list[str] = []  # names/acronyms the user says (Settings): passed to Whisper as hotwords
+        self.cleanup = True  # voice commands: drop "um"/"uh" and stutters before planning (speech/cleanup.py)
         try:
             import faster_whisper  # noqa: F401
             self.installed = True
@@ -134,14 +148,23 @@ class SpeechToText:
             audio = np.frombuffer(pcm16le, dtype=np.int16).astype(np.float32) / 32768.0
             if sample_rate != 16000 or audio.size < 1600:
                 return ""
-            segments, _ = self._model.transcribe(audio, language="en", beam_size=1, vad_filter=True,
+            segments, _ = self._model.transcribe(audio, language="en", beam_size=self.beam(), vad_filter=True,
                                                  hotwords=self.hotwords())
-            return " ".join(s.text.strip() for s in segments).strip()
+            text = " ".join(s.text.strip() for s in segments if not phantom(s)).strip()
+            if self.cleanup:
+                from .cleanup import clean_text
+                text = clean_text(text, self.vocabulary)
+            return text
+
+    def beam(self) -> int:
+        """Beam search on the GPU (measured: cleaner sentences, fewer false starts, ~25 % slower); greedy on the CPU,
+        where beam 5 would be several times slower."""
+        return 5 if self.device.startswith("cuda") else 1
 
     def hotwords(self) -> str | None:
         return ", ".join(self.vocabulary)[:400] or None
 
-    def transcribe_segments(self, audio: Any, on_segment: Any = None, beam_size: int = 1) -> list[tuple[float, float, str]]:
+    def transcribe_segments(self, audio: Any, on_segment: Any = None, beam_size: int | None = None) -> list[tuple[float, float, str]]:
         """Timed segments of a long recording (float32 mono 16 kHz numpy array). VAD splits at pauses of 0.5 s so
         segments tend to follow turns in a conversation; `on_segment(end_s)` reports progress."""
         if not self.installed:
@@ -152,13 +175,13 @@ class SpeechToText:
                 self.error = ""
             if audio.size < 1600:
                 return []
-            segments, _ = self._model.transcribe(audio, language="en", beam_size=beam_size, vad_filter=True,
+            segments, _ = self._model.transcribe(audio, language="en", beam_size=beam_size or self.beam(), vad_filter=True,
                                                  vad_parameters={"min_silence_duration_ms": 500},
                                                  condition_on_previous_text=False, hotwords=self.hotwords())
             out = []
             for seg in segments:
                 text = seg.text.strip()
-                if text:
+                if text and not phantom(seg):
                     out.append((float(seg.start), float(seg.end), text))
                 if on_segment:
                     on_segment(float(seg.end))

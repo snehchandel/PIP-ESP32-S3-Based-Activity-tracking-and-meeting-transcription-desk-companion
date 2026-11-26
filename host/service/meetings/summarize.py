@@ -24,6 +24,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 from ..planner.schema import MeetingSummary
+from ..speech.cleanup import clean_text
 from .export import clock, speaker_turns
 
 CHARS_PER_TOKEN = 4.2       # English transcript text with "[mm:ss] Name:" prefixes (qwen3 measured ~4.4)
@@ -155,8 +156,6 @@ VERIFY_SCHEMA = {"type": "object", "properties": {"checks": {"type": "array", "i
     "required": ["checks"]}
 EXCERPT_BEFORE_S, EXCERPT_AFTER_S = 75, 45
 
-_FILLER = re.compile(r"(?<![\w'])(?:u+[hm]+|e+r+m+|hm+|mm+-?hm+|uh-huh)(?![\w'])[,.]?\s*", re.I)
-_STUTTER = re.compile(r"\b(\w+)(?:[,]?\s+\1\b)+", re.I)
 _EMPTY = {"", "null", "none", "n/a", "na", "not specified", "unspecified", "unknown", "tbd", "tba", "unclear",
           "not mentioned", "not stated", "not given", "no deadline", "-", "--", "?", "none specified", "not set"}
 _NON_DECISION = re.compile(r"\bno (?:formal |final |clear |firm )?decision\b|\bnot (?:yet )?decided\b|"
@@ -182,9 +181,9 @@ def est_tokens(text: str) -> int:
 
 
 def tidy(text: str) -> str:
-    """Drop fillers ("um", "uh") and stutters ("we we we") - the words carry nothing for a summary."""
-    out = _STUTTER.sub(r"\1", _FILLER.sub("", text))
-    return re.sub(r"\s{2,}", " ", out).strip(" ,")
+    """Drop fillers ("um", "uh") and stutters ("we we we") - the words carry nothing for a summary. Same clean-up as
+    the transcript itself (speech/cleanup.py); a no-op on lines that were already cleaned."""
+    return clean_text(text)
 
 
 def transcript_lines(meeting: dict[str, Any], segments: list[dict[str, Any]]) -> list[str]:

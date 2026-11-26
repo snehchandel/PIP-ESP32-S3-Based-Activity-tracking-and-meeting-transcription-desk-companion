@@ -57,6 +57,21 @@ export interface MeetingAnswer {
   answer: string; engine: string; context_chars: number;
   sources: { meeting_id: string; title: string; date: string; kind: string; start_s: number | null; at: string }[];
 }
+export type GraphNodeKind = "meeting" | "summary" | "person" | "topic";
+export interface GraphNode {
+  id: string; kind: GraphNodeKind; label: string;
+  meeting_id?: string; archived?: boolean;
+  // meeting
+  started_at?: string; duration_s?: number; status?: MeetingStatus; summary_status?: SummaryStatus;
+  // summary
+  gist?: string; engine?: string | null; open_actions?: number;
+  // person / topic: the meetings they appear in
+  meetings?: string[];
+}
+export interface MeetingGraph {
+  nodes: GraphNode[]; edges: { source: string; target: string; kind: "summary" | "attended" | "topic" }[];
+  counts: Partial<Record<GraphNodeKind, number>>;
+}
 export interface MeetingActionRow extends ActionItem { index: number; meeting_id: string; meeting: string; started_at: string }
 export type LocalModelFit = "gpu" | "mixed" | "cpu" | "too_big";
 export interface LocalModel {
@@ -76,6 +91,7 @@ export interface MeetingSettings {
   obsidian: { vault: string; folder: string; enabled: boolean; detected: string[] };
   summary_quality: "careful" | "fast"; my_name: string; my_name_set: boolean;
   speech_model: string; speech_model_active: string; speech_models: string[]; gpu_speech: boolean;
+  transcript_cleanup: boolean;
 }
 export interface VoiceProfile { id: string; name: string; samples: number; updated_at: string }
 export interface Reminder { id: string; title: string; due_utc: string; timezone: string; done: number }

@@ -168,7 +168,9 @@ host**.
   (default), *Summarise with Kimi* or *Don't summarise*. PIP never switches to Kimi by itself. **Summary quality:**
   *Careful* (default, about 2 minutes per meeting: it double-checks every action item against what was said) or
   *Fast* (one pass, about 40 seconds). **Meeting speech-to-text:** *Automatic* uses the most accurate model your
-  GPU can run (`large-v3-turbo` on an NVIDIA card).
+  GPU can run (`large-v3-turbo` on an NVIDIA card). **Remove filler words** (on by default) takes out "um", "uh",
+  stutters ("the the") and comma-wrapped ", you know," from transcripts and voice commands; the original words are
+  kept, and **Clean up existing transcripts** applies it to meetings recorded earlier.
 - **Several things at once.** Transcriptions always go first: a summary waits for them, and a long meeting is
   summarised in parts so it can pause between parts and continue later without redoing work. While PIP is
   listening to or transcribing a voice command, summaries wait too. A one-hour meeting takes about a minute on a

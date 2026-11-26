@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..meetings import models as model_catalog
+from ..meetings.graph import build_graph
 from ..meetings.local_ai import LocalAIError
 from ..meetings.obsidian import DEFAULT_FOLDER, detected_vaults
 from ..meetings.service import SUMMARY_MODES
@@ -65,6 +66,19 @@ async def ask_meetings(body: AskIn, req: Request) -> dict[str, Any]:
 def meeting_actions(req: Request, archived: bool = False) -> dict[str, Any]:
     """Every action item from every summarised meeting: undecided first, mine first."""
     return {"items": svc(req).meetings.action_items(include_archived=archived), "my_name": svc(req).my_name()}
+
+
+@router.get("/meetings/graph")
+def meetings_graph(req: Request, archived: bool = False) -> dict[str, Any]:
+    """Meetings, summaries, people and topics as a graph (the links the Obsidian notes make)."""
+    s = svc(req)
+    return build_graph(s.meetings.repo.all_with_summaries(), s.vocabulary(), include_archived=archived)
+
+
+@router.post("/meetings/clean-transcripts")
+def clean_transcripts(req: Request) -> dict[str, int]:
+    """Remove fillers and stutters from transcripts made before the clean-up existed (originals are kept)."""
+    return svc(req).meetings.clean_existing()
 
 
 @router.post("/meetings/vault/sync")
@@ -352,6 +366,7 @@ def _meeting_settings(req: Request) -> dict[str, Any]:
             "my_name_set": bool(str(p.get("my_name") or "").strip()),
             "speech_model": str(p.get("meeting_stt_model") or "auto"), "speech_model_active": s.meeting_stt_model(),
             "speech_models": list(s.MEETING_STT_MODELS), "gpu_speech": cuda_usable(),
+            "transcript_cleanup": s.transcript_cleanup(),
             "local_ai": s.local_ai.status(),
             "obsidian": {"vault": vault, "folder": str(p.get("obsidian_folder") or DEFAULT_FOLDER),
                          "enabled": s.vault() is not None, "detected": detected_vaults()}}
@@ -370,6 +385,7 @@ class MeetingSettingsIn(BaseModel):
     summary_quality: str | None = Field(default=None, pattern="^(careful|fast)$")
     my_name: str | None = Field(default=None, max_length=60)  # "" = guess from the voices
     speech_model: str | None = Field(default=None, pattern="^(auto|small.en|medium.en|large-v3-turbo|large-v3)$")
+    transcript_cleanup: bool | None = None
 
 
 @router.put("/settings/meetings")
@@ -397,6 +413,9 @@ def set_meeting_settings(body: MeetingSettingsIn, req: Request) -> dict[str, Any
         if getattr(stt, "model_name", None) != s.meeting_stt_model():
             stt.unload()  # loaded again, with the new model, by the next transcription
             stt.model_name = s.meeting_stt_model()
+    if body.transcript_cleanup is not None:
+        s.settings.save_prefs(transcript_cleanup=body.transcript_cleanup)
+        s.stt.cleanup = body.transcript_cleanup
     if body.my_name is not None:
         s.settings.save_prefs(my_name=" ".join(body.my_name.split()) or "")
         threading.Thread(target=s.meetings.reenrich_all, name="pip-mine", daemon=True).start()

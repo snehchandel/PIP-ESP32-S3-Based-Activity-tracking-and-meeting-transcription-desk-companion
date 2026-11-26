@@ -214,7 +214,15 @@ export function MeetingAiCard() {
           <option value="small.en">small.en (fastest on CPU)</option>
         </Select>
         <p className="mt-1 text-xs text-muted">{m.gpu_speech ? "Your NVIDIA GPU is used for speech: an hour of meeting in about 1-2 minutes."
-          : "No usable GPU for speech: transcription runs on the CPU."}</p></div>
+          : "No usable GPU for speech: transcription runs on the CPU."}</p>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input type="checkbox" aria-label="Remove filler words and repeated words from transcripts" checked={m.transcript_cleanup}
+            onChange={(e) => void save({ transcript_cleanup: e.target.checked })} />
+          Remove filler words ("um", "uh") and stutters ("the the") from transcripts</label>
+        {m.transcript_cleanup && <Button size="sm" className="mt-1.5" onClick={async () => {
+          const r = await run(() => api.cleanTranscripts());
+          if (r) setNote(`Cleaned ${r.lines_changed} line(s), removed ${r.lines_removed} filler-only line(s). Originals are kept.`); }}>
+          Clean up existing transcripts</Button>}</div>
       <div className="mt-3 rounded-xl border border-line bg-paper-2 p-3 text-sm">
         <p className="flex flex-wrap items-center gap-2">
           <span className="font-semibold">Local AI</span>

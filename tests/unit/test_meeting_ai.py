@@ -94,7 +94,7 @@ def test_chunks_follow_turns_and_clean_repairs_model_output() -> None:
     assert [(x["task"], x["owner"], x["due"]) for x in out["action_items"]] == \
         [("Send the deck to Lee", "Jordan", None), ("Book the room", "Everyone", "Friday")]
     assert out["decisions"] == ["Ship on Friday"]
-    assert summ.tidy("um so we we we uh need the, uh, deck") == "so we need the, deck"
+    assert summ.tidy("um so we we we uh need the, uh, deck") == "so we need the deck"
 
 
 def test_long_meeting_is_summarised_part_by_part_then_merged(manager, tmp_path) -> None:  # type: ignore[no-untyped-def]

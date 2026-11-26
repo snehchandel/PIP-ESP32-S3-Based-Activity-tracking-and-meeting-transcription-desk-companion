@@ -36,6 +36,7 @@ import numpy as np
 from .. import errors
 from ..calendar.agenda import day_items
 from ..planner.step_templates import steps_for
+from ..speech.cleanup import clean_text
 from ..speech.stt import SpeechToText
 from ..state.manager import DeviceStateManager
 from . import actions as act_mod
@@ -153,6 +154,16 @@ def finalize_wav(path: Path) -> float:
     return data / (SR * 2)
 
 
+def end_sentences(segments: list[dict[str, Any]]) -> None:
+    """large-v3-turbo often leaves the full stop off a line ("...for SMS CASL" / "Well, maybe..."). Add it when the next
+    line starts a new sentence (capital letter) or it is the last line; a line that runs on stays open."""
+    for i, s in enumerate(segments):
+        text = s["text"].rstrip()
+        nxt = segments[i + 1]["text"].lstrip() if i + 1 < len(segments) else ""
+        if text and text[-1].isalnum() and (not nxt or nxt[:1].isupper()):
+            s["text"] = text + "."
+
+
 class MeetingService:
     def __init__(self, manager: DeviceStateManager, data_dir: Path, model_name: str, notify: Notify,
                  summarizer: Callable[[], Any] | None = None, stt: SpeechToText | None = None,
@@ -162,7 +173,8 @@ class MeetingService:
                  voice_busy: Callable[[], bool] = lambda: False,
                  summary_quality: Callable[[], str] = lambda: "careful",
                  my_name: Callable[[], str] = lambda: "",
-                 refine_task: Callable[[str, str], None] = lambda tid, title: None) -> None:
+                 refine_task: Callable[[str, str], None] = lambda tid, title: None,
+                 cleanup: Callable[[], bool] = lambda: True) -> None:
         self.m = manager
         self.repo = MeetingRepo(manager.db)
         self.dir = data_dir / "meetings"
@@ -177,6 +189,7 @@ class MeetingService:
         self.summary_quality = summary_quality  # "careful" (default: think + check + write-up) | "fast"
         self.my_name = my_name        # the user's name as a speaker: whose action items are "mine"
         self.refine_task = refine_task  # a task made from an action item gets Kimi's steps (like any new task)
+        self.cleanup = cleanup        # drop fillers and stutters from transcript lines (raw text is kept)
         self._rec: dict[int, _Recording] = {}
         self._q: queue.Queue[tuple[str, int | None]] = queue.Queue()  # transcriptions (always first)
         self._sq: list[str] = []      # local summaries waiting for the transcriptions to finish
@@ -497,11 +510,18 @@ class MeetingService:
                     self.repo.update(mid, progress=round(frac, 3))
                     self.notify("meeting_updated", {"id": mid, "status": "TRANSCRIBING", "progress": round(frac, 3)})
 
-            for s0, s1, text in self.stt.transcribe_segments(audio, progress):
+            tidy = self.cleanup()
+            vocab = self.vocabulary()
+            for s0, s1, raw in self.stt.transcribe_segments(audio, progress):
+                text = clean_text(raw, vocab) if tidy else raw
+                if not text:  # nothing but "um" / "mm-hmm"
+                    continue
                 feats = diarize.voice_features(audio[int(s0 * SR): int(s1 * SR)])
                 segments.append({"start_s": round(pos + s0, 2), "end_s": round(pos + s1, 2), "text": text,
+                                 "raw_text": raw if text != raw else None,
                                  "embedding": [round(float(x), 5) for x in feats] if feats is not None else None})
             pos = end
+        end_sentences(segments)
         self._assign_speakers(mid, segments, num_speakers)
         self._partial.pop(mid, None)  # a new transcript: parts summarised from an old one are stale
         self.repo.update(mid, status="READY", progress=1.0, duration_s=round(total, 2))
@@ -771,6 +791,19 @@ class MeetingService:
                 act_mod.enrich(m["summary"], m, self.my_name())
                 self.repo.update(m["id"], summary_json=json.dumps(m["summary"]))
         self.m.changed()
+
+    def clean_existing(self) -> dict[str, int]:
+        """Apply the filler/stutter clean-up to transcripts made before it existed (or with it switched off). The
+        original words go to raw_text, so this can be undone; lines that were only "um" are removed."""
+        vocab = self.vocabulary()
+        changed = removed = 0
+        for m in self.repo.all_with_summaries():
+            n_changed, n_removed = self.repo.clean_segments(m["id"], lambda t: clean_text(t, vocab))
+            if n_changed or n_removed:
+                changed += n_changed
+                removed += n_removed
+                self.touched(m["id"])
+        return {"lines_changed": changed, "lines_removed": removed}
 
     def archive(self, mid: str, archived: bool = True) -> None:
         """Archived meetings keep everything but leave search, questions, action lists and the calendar."""

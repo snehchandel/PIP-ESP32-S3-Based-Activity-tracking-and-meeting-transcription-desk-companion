@@ -230,7 +230,9 @@ on 20 ms idle with a partial frame.
 - **Nudges** (`alarms/nudges.py`, ADR-029): due reminders and task start times -> toast + chime + speech.
   Personal vocabulary (prefs `vocabulary`) feeds Whisper `hotwords` and the Kimi request.
 - **Speech:** faster-whisper `small.en` for voice (CUDA float16 when the cuBLAS/cuDNN wheels load, else CPU int8),
-  Piper voices in `data/voices`. Spoken alarms
+  beam 5 on the GPU / greedy on the CPU, silence phantoms dropped; transcripts and voice commands are cleaned of
+  fillers and stutters (`speech/cleanup.py`, ADR-033; raw meeting text kept in `meeting_segments.raw_text`).
+  Migration comments must not contain `;` (the runner splits statements on it). Piper voices in `data/voices`. Spoken alarms
   are pre-rendered to `data/alarm_audio/` at creation; ring sequence = device chime → script → chimes every
   2.5 s for 60 s, aborted the moment the alarm is dismissed.
 - **Device link** (`device/link.py`): `make_transport()` → `AutoTransport` (USB when plugged in, else Wi-Fi to the
@@ -245,7 +247,7 @@ on 20 ms idle with a partial frame.
   Kimi model, preferences), ai (usage, budget, prices), weather, device (diagnostics, framebuffer.png, network,
   wifi, wake, wake/test, simulate-button), firmware (status, upload, update), error/dismiss, diagnostics/export.
   WebSocket: `/ws/events`.
-- **DB:** SQLite WAL, migrations `storage/migrations/NNN_*.sql` applied in order (current: 001–008). Add a new
+- **DB:** SQLite WAL, migrations `storage/migrations/NNN_*.sql` applied in order (current: 001–009). Add a new
   numbered file; never edit an applied one.
 
 ---

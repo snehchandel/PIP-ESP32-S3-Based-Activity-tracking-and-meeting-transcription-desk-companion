@@ -130,9 +130,10 @@ class MeetingRepo:
             c.execute("DELETE FROM meeting_speakers WHERE meeting_id=?", (mid,))
             for i, s in enumerate(segments):
                 emb = s.get("embedding")
-                c.execute("INSERT INTO meeting_segments(meeting_id,idx,start_s,end_s,text,speaker_key,embedding)"
-                          " VALUES (?,?,?,?,?,?,?)", (mid, i, float(s["start_s"]), float(s["end_s"]), s["text"],
-                                                       s["speaker_key"], json.dumps(emb) if emb is not None else None))
+                c.execute("INSERT INTO meeting_segments(meeting_id,idx,start_s,end_s,text,speaker_key,embedding,raw_text)"
+                          " VALUES (?,?,?,?,?,?,?,?)", (mid, i, float(s["start_s"]), float(s["end_s"]), s["text"],
+                                                         s["speaker_key"], json.dumps(emb) if emb is not None else None,
+                                                         s.get("raw_text")))
             for sp in speakers:
                 c.execute("INSERT INTO meeting_speakers(meeting_id,key,name,profile_id,auto) VALUES (?,?,?,?,?)",
                           (mid, sp["key"], sp["name"], sp.get("profile_id"), int(bool(sp.get("auto")))))
@@ -177,6 +178,23 @@ class MeetingRepo:
                 return False
             return c.execute("UPDATE meeting_segments SET speaker_key=? WHERE meeting_id=? AND id=?",
                              (key, mid, seg_id)).rowcount == 1
+
+    def clean_segments(self, mid: str, clean: Any) -> tuple[int, int]:
+        """Clean every not-yet-cleaned line (raw_text NULL) with clean(text): keeps the original in raw_text, removes
+        lines that come back empty. Returns (changed, removed)."""
+        changed = removed = 0
+        with self.db.tx() as c:
+            rows = c.execute("SELECT id, text FROM meeting_segments WHERE meeting_id=? AND raw_text IS NULL",
+                             (mid,)).fetchall()
+            for seg_id, text in rows:
+                new = clean(text)
+                if not new:
+                    c.execute("DELETE FROM meeting_segments WHERE id=?", (seg_id,))
+                    removed += 1
+                elif new != text:
+                    c.execute("UPDATE meeting_segments SET text=?, raw_text=? WHERE id=?", (new, text, seg_id))
+                    changed += 1
+        return changed, removed
 
     def set_segment_text(self, mid: str, seg_id: int, text: str) -> bool:
         with self.db.tx() as c:

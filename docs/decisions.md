@@ -410,3 +410,24 @@ random picks from a library.
 - **Archive:** `meetings.archived` (migration 008). Archived meetings keep transcript, summary, audio and note but
   leave search/questions, action lists, the calendar and the Obsidian index (the note gets `archived: true`);
   restore any time.
+
+## ADR-033 — Cleaner transcripts: no fillers or stutters, beam search on the GPU, silence phantoms dropped
+- **Measured on real meetings:** the old `small.en` (CPU, greedy) transcripts had few "um"s (Whisper drops most) but
+  27 repeated words ("The the", "I, I", "no, no, no, no, no, no, no") and comma-wrapped fillers (", you know," x23);
+  `large-v3-turbo` keeps more hesitations ("uh", "we we've"). On a 5-minute meeting the old pipeline produced 550
+  words, the new one 810 - `small.en` had been dropping about a third of the speech.
+- **Clean-up (`speech/cleanup.py`, on by default, Settings "Remove filler words"):** removes hesitation sounds
+  (um, uh, er, ah, hmm, mm-hmm; a line of only that is dropped), stutters/repeats ("the the", "I, I", "no, no, no"
+  -> one; not "had had" or "that that's"), and fillers only when set off by commas (", you know,", ", I mean,",
+  ", like,"); restores the vocabulary's spelling ("sfmc" -> "SFMC"). "kind of" / "sort of" / bare "like" stay (often
+  real words). Meeting lines keep the original in `meeting_segments.raw_text` (migration 009) when it changed;
+  `POST /meetings/clean-transcripts` cleans older transcripts in place (originals kept, idempotent). Voice commands
+  are cleaned before they go to Kimi. The summarizer's `tidy` is the same function.
+- **Decoding:** beam search 5 on the GPU (measured: cleaner sentences and punctuation, false starts dropped, longer
+  segments, ~25 % slower: 6.8 s vs 5.4 s for 5 minutes), greedy on the CPU. Missing full stops at line ends (common
+  with turbo) are added when the next line starts a sentence (`end_sentences`).
+- **Phantoms:** segments Whisper itself marks as probably not speech (no_speech_prob > 0.6 with low confidence), and
+  the classic caption phantoms ("Thank you.", "Thanks for watching", "you") when no_speech_prob > 0.4, are dropped.
+- **Not done (ideas):** word-level timestamps to split a line at a speaker change; a larger model for voice commands
+  (turbo would sit beside the 8B summariser in 8 GB of VRAM); fuzzy vocabulary correction ("castle" -> CASL) is left
+  to Kimi/the summariser, because a wrong automatic replacement in a transcript is worse than a mis-hearing.
