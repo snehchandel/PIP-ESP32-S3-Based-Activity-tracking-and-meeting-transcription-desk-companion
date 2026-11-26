@@ -36,3 +36,6 @@ tools/pip.ico
 # Real-device captures and build logs (personal data / local paths) - kept locally, never committed
 artifacts/rlcd/hardware/
 artifacts/firmware_size.txt
+
+# Original development plan - kept locally, never committed
+esp32-s3-rlcd-development-plan*.md
