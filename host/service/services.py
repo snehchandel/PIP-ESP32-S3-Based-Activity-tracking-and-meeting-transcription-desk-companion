@@ -4,12 +4,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from . import errors
+from . import errors, paths
 from .ai_cost import CostMeter
 from .alarms.audio import AlarmAudio
 from .alarms.nudges import NudgeScheduler
@@ -25,6 +26,7 @@ from .meetings.obsidian import DEFAULT_FOLDER, ObsidianVault
 from .meetings.service import SUMMARY_MODES, MeetingService
 from .planner import PlannerError, TaskPlanner, make_planner, resolve_model
 from .protocol import FrameType
+from .speech.gpu_pack import GpuPack
 from .speech.pipeline import VoicePipeline
 from .speech.stt import SpeechToText
 from .speech.tts import TextToSpeech
@@ -47,6 +49,9 @@ class Services:
         self.hub = WsHub()
         self.manager.subscribe(self.hub.publish)
         self.stt = SpeechToText(settings.pip_stt_model)
+        self.gpu_pack = GpuPack((Path(settings.pip_db_path).parent if settings.pip_db_path != ":memory:"
+                                 else Path(settings.pip_voices_dir).parent) / "gpu")
+        self.restart_app: Callable[[], None] | None = None  # set by the desktop app (service/desktop.py)
         self.tts = TextToSpeech(settings.piper_voice(), Path(settings.pip_voices_dir))
         self.manager.subscribe(self._on_state_event)
         self.voice = VoicePipeline(self.manager, self.stt, self.planner, self.hub.publish)
@@ -63,8 +68,7 @@ class Services:
         self.cost = CostMeter(self.db, settings)
         self.link.on_link_up = self._on_link_up
         self.link.on_diag = self._on_diag
-        root = Path(__file__).resolve().parents[2]
-        self.firmware = FirmwareUpdater(self.link, data_dir, root / "firmware" / "build" / "pip_firmware.bin")
+        self.firmware = FirmwareUpdater(self.link, data_dir, paths.bundled_firmware())
         self.local_ai = LocalAI(settings.pip_local_ai_url, model=self.local_ai_model, on_usage=self.cost.record)
         self.meetings = MeetingService(self.manager, data_dir, self.meeting_stt_model(), self.hub.publish,
                                        summarizer=self.planner, local_ai=self.local_ai,

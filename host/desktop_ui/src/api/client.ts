@@ -1,4 +1,4 @@
-import type { Activity, AiUsage, Alarm, FirmwareInfo, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingActionRow, MeetingAnswer, MeetingDetail, MeetingGraph, MeetingHit, MeetingList, MeetingSettings, LocalModels, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
+import type { Activity, AiUsage, Alarm, FirmwareInfo, GpuPack, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingActionRow, MeetingAnswer, MeetingDetail, MeetingGraph, MeetingHit, MeetingList, MeetingSettings, LocalModels, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
 
 const BASE = "/api/v1";
 
@@ -102,6 +102,10 @@ export const api = {
   wakeScript: (title: string, note = "") =>
     req<{ script: string; words: number; seconds: number }>("POST", "/alarms/script", { title, note }),
   preloadStt: () => req<Settings>("POST", "/speech/preload"),
+  gpuPack: () => req<GpuPack>("GET", "/settings/gpu-pack"),
+  installGpuPack: () => req<GpuPack>("POST", "/settings/gpu-pack"),
+  removeGpuPack: () => req<GpuPack>("DELETE", "/settings/gpu-pack"),
+  restartApp: () => req<{ restarting: boolean }>("POST", "/app/restart"),
   sayOnDevice: (text: string) => req<{ played_on_device: boolean }>("POST", "/speech/say", { text }),
   sayWavUrl: (text: string, voice?: string | null) =>
     `${BASE}/speech/say.wav?text=${encodeURIComponent(text)}${voice ? `&voice=${encodeURIComponent(voice)}` : ""}`,

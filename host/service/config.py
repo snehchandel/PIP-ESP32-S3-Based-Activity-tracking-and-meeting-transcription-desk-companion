@@ -9,20 +9,23 @@ from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT = Path(__file__).resolve().parents[2]
+from . import paths
+
+ROOT = paths.REPO_ROOT
+DATA = paths.data_dir()
 KEYRING_SERVICE = "pip-companion"
 KEYRING_USER = "MOONSHOT_API_KEY"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=str(ROOT / ".env"), env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(paths.env_file()), env_file_encoding="utf-8", extra="ignore")
 
     moonshot_api_key: str = ""
     moonshot_base_url: str = "https://api.moonshot.ai/v1"
     moonshot_model: str = "kimi-k2-0905-preview"
 
     pip_host_port: int = 18421
-    pip_db_path: str = str(ROOT / "data" / "pip.db")
+    pip_db_path: str = str(DATA / "pip.db")
     pip_timezone: str = "America/Toronto"
     pip_transport: str = "auto"  # auto (USB board, re-probed) | usb | sim | none
     pip_serial_port: str = ""
@@ -33,8 +36,8 @@ class Settings(BaseSettings):
     pip_local_ai_url: str = "http://127.0.0.1:11434"  # Ollama: meeting summaries + questions on this PC (tests: a fake)
     pip_stt_preload: bool = True
     pip_piper_voice: str = ""
-    pip_voices_dir: str = str(ROOT / "data" / "voices")
-    pip_prefs_path: str = str(ROOT / "data" / "settings.json")
+    pip_voices_dir: str = str(DATA / "voices")
+    pip_prefs_path: str = str(DATA / "settings.json")
     pip_use_keyring: bool = True  # tests set this False so they never touch the real credential store
     pip_weather: bool = True  # outdoor weather via open-meteo.com (tests disable)
 

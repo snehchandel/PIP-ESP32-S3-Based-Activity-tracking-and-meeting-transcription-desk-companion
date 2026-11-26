@@ -12,7 +12,8 @@ already paid for. Deeper references: `docs/decisions.md` (ADRs), `debugging_log.
 PIP is an ADHD-friendly desk companion. Hardware: **Waveshare ESP32-S3-RLCD-4.2** (ESP32-S3-WROOM-1-N16R8:
 16 MB flash, 8 MB octal PSRAM) with a **400×300 1-bit reflective LCD**, two buttons (KEY, BOOT), an ES7210 mic +
 ES8311 speaker codec, PCF85063 RTC, SHTC3 temperature/humidity sensor and a Li-ion battery. A Windows PC runs the
-**host service** (Python/FastAPI) and the **companion app** (React, served by the host, wrapped by a tray app).
+**host service** (Python/FastAPI) and the **companion app** (React, served by the host), packaged together as
+**PIP.exe** (installer, own WebView2 window + tray, ADR-034) or run from the repository by `tools/pip_tray.pyw`.
 
 The user brain-dumps by voice or text → **Kimi** (Moonshot API) turns it into one focus task of small steps,
 parked tangents, alarms and reminders → PIP shows one step at a time with a timer, an animated robot mascot,
@@ -72,7 +73,7 @@ alarms it already knows, offline event log) and reconciles idempotently when the
 | `host/service/` | FastAPI app (`main.py`), DI container (`services.py`), config (`config.py`, prefs in `data/settings.json`), `api/` routes, `state/` (manager, actions, reconcile, timer), `planner/` (Kimi, schema, local rules library), `speech/` (STT, TTS, voice pipeline), `alarms/` (scheduler, spoken wake-up audio), `calendar/`, `storage/` (SQLite + numbered migrations), `device/` (link, voice out, firmware updater), `transport/` (USB, Wi-Fi, auto, simulator), `ai_cost.py`, `weather.py`, `errors.py`. |
 | `host/desktop_ui/` | React 19 + Vite + Tailwind v4. Views: Today, Calendar (Outlook-style), Voice (brain dump), Focus, Alarms, Device, Settings. `npm run build` → `dist/` served by the host. |
 | `tests/` | `unit/` (pytest), `unit/c/` (C tests via CTest), `integration/` (host ↔ sim over TCP), `protocol/`, `golden/rlcd/` (pixel baselines), `support/` (test doubles). |
-| `tools/` | `idf.ps1` (ESP-IDF env), `flash_board.py`, `capture_rlcd.py`, `verify_rlcd.py` (pixel/layout gate), `verify_desktop_ui.py` (Playwright E2E, 15 views), `e2e_stack.py`, `check_guardrails.py`, `generate_fonts.py`, `act_sheet.py`, `pip_tray.pyw` (standalone Windows app), `install_windows.ps1`, `zcc.cmd` + `host-toolchain.cmake` (zig cc for host C builds). |
+| `tools/` | `idf.ps1` (ESP-IDF env), `flash_board.py`, `capture_rlcd.py`, `verify_rlcd.py` (pixel/layout gate), `verify_desktop_ui.py` (Playwright E2E, 15 views), `e2e_stack.py`, `check_guardrails.py`, `generate_fonts.py`, `act_sheet.py`, `pip_tray.pyw` (the desktop app from the repo), `install_windows.ps1` ("PIP Companion (dev)" shortcuts), `build_exe.ps1` + `pip.spec` + `installer/pip.iss` + `smoke_exe.py` (packaged app, ADR-034), `zcc.cmd` + `host-toolchain.cmake` (zig cc for host C builds). |
 | `data/` (gitignored) | `pip.db`, `settings.json` (prefs), `logs/pip.log`, `logs/errors.log`, `voices/` (Piper `.onnx`), `alarm_audio/` (pre-rendered wake-up speech), `firmware/upload.bin`. |
 | `artifacts/` | Rendered screens (`rlcd/raw`), hardware captures (`rlcd/hardware`), previews, act contact sheets (`rlcd_acts/sheet_*.png`), desktop E2E screenshots. |
 
@@ -198,7 +199,14 @@ on 20 ms idle with a partial frame.
 
 ## 6. Host service
 
-- **Startup:** `tools/pip_tray.pyw` (no console) or `python -m uvicorn` via `service.main:create_app`. Port 18421.
+- **Startup:** `service/desktop.py` - the desktop app: host service in-process, WebView2 window (closing hides it),
+  tray (Open / Start with Windows / Quit), one instance per port (named mutex; a second start shows the window),
+  `POST /app/restart`. Runs as **PIP.exe** (packaged) or `tools/pip_tray.pyw` (repo); `python -m uvicorn` via
+  `service.main:create_app` for a console. Port 18421.
+- **Files** (`service/paths.py`, ADR-034): bundled resources (UI, migrations, icon, firmware image) vs user data.
+  User data = `data/` from the repo, `%LOCALAPPDATA%\PIP` when packaged, `PIP_DATA_DIR` overrides. Never build a
+  path from `__file__` for user data; use `paths`. The packaged app keeps Whisper models in `<data>/models` and the
+  GPU speech add-on (`speech/gpu_pack.py`: pinned + checksummed NVIDIA wheels from PyPI, DLLs only) in `<data>/gpu`.
   Logs: `data/logs/pip.log`; errors + stuck-state reports: `data/logs/errors.log` and the `event_log` table.
 - **State:** `DeviceStateManager` (+ `ActionsMixin`, `ReconcileMixin`) — every change calls `changed(kind, …)`,
   which bumps the revision and fans out to the WebSocket hub and the device link (pushes UI_UPDATE + CALENDAR_SYNC).
@@ -273,10 +281,19 @@ cd host/desktop_ui; npx tsc --noEmit -p .; npx eslint src; npm run build; cd ../
 .\tools\idf.ps1 build
 ```
 
+**Packaged app (PIP.exe + installer, ADR-034):** bump `version` in `host/pyproject.toml`, then
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1   # UI -> PyInstaller -> smoke test -> Inno Setup
+```
+Output: `build/app/dist/PIP/` (~350 MB) and `build/app/PIP-Setup-<version>.exe` (~110 MB). Rebuild after building new
+firmware (the image is bundled for the updater). `tools/smoke_exe.py <exe> --gpu` also checks CUDA with the add-on.
+Runtime dependencies belong in `host/requirements-runtime.txt` (what gets bundled); a new lazily imported module
+or data file may need an entry in `tools/pip.spec`. Install over the old version to update; data is kept.
+
 **Updating firmware on the board:** bump the version (rule 7), build, then either
 - app: Device → Firmware → *Update PIP* (or `POST /api/v1/firmware/update {"source":"build"}`), ~25 s over USB; or
-- USB flash (partition/bootloader changes, recovery): stop the tray app
-  (`Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" | ? CommandLine -match pip_tray | % { Stop-Process -Id $_.ProcessId }`),
+- USB flash (partition/bootloader changes, recovery): stop the tray app (packaged: `Stop-Process -Name PIP`; repo:
+  `Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" | ? CommandLine -match pip_tray | % { Stop-Process -Id $_.ProcessId }`),
   `$env:PIP_ALLOW_AUTO_FLASH="1"; .venv\Scripts\python tools\flash_board.py; Remove-Item Env:PIP_ALLOW_AUTO_FLASH`,
   then relaunch: `Start-Process .venv\Scripts\pythonw.exe -ArgumentList '"tools\pip_tray.pyw"','--background'`.
 

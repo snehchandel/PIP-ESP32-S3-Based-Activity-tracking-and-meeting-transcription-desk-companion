@@ -9,7 +9,13 @@ two buttons (**KEY** on the side, **BOOT** next to it), a microphone and a speak
 2. Double-click **PIP Companion** on your Desktop (or Start menu). The app opens and a PIP icon appears in the
    system tray (bottom-right). PIP's screen shows **LINKED** at the top within a few seconds.
 3. Optional: right-click the tray icon → **Start with Windows** so PIP is ready every time you log in.
-4. To close PIP completely: right-click the tray icon → **Quit PIP**.
+4. To close PIP completely: right-click the tray icon → **Quit PIP**. Closing the window only hides it: PIP keeps
+   running in the tray (alarms, the link to PIP). Opening **PIP Companion** again brings the window back.
+5. With an NVIDIA graphics card: **Settings → GPU speech → Download GPU speech** (one-time, ~1.3 GB), then
+   **Restart PIP**. Speech-to-text and meeting transcripts become much faster.
+
+PIP Companion is installed with **PIP-Setup-<version>.exe**. Your tasks, settings, voices and meetings are kept
+in `%LOCALAPPDATA%\PIP` and survive uninstalling and updating (to update, install the new version over the old).
 
 Starting from a terminal, restarting, and checking that it runs: see **9. Starting, restarting and checking the
 host**.
@@ -251,7 +257,11 @@ Terminal commands below are for **PowerShell**, run from the PIP folder (e.g. `C
 ### Start it
 - **Normal:** double-click **PIP Companion** (Desktop or Start menu). The app window opens and the PIP icon appears
   in the tray. Right-click the icon → **Start with Windows** to have it start every time you log in.
-- **Shortcuts missing?** Recreate them once:
+- **Installed app (PIP.exe):** that is all - the commands below are only for running PIP from its source folder
+  (shortcut **PIP Companion (dev)**). From a terminal: `& "$env:LOCALAPPDATA\Programs\PIP Companion\PIP.exe"`
+  (add `--background` for tray only); stop it with `Stop-Process -Name PIP`. Its logs are in
+  `%LOCALAPPDATA%\PIP\logs`. Only one PIP can run at a time: quit the other one first.
+- **Shortcuts missing (source folder)?** Recreate them once:
   ```powershell
   .\tools\install_windows.ps1
   ```

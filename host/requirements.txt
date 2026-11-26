@@ -1,20 +1,12 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-pydantic>=2.7
-pydantic-settings>=2.3
-httpx>=0.27
-pyserial>=3.5
-pillow>=10.3
-numpy>=1.26
-keyring>=25
-tzdata>=2024.1
-faster-whisper>=1.0
+-r requirements-runtime.txt
 # dev / verification
 pytest>=8
 pytest-asyncio>=0.23
 ruff>=0.5
 mypy>=1.10
 playwright>=1.45
+# packaged app (tools/build_exe.ps1)
+pyinstaller>=6.10
 # firmware + asset tooling
 ziglang
 cmake

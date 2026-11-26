@@ -151,6 +151,12 @@ export interface VoiceSession {
   needs_confirmation: number; created_at: string;
 }
 
+export interface GpuPack {
+  installed: boolean; state: "idle" | "downloading" | "unpacking" | "done" | "error"; done_mb: number; total_mb: number;
+  error: string; folder: string; gpu: string; gpu_in_use: boolean; from_python_env: boolean; restart_needed: boolean;
+  can_restart: boolean;
+}
+
 export interface Settings {
   planner_mode: string; kimi_model: string | null; stt: string; tts: string; timezone: string;
   transport_setting: string; host_port: number; privacy: string; missed_alarms: string[];

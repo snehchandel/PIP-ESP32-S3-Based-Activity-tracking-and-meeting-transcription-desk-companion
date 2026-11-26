@@ -8,7 +8,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from .config import ROOT
+from . import paths
 
 log = logging.getLogger("pip.errors")
 _configured = False
@@ -16,7 +16,7 @@ _configured = False
 
 def setup_error_log(log_dir: Path | None = None) -> Path:
     global _configured
-    path = (log_dir or ROOT / "data" / "logs") / "errors.log"
+    path = (log_dir or paths.logs_dir()) / "errors.log"
     if not _configured:
         path.parent.mkdir(parents=True, exist_ok=True)
         h = logging.handlers.RotatingFileHandler(path, maxBytes=2_000_000, backupCount=5, encoding="utf-8")

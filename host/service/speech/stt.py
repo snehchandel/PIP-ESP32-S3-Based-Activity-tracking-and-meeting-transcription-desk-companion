@@ -4,11 +4,32 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import shutil
 import sys
 import threading
+from pathlib import Path
 from typing import Any
 
+from .. import paths
+
 log = logging.getLogger("pip.stt")
+
+
+CUDA_PARTS = ("cublas", "cudnn", "cuda_nvrtc")
+
+
+def cuda_dll_dirs() -> list[str]:
+    """Folders holding the CUDA 12 cuBLAS + cuDNN 9 DLLs: the pip wheels (development venv) and the GPU speech pack
+    the packaged app downloads (speech/gpu_pack.py)."""
+    bases: list[str] = []
+    try:
+        import nvidia  # namespace package from the wheels
+
+        bases += list(getattr(nvidia, "__path__", []))
+    except ImportError:
+        pass
+    bases.append(str(paths.gpu_pack_dir()))
+    return [d for b in bases for sub in CUDA_PARTS if os.path.isdir(d := os.path.join(b, sub, "bin"))]
 
 
 def _add_cuda_dlls() -> None:
@@ -17,17 +38,11 @@ def _add_cuda_dlls() -> None:
     search path, so CUDA fell back to the CPU ("cublas64_12.dll is not found"). Put them there before loading."""
     if sys.platform != "win32":
         return
-    try:
-        import nvidia  # namespace package from the wheels
-    except ImportError:
-        return
-    for base in getattr(nvidia, "__path__", []):
-        for sub in ("cublas", "cudnn", "cuda_nvrtc"):
-            dll_dir = os.path.join(base, sub, "bin")
-            if os.path.isdir(dll_dir) and dll_dir not in os.environ.get("PATH", ""):
-                os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
-                with contextlib.suppress(OSError):
-                    os.add_dll_directory(dll_dir)
+    for dll_dir in cuda_dll_dirs():
+        if dll_dir not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
+            with contextlib.suppress(OSError):
+                os.add_dll_directory(dll_dir)
 
 
 _add_cuda_dlls()
@@ -62,6 +77,45 @@ _DEVICE_FAILED: set[str] = set()
 _LOAD_LOCK = threading.Lock()  # one model load at a time (the voice and meeting instances load independently)
 
 
+def _repo_folder(model_name: str) -> str:
+    """Hugging Face cache folder name of a faster-whisper model ("small.en" -> models--Systran--faster-whisper-small.en)."""
+    try:
+        from faster_whisper.utils import _MODELS
+
+        repo = _MODELS.get(model_name, model_name)
+    except ImportError:
+        repo = model_name
+    return "models--" + repo.replace("/", "--")
+
+
+def model_root(model_name: str) -> Path | None:
+    """PIP's own models folder (packaged app). On first use a model the PC already has in the Hugging Face cache is
+    copied there instead of downloaded again. None = development: use the Hugging Face cache as before."""
+    root = paths.models_dir()
+    if root is None:
+        return None
+    target = root / _repo_folder(model_name)
+    if not (target / "snapshots").is_dir():
+        try:
+            from huggingface_hub import constants
+
+            cached = Path(constants.HF_HUB_CACHE) / _repo_folder(model_name)
+            if (cached / "snapshots").is_dir():
+                log.info("copying Whisper %s from the Hugging Face cache", model_name)
+                shutil.copytree(cached, target, dirs_exist_ok=True)
+        except Exception as e:  # nothing to copy, or the copy failed: download instead
+            log.info("no cached Whisper %s to copy: %s", model_name, e)
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _folder_mb(path: Path) -> int:
+    try:
+        return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) // 1_000_000
+    except OSError:
+        return 0
+
+
 class SpeechToText:
     def __init__(self, model_name: str = "small.en") -> None:
         self.model_name = model_name
@@ -71,6 +125,7 @@ class SpeechToText:
         self.loading = False
         self.error = ""
         self.vocabulary: list[str] = []  # names/acronyms the user says (Settings): passed to Whisper as hotwords
+        self._downloading = False
         self.cleanup = True  # voice commands: drop "um"/"uh" and stutters before planning (speech/cleanup.py)
         try:
             import faster_whisper  # noqa: F401
@@ -87,6 +142,10 @@ class SpeechToText:
         if self.error:
             return f"ERROR ({self.error})"
         if self.loading:
+            root = paths.models_dir()
+            if self._downloading and root is not None:
+                mb = _folder_mb(root / _repo_folder(self.model_name))
+                return f"DOWNLOADING ({self.model_name}, {mb} MB so far)"
             return f"LOADING ({self.model_name})"
         return f"NOT_LOADED ({self.model_name})"
 
@@ -98,11 +157,16 @@ class SpeechToText:
         import numpy as np
         from faster_whisper import WhisperModel
 
+        root = model_root(self.model_name)
+        if root is not None and not (root / _repo_folder(self.model_name) / "snapshots").is_dir():
+            self._downloading = True  # first use of this model in the packaged app: fetched from Hugging Face
         for device, compute in (("cuda", "float16"), ("cpu", "int8")):
             if device in _DEVICE_FAILED:
                 continue
             try:
-                model = WhisperModel(self.model_name, device=device, compute_type=compute)
+                model = WhisperModel(self.model_name, device=device, compute_type=compute,
+                                     download_root=str(root) if root else None)
+                self._downloading = False
                 # CUDA can construct fine yet fail at inference (e.g. cuBLAS DLL missing): prove it works.
                 segs, _ = model.transcribe(np.zeros(16000, dtype=np.float32), language="en", beam_size=1)
                 list(segs)
@@ -115,6 +179,7 @@ class SpeechToText:
                 if device != "cpu":
                     _DEVICE_FAILED.add(device)
                 self.error = str(e)[:120]
+        self._downloading = False
         raise RuntimeError(self.error or "model load failed")
 
     def preload(self) -> None:

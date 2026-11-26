@@ -431,3 +431,30 @@ random picks from a library.
 - **Not done (ideas):** word-level timestamps to split a line at a speaker change; a larger model for voice commands
   (turbo would sit beside the 8B summariser in 8 GB of VRAM); fuzzy vocabulary correction ("castle" -> CASL) is left
   to Kimi/the summariser, because a wrong automatic replacement in a transcript is worse than a mis-hearing.
+
+## ADR-034 — PIP as its own Windows app: PIP.exe + installer, GPU speech as an add-on
+- **Why:** PIP only ran from the repository checkout and its 3.1 GB `.venv` (shortcuts pointed at `pythonw.exe` and a
+  script). The user wanted one program that starts its own services.
+- **Packaging:** PyInstaller **one-folder** build (`tools/pip.spec`, entry `host/pip_app.py`). A one-file exe would
+  unpack ~300 MB to a temp folder on every start. `tools/build_exe.ps1` builds the UI, the exe, runs
+  `tools/smoke_exe.py` and makes the installer.
+- **Files (`service/paths.py`):** files that ship with the app (UI, migrations, icon, the firmware image) come from
+  the bundle. The user's data lives in `%LOCALAPPDATA%\PIP` when packaged and in `data/` from the repository, as
+  before. `PIP_DATA_DIR` overrides both. `PIP.exe --import-data <old data folder>` copies an existing folder once
+  (SQLite backup, absolute paths into the old folder rewritten); it never overwrites a database.
+- **Window (`service/desktop.py`):** pywebview (WebView2) gives PIP its own window and taskbar entry instead of an
+  Edge `--app` window. Closing the window hides it; Quit is in the tray. One PIP per port (a named mutex); starting
+  it again shows the running window (a named event). Without WebView2 it falls back to the browser.
+  `tools/pip_tray.pyw` now runs the same module from the repository.
+- **GPU speech add-on (`speech/gpu_pack.py`):** the CUDA 12 cuBLAS + cuDNN 9 DLLs (~2 GB unpacked) are not bundled.
+  Settings -> GPU speech (shown when an NVIDIA GPU is found), or the installer's "GPU speech" box
+  (`PIP.exe --install-gpu`), downloads NVIDIA's wheels from PyPI. Their versions and SHA-256 are pinned in the code,
+  and only the DLLs are unpacked into `<data>/gpu`. Takes effect after a restart (`POST /app/restart`).
+  Rejected: always bundling CUDA (a 2.5 GB installer for CPU-only PCs) and CPU only (meetings far too slow).
+- **Whisper models:** the packaged app keeps them in `<data>/models`. On first use it copies a model the PC already has in
+  the Hugging Face cache instead of downloading it again. Settings shows "DOWNLOADING (n MB so far)" meanwhile.
+- **Installer (Inno Setup, `tools/installer/pip.iss`):** per user (no admin prompt; all users via the dialog),
+  Start menu + optional Desktop and Start-with-Windows shortcuts. The uninstaller keeps `%LOCALAPPDATA%\PIP`.
+- **Ollama is left alone** (user's choice): PIP only talks to an Ollama the user runs.
+- **Not done:** code signing (SmartScreen warns on first run), the app updating itself (install the new version
+  over the old one).

@@ -1,0 +1,16 @@
+# What PIP itself needs to run (the packaged app, tools/pip.spec, is built from exactly these).
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+httpx>=0.27
+pyserial>=3.5
+pillow>=10.3
+numpy>=1.26
+keyring>=25
+tzdata>=2024.1
+faster-whisper>=1.0
+piper-tts>=1.2
+# desktop app: tray icon + WebView2 window (service/desktop.py)
+pystray>=0.19
+pywebview>=5

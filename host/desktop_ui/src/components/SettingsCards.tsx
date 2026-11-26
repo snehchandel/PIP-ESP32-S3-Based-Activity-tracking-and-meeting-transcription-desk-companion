@@ -2,7 +2,7 @@ import { CheckCircle2, Cpu, KeyRound, Loader2, Mic, NotebookPen, RefreshCw, Volu
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
-import type { MeetingSettings, Settings } from "../api/types";
+import type { GpuPack, MeetingSettings, Settings } from "../api/types";
 import { ModelChooser } from "./ModelChooser";
 import { Button } from "./ui/button";
 import { Badge, Card, CardTitle, Input, Label, Select, Textarea } from "./ui/primitives";
@@ -170,6 +170,49 @@ export function SpeechCard({ s, onChange }: { s: Settings; onChange: (s: Setting
 
 /** Meetings: who summarises after each transcription (this PC by default), the local AI (Ollama) and the
     Obsidian vault every meeting is written into. */
+/** GPU speech add-on (packaged app): NVIDIA's CUDA DLLs, downloaded on request so Whisper can use the GPU. */
+export function GpuSpeechCard() {
+  const { run } = useLive();
+  const [g, setG] = useState<GpuPack | null>(null);
+  const load = useCallback(() => void api.gpuPack().then(setG).catch(() => undefined), []);
+  useEffect(load, [load]);
+  const busy = g?.state === "downloading" || g?.state === "unpacking";
+  useEffect(() => {  // poll while downloading
+    if (!busy) return;
+    const t = window.setInterval(load, 1500);
+    return () => window.clearInterval(t);
+  }, [busy, load]);
+  if (!g || (!g.gpu && !g.installed) || (g.from_python_env && !g.installed)) return null;
+  const pct = g.total_mb ? Math.min(100, Math.round((g.done_mb / g.total_mb) * 100)) : 0;
+  return (
+    <Card aria-label="GPU speech">
+      <CardTitle aside={g.gpu_in_use ? <Badge tone="sage">Using the GPU</Badge>
+        : g.installed ? <Badge tone="amber">Restart needed</Badge> : <Badge tone="neutral">CPU</Badge>}>
+        <span className="inline-flex items-center gap-2"><Cpu size={16} aria-hidden /> GPU speech</span></CardTitle>
+      <p className="mb-3 text-sm text-muted">
+        {g.gpu ? `${g.gpu} found. ` : ""}Speech-to-text runs much faster on the graphics card (an hour-long meeting in
+        about two minutes). That needs NVIDIA&apos;s CUDA libraries: a one-time {Math.round(g.total_mb / 100) / 10} GB
+        download from PyPI, about 2 GB on disk.</p>
+      {busy && (
+        <div className="mb-3" role="status">
+          <div className="h-2 overflow-hidden rounded bg-line"><div className="h-2 bg-ink" style={{ width: `${pct}%` }} /></div>
+          <p className="mt-1 text-xs text-muted">{g.state === "unpacking" ? "Unpacking…" : `Downloading… ${g.done_mb} of ${g.total_mb} MB`}</p>
+        </div>
+      )}
+      {g.state === "error" && <p role="alert" className="mb-3 text-sm text-amber-ink">Download failed: {g.error}</p>}
+      <div className="flex flex-wrap gap-2">
+        {!g.installed && !busy && <Button variant="primary" onClick={async () => {
+          const r = await run(() => api.installGpuPack()); if (r) setG(r); }}>Download GPU speech</Button>}
+        {g.restart_needed && g.can_restart && <Button variant="primary" onClick={() => void run(() => api.restartApp())}>
+          <RefreshCw size={15} aria-hidden /> Restart PIP</Button>}
+        {g.restart_needed && !g.can_restart && <p className="text-sm text-muted">Quit PIP from the tray and open it again.</p>}
+        {g.installed && <Button variant="outline" onClick={async () => {
+          const r = await run(() => api.removeGpuPack()); if (r) setG(r); }}>Remove</Button>}
+      </div>
+    </Card>
+  );
+}
+
 export function MeetingAiCard() {
   const { run } = useLive();
   const [m, setM] = useState<MeetingSettings | null>(null);

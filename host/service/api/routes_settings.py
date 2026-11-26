@@ -135,6 +135,57 @@ def preload(req: Request) -> dict[str, Any]:
     return settings(req)
 
 
+# ---- GPU speech add-on (packaged app, ADR-034) ---------------------------------------------------------------
+def _gpu_pack(req: Request) -> dict[str, Any]:
+    from ..meetings.models import hardware
+    from ..speech.stt import cuda_dll_dirs
+
+    s = svc(req)
+    pack = s.gpu_pack.status()
+    on_gpu = s.stt.device.startswith("cuda") or s.meetings.stt.device.startswith("cuda")
+    # development venv: the nvidia wheels are installed, so the pack is never needed
+    bundled = any(str(s.gpu_pack.target) not in d for d in cuda_dll_dirs())
+    return {**pack, "gpu": hardware().get("gpu", ""), "gpu_in_use": on_gpu, "from_python_env": bundled,
+            "restart_needed": pack["installed"] and not on_gpu, "can_restart": s.restart_app is not None}
+
+
+@router.get("/settings/gpu-pack")
+def gpu_pack(req: Request) -> dict[str, Any]:
+    return _gpu_pack(req)
+
+
+@router.post("/settings/gpu-pack")
+def install_gpu_pack(req: Request) -> dict[str, Any]:
+    """Download NVIDIA's CUDA DLLs (~1.3 GB, pinned + checksummed) so Whisper can use the GPU after a restart."""
+    s = svc(req)
+    if s.gpu_pack.installed():
+        raise HTTPException(409, "the GPU speech pack is already installed")
+    s.gpu_pack.start()
+    s.db.log("INFO", "settings", "GPU speech pack download started")
+    return _gpu_pack(req)
+
+
+@router.delete("/settings/gpu-pack")
+def remove_gpu_pack(req: Request) -> dict[str, Any]:
+    s = svc(req)
+    try:
+        s.gpu_pack.remove()
+    except RuntimeError as e:
+        raise HTTPException(409, str(e)) from None
+    s.db.log("INFO", "settings", "GPU speech pack removed")
+    return _gpu_pack(req)
+
+
+@router.post("/app/restart")
+def restart_app(req: Request) -> dict[str, bool]:
+    """Restart the packaged app (PIP.exe), e.g. after the GPU speech pack is installed."""
+    s = svc(req)
+    if s.restart_app is None:
+        raise HTTPException(409, "PIP was not started as the desktop app - restart it yourself")
+    s.restart_app()
+    return {"restarting": True}
+
+
 class SayIn(BaseModel):
     text: str = Field(min_length=1, max_length=400)
 

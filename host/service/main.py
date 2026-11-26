@@ -10,11 +10,12 @@ from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import paths
 from .api import routes_ai, routes_alarms, routes_core, routes_device, routes_meetings, routes_more, routes_settings
-from .config import ROOT, Settings, get_settings
+from .config import Settings, get_settings
 from .services import Services
 
-UI_DIST = ROOT / "host" / "desktop_ui" / "dist"
+UI_DIST = paths.ui_dist()
 
 
 def create_app(settings: Settings | None = None, services: Services | None = None) -> FastAPI:

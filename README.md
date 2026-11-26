@@ -173,6 +173,16 @@ storage are Windows-specific.
 
 ## Getting started (Windows, PowerShell)
 
+**The easy way: the installer.** `PIP-Setup-<version>.exe` installs **PIP Companion** as its own program
+(`PIP.exe`, no Python or Node needed). It runs its services itself, opens in its own window and sits in the tray. Your
+data goes to `%LOCALAPPDATA%\PIP`. With an NVIDIA graphics card, tick **GPU speech** in the installer or use
+**Settings → GPU speech** later (a one-time ~1.3 GB download). Build the installer from source with
+`powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1` (output in `build\app\`). To bring over data from a
+source checkout once: `& "$env:LOCALAPPDATA\Programs\PIP Companion\PIP.exe" --import-data "<repo>\data"` (before
+the first start).
+
+**From source:**
+
 1. Set up Python and build the app:
    ```powershell
    python -m venv .venv; .\.venv\Scripts\pip install -r host/requirements.txt
@@ -184,7 +194,7 @@ storage are Windows-specific.
    ```powershell
    cd host/desktop_ui; npm install; npm run build; cd ../..
    ```
-2. Create the desktop and Start-menu shortcuts (**PIP Companion**):
+2. Create the desktop and Start-menu shortcuts (**PIP Companion (dev)**, running from this folder):
    ```powershell
    .\tools\install_windows.ps1
    ```
