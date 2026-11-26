@@ -240,7 +240,9 @@ on 20 ms idle with a partial frame.
   Another AI agent (ADR-036): `GET /meetings/{id}/export?format=ai` (prompt + transcript), `GET /meetings/summary-prompt`,
   `POST /meetings/{id}/summary/upload?source=` (Markdown reply -> the summary, engine `upload/<source>`).
   `GET /meetings/search` (FTS5, no AI), `POST /meetings/ask` (retrieval, ~1.5k tokens), `GET /meetings/graph`
-  (`meetings/graph.py`: meeting/summary/person/topic nodes, the Obsidian links; drawn by the Meetings -> Graph tab,
+  (`meetings/graph.py`: meeting/summary/person/topic nodes, the Obsidian links; a person's name is never a topic
+  ("mentioned" edge), near-identical topics merge, related topics link, `topic_catalog()` feeds the summarizers -
+  ADR-037; drawn by the Meetings -> Graph tab,
   `components/MeetingGraph.tsx` + `lib/forceLayout.ts`, no graph library), `GET /meetings/actions`,
   Settings `GET/PUT /settings/meetings`, `POST /settings/local-ai/pull`. Tests use `tests/support/fake_ollama.py`
   and conftest points `PIP_LOCAL_AI_URL` at a closed port so a real Ollama is never touched.

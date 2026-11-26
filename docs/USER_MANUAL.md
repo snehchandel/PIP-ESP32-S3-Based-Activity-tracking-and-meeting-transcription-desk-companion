@@ -148,7 +148,10 @@ host**.
   — with links to where it was said; **Find** just lists the matching lines (no AI at all).
   **Graph** (the tab beside **List**) draws your meetings like Obsidian's graph view: each meeting is a dark dot
   (dashed while it is still being transcribed), its summary an orange diamond beside it, people green rings and
-  topics violet dots — a person or topic shared by several meetings links them. Click a dot to read it in the panel
+  topics violet dots — a person or topic shared by several meetings links them. A dashed line from a summary to a
+  person means they were talked about in a meeting they weren't in; dashed lines between topics join related
+  subjects, and topics worded slightly differently in different meetings ("QR codes", "QR code review") are one dot.
+  Click a dot to read it in the panel
   on the right: a meeting shows its transcript (with a find box), a summary shows the outcome, decisions and action
   items, a person or topic lists its meetings. Links in the panel move the graph to that dot. **Open meeting** (or
   double-click a meeting) takes you to the List to edit it; **Show in graph** on a meeting comes back. Hover a dot to

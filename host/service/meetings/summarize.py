@@ -75,7 +75,8 @@ DEFINITIONS = """Definitions (follow them strictly):
   null if nobody took it on. "due" = the deadline words exactly as said (a weekday, a date, "end of week",
   "by noon tomorrow"), else null. General advice or wishes ("try harder", "learn more about it") are not action
   items unless someone committed to a concrete step.
-- TOPICS: 3-7 short noun phrases (2-5 words) naming the main subjects of the WHOLE meeting - not people.
+- TOPICS: 3-7 short noun phrases (2-5 words) naming the main subjects of the WHOLE meeting - not people. When
+  "Topics already used in earlier meetings" are listed, reuse one of those names exactly for the same subject.
 Only use what is in THIS transcript. The transcript comes from speech recognition: words may be mis-heard. Use the
 listed spellings of names and terms, read past obvious mis-hearings, and never invent facts, names or dates.
 No markdown, no emojis."""

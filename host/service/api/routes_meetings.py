@@ -73,7 +73,8 @@ def meeting_actions(req: Request, archived: bool = False) -> dict[str, Any]:
 def meetings_graph(req: Request, archived: bool = False) -> dict[str, Any]:
     """Meetings, summaries, people and topics as a graph (the links the Obsidian notes make)."""
     s = svc(req)
-    return build_graph(s.meetings.repo.all_with_summaries(), s.vocabulary(), include_archived=archived)
+    return build_graph(s.meetings.repo.all_with_summaries(), s.vocabulary(), include_archived=archived,
+                       people=[p["name"] for p in s.meetings.repo.profiles()])
 
 
 @router.post("/meetings/clean-transcripts")

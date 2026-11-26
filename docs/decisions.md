@@ -510,3 +510,23 @@ random picks from a library.
   made the upload is refused (409).
 - **Rejected:** calling other AI services from PIP (more keys to keep and costs to meter; ADR-013 keeps Kimi as the
   one cloud AI PIP itself calls). The user moves the files.
+
+## ADR-037 — Meetings graph: people are never topics; topics join across meetings
+- **Problem:** a person's name became a topic when a meeting mentioned someone who was not a named speaker in it (a
+  vocabulary word, or the summary listed them), so the graph showed "Priya" twice: a person in one meeting, an
+  unconnected topic in another. And topics hardly joined meetings (1 of 44 on real data): each summary words its
+  subjects its own way and topics only matched by exact name.
+- **People:** known people = named speakers of every meeting (archived too) + remembered voices, matched by full name
+  or by a first name that belongs to one person only. Such a topic becomes a dashed "mentioned" edge from the meeting
+  to the person (`person.mentioned`); no edge when the person attended that meeting.
+- **Joining:** topics with the same core words (lower case, singular, without stop words and filler words such as
+  review/setup/management) are one node; so is a topic whose 2+ core words all appear in another. The node takes the
+  wording used in most meetings, then the plainest; other wordings are kept as `aliases` (tooltip, panel, search).
+  Topics of different meetings that share a distinctive word get a dashed "related" edge (at most 3 per topic; vague
+  words such as ticket/sign/tracking and words in more than 6 topics don't count).
+- **New summaries reuse names:** `graph.topic_catalog()` (topics of earlier summaries, most meetings first) goes to
+  the local summarizer (in `_context`) and to Kimi (a first line of the transcript), whose prompts say to reuse a
+  listed name for the same subject.
+- **Rejected:** merging on one shared word ("Salesforce integration" and "SMS consent in Salesforce" are different
+  subjects: related, not the same), and an AI pass to cluster topics (cost and churn on every rebuild).
+

@@ -65,11 +65,14 @@ export interface GraphNode {
   started_at?: string; duration_s?: number; status?: MeetingStatus; summary_status?: SummaryStatus;
   // summary
   gist?: string; engine?: string | null; open_actions?: number;
-  // person / topic: the meetings they appear in
-  meetings?: string[];
+  // person / topic: the meetings they appear in; a person can also be talked about in a meeting they missed
+  meetings?: string[]; mentioned?: string[];
+  // topic: other wordings joined into it ("Regression testing challenges" -> "Report regression testing")
+  aliases?: string[];
 }
+export type GraphEdgeKind = "summary" | "attended" | "topic" | "mentioned" | "related";
 export interface MeetingGraph {
-  nodes: GraphNode[]; edges: { source: string; target: string; kind: "summary" | "attended" | "topic" }[];
+  nodes: GraphNode[]; edges: { source: string; target: string; kind: GraphEdgeKind }[];
   counts: Partial<Record<GraphNodeKind, number>>;
 }
 export interface MeetingActionRow extends ActionItem { index: number; meeting_id: string; meeting: string; started_at: string }

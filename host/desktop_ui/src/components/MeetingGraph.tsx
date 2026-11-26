@@ -22,8 +22,10 @@ const KINDS: Record<GraphNodeKind, { name: string; plural: string; color: string
   topic: { name: "Topic", plural: "Topics", color: "#6d5fa8" },
 };
 const TOGGLABLE: GraphNodeKind[] = ["summary", "person", "topic"];
-const LINK_LEN = { summary: 30, attended: 70, topic: 56 } as const;
-const LINK_STIFF = { summary: 4, attended: 1, topic: 1 } as const; // a summary stays beside its meeting
+const LINK_LEN = { summary: 30, attended: 70, topic: 56, mentioned: 84, related: 70 } as const;
+// a summary stays beside its meeting; mentions and related topics pull gently (dashed lines)
+const LINK_STIFF = { summary: 4, attended: 1, topic: 1, mentioned: 0.5, related: 0.4 } as const;
+const DASHED = new Set<string>(["mentioned", "related"]);
 const PAPER = "#faf8f4";
 
 type View = { x: number; y: number; k: number };
@@ -45,8 +47,8 @@ function describe(n: GraphNode): string {
   if (n.kind === "meeting") return `${n.started_at ? shortDate(n.started_at) : ""} · ${clock(n.duration_s ?? 0)}`
     + (n.status && n.status !== "READY" ? ` · ${n.status.toLowerCase()}` : "");
   if (n.kind === "summary") return n.gist || "Summary";
-  const c = n.meetings?.length ?? 0;
-  return `${c} meeting${c === 1 ? "" : "s"}`;
+  const c = n.meetings?.length ?? 0, men = n.mentioned?.length ?? 0;
+  return (c || !men ? `${c} meeting${c === 1 ? "" : "s"}` : "") + (men ? `${c ? " · " : ""}mentioned in ${men}` : "");
 }
 
 function ariaFor(n: GraphNode): string {
@@ -316,6 +318,7 @@ function GraphCanvas({ nodes, edges, selected, matches, centerReq, onSelect, onO
               const on = !!lit && lit.has(e.source) && lit.has(e.target) && (e.source === focusId || e.target === focusId);
               return <line key={e.source + ">" + e.target} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                 stroke={on ? "#6b6760" : "#cdc5b6"} strokeWidth={(on ? 1.8 : 1) / k}
+                strokeDasharray={DASHED.has(e.kind) ? `${4 / k} ${3 / k}` : undefined}
                 opacity={lit ? (on ? 1 : 0.12) : matches ? 0.25 : 0.9} className="transition-opacity duration-150" />;
             })}
           </g>
@@ -354,6 +357,7 @@ function GraphCanvas({ nodes, edges, selected, matches, centerReq, onSelect, onO
           transform: "translate(-50%, -100%)" }}>
           <p className="font-semibold text-ink">{tip.kind === "summary" ? tip.label.replace(/^Summary · /, "Summary of ") : tip.label}</p>
           <p className="text-muted">{describe(tip)}</p>
+          {(tip.aliases?.length ?? 0) > 0 && <p className="text-muted">Also: {tip.aliases!.join(" · ")}</p>}
           <p className="mt-0.5 text-[11px] text-muted">{tip.kind === "meeting" || tip.kind === "summary"
             ? "Click to read · double-click to open" : "Click to see its meetings"}</p>
         </div>
@@ -536,10 +540,15 @@ function HubPreview({ node, graph, onPick, onClose }: PreviewProps) {
     }
     return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([id]) => graph.byId.get(id)!);
   }, [meetings, graph, node.id, otherKind]);
+  // a person talked about in meetings they weren't in; topics on the same subject in other meetings
+  const mentionedIn = (node.mentioned ?? []).map((mid) => graph.byId.get(`meeting:${mid}`)).filter((n): n is GraphNode => !!n);
+  const relatedTopics = node.kind === "topic"
+    ? (graph.adj.get(node.id) ?? []).map((id) => graph.byId.get(id)).filter((n): n is GraphNode => n?.kind === "topic") : [];
   return (
     <>
       <PanelHeader node={node} title={node.label} onClose={onClose}
-        sub={`In ${node.meetings?.length ?? 0} meeting${node.meetings?.length === 1 ? "" : "s"}${meetings.length < (node.meetings?.length ?? 0) ? " (some hidden)" : ""}`} />
+        sub={`In ${node.meetings?.length ?? 0} meeting${node.meetings?.length === 1 ? "" : "s"}${meetings.length < (node.meetings?.length ?? 0) ? " (some hidden)" : ""}`
+          + (node.mentioned?.length ? ` · mentioned in ${node.mentioned.length}` : "")} />
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pt-3 pr-1">
         <section>
           <Label>Meetings</Label>
@@ -559,6 +568,18 @@ function HubPreview({ node, graph, onPick, onClose }: PreviewProps) {
             })}
           </ul>
         </section>
+        {mentionedIn.length > 0 && <section>
+          <Label>Mentioned in</Label>
+          <div className="flex flex-wrap gap-1.5">{mentionedIn.map((r) => <LinkChip key={r.id} node={r} onPick={onPick} />)}</div>
+        </section>}
+        {(node.aliases?.length ?? 0) > 0 && <section>
+          <Label>Also called</Label>
+          <p className="text-sm text-ink-2">{node.aliases!.join(" · ")}</p>
+        </section>}
+        {relatedTopics.length > 0 && <section>
+          <Label>Related topics</Label>
+          <div className="flex flex-wrap gap-1.5">{relatedTopics.map((r) => <LinkChip key={r.id} node={r} onPick={onPick} />)}</div>
+        </section>}
         {related.length > 0 && <section>
           <Label>{node.kind === "person" ? "Topics they come up in" : "People who talk about it"}</Label>
           <div className="flex flex-wrap gap-1.5">{related.map((r) => <LinkChip key={r.id} node={r} onPick={onPick} />)}</div>
@@ -583,8 +604,8 @@ function Guide({ counts }: { counts: MeetingGraph["counts"] }) {
             <span><b className="text-ink">{KINDS[k].plural}</b> <span className="tabular text-muted">({counts[k] ?? 0})</span><br />
               {{ meeting: "A meeting — click it to read the transcript. Dashed: not transcribed yet.",
                 summary: "The meeting's summary, beside its meeting: outcome, decisions, action items.",
-                person: "Named speakers. Bigger rings join more meetings.",
-                topic: "From summaries and your vocabulary. Shared topics link meetings." }[k]}</span>
+                person: "Named speakers. Bigger rings join more meetings. Dashed: talked about in a meeting they weren't in.",
+                topic: "From summaries and your vocabulary. Shared topics link meetings; dashed lines join related topics." }[k]}</span>
           </li>))}
       </ul>
       <p className="rounded-lg bg-paper-2 px-3 py-2 text-xs text-muted">Hover to see a dot's links · drag to pan or move a dot · scroll or
@@ -645,7 +666,7 @@ export function MeetingGraphView({ selected, onSelect, onOpenMeeting }: {
   const found = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return [];
-    return nodes.filter((n) => n.kind !== "summary" && n.label.toLowerCase().includes(s))
+    return nodes.filter((n) => n.kind !== "summary" && [n.label, ...(n.aliases ?? [])].some((l) => l.toLowerCase().includes(s)))
       .sort((a, b) => Number(!a.label.toLowerCase().startsWith(s)) - Number(!b.label.toLowerCase().startsWith(s)));
   }, [nodes, q]);
   const matches = useMemo(() => (q.trim() ? new Set(found.map((n) => n.id)) : null), [found, q]);

@@ -102,6 +102,8 @@ MEETING_PROMPT = """You read meeting transcripts for an ADHD-friendly assistant.
 "summary": "<4-7 plain sentences: purpose, main threads with who said what, outcome>",
 "title": "<what the meeting was about, max 60 chars>"}
 Use the speaker names from the transcript. Only include decisions and action items that were actually said.
+If the transcript starts with "Topics already used in earlier meetings", reuse one of those names exactly when
+this meeting covers the same subject (new subjects get new names).
 No markdown, no emojis."""
 
 

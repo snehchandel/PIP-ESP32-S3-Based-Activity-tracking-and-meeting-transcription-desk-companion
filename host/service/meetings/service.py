@@ -43,6 +43,7 @@ from . import actions as act_mod
 from . import ask as ask_mod
 from . import diarize
 from .export import FORMATS, filename, render
+from .graph import topic_catalog
 from .handoff import handoff_md, parse_summary_md
 from .local_ai import LocalAI, LocalAIError
 from .obsidian import ObsidianVault
@@ -464,7 +465,18 @@ class MeetingService:
         day = act_mod.meeting_day(m)
         return "\n".join(x for x in (f"Speakers: {', '.join(people)}" if people else "",
                                      f"Spellings of names and terms: {', '.join(words)}" if words else "",
-                                     f"Meeting date: {day.strftime('%A %Y-%m-%d')}") if x)
+                                     f"Meeting date: {day.strftime('%A %Y-%m-%d')}",
+                                     self._known_topics(m)) if x)
+
+    def _known_topics(self, m: dict[str, Any]) -> str:
+        """The topic names earlier summaries used (graph.topic_catalog), so this summary joins them (ADR-037)."""
+        try:
+            others = [x for x in self.repo.all_with_summaries() if x["id"] != m["id"]]
+            names = topic_catalog(others, [p["name"] for p in self.repo.profiles()])
+        except Exception as e:  # never let the hint stop a summary
+            log.warning("topic catalog failed: %s", e)
+            return ""
+        return f"Topics already used in earlier meetings: {'; '.join(names)}" if names else ""
 
     def _read(self, path: Path, start_s: float, end_s: float) -> np.ndarray:
         a, b = int(start_s * SR), int(end_s * SR)
@@ -612,7 +624,8 @@ class MeetingService:
         self.repo.update(mid, summary_status="SUMMARIZING", summary_error=None)
         self.notify("meeting_updated", {"id": mid, "status": m["status"], "summary_status": "SUMMARIZING"})
         try:
-            summary = planner.summarize_meeting(text[-120_000:])
+            topics = self._known_topics(m)
+            summary = planner.summarize_meeting((topics + "\n\n" if topics else "") + text[-120_000:])
         except Exception as e:
             self.repo.update(mid, summary_status="FAILED", summary_error=str(e)[:300])
             self.notify("meeting_updated", {"id": mid, "status": m["status"], "summary_status": "FAILED"})
