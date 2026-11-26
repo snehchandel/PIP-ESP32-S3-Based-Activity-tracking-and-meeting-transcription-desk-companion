@@ -22,7 +22,7 @@
 #define APP_RING_CHIME_FOR_MS 60000u /* ...for one minute */
 #define APP_ALARMS_MAX 8
 #define APP_INDOOR_HOLD_MS (5u * 60u * 1000u) /* keep showing the last good indoor reading this long */
-#define APP_FW_VERSION "1.7.2" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
+#define APP_FW_VERSION "1.8.0" /* keep in sync with PROJECT_VER in firmware/CMakeLists.txt */
 
 typedef enum {
     CHIME_START = 1, CHIME_DONE, CHIME_PAUSE, CHIME_ALARM, CHIME_OFFLINE, CHIME_CONFIRM,
@@ -55,7 +55,7 @@ typedef struct {
     char i2c_addrs[48];
     char reset_reason[24];
     uint32_t dropped_audio_chunks;
-    char extra[640]; /* device-only JSON members (no braces): wifi / ota / wake status */
+    char extra[1024]; /* device-only JSON members (no braces): wifi (+ saved networks, away link) / ota / wake */
 } app_diag_t;
 
 typedef struct {

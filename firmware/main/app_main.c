@@ -46,11 +46,16 @@ static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 static void lock(void) { xSemaphoreTake(s_lock, portMAX_DELAY); }
 static void unlock(void) { xSemaphoreGive(s_lock); }
 
+/* the PC spoke over the USB cable in the last 3 s (then PIP answers over USB and never dials out) */
+static bool usb_active(void)
+{
+    return s_usb_rx_ms != 0 && now_ms() - s_usb_rx_ms < 3000u && usb_transport_host_connected();
+}
+
 static void io_send(void *ctx, uint8_t type, uint8_t flags, uint16_t seq, const uint8_t *p, uint16_t len)
 {
-    /* the USB cable wins whenever the PC is using it; Wi-Fi only when the PC is not on the cable */
-    bool usb_active = s_usb_rx_ms != 0 && now_ms() - s_usb_rx_ms < 3000u && usb_transport_host_connected();
-    if (!usb_active && s_src == 1 && net_link_client_ready()) {
+    /* the USB cable wins whenever the PC is using it; Wi-Fi (LAN or away link) only when it is not */
+    if (!usb_active() && s_src == 1 && net_link_client_ready()) {
         net_link_send(type, flags, seq, p, len);
     } else {
         usb_transport_send(type, flags, seq, p, len);
@@ -158,19 +163,18 @@ static bool device_frame(const pip_frame_t *f)
 {
     switch (f->type) {
     case PIP_DEVICE_CONFIG: {
-        bool wifi = false, wake = false;
-        bool changed = dev_config_apply_json(&s_cfg, (const char *)f->payload, f->len, &wifi, &wake);
+        unsigned changed = dev_config_apply_json(&s_cfg, (const char *)f->payload, f->len);
         uint8_t st = PIP_ACK_OK;
         if (changed && dev_config_save(&s_cfg) != ESP_OK) {
             st = PIP_ACK_FAILED;
         }
         send_ack(f->seq, st);
-        if (wake) {
+        if (changed & DEVCFG_WAKE) {
             dev_wake_configure(s_cfg.wake_on, s_cfg.wake_word);
             set_wake_label();
         }
-        if (wifi) {
-            net_link_apply(&s_cfg);
+        if (changed & (DEVCFG_WIFI | DEVCFG_TOKEN | DEVCFG_REMOTE)) {
+            net_link_apply(&s_cfg, changed);
         }
         lock();
         app_send_diag(&s_app);
@@ -489,7 +493,7 @@ void app_main(void)
         rlcd_display_flush(&s_app.fb);
     }
     usb_transport_init(on_usb_frame, NULL);
-    net_link_init(&s_cfg, on_net_frame, NULL);
+    net_link_init(&s_cfg, on_net_frame, NULL, usb_active);
     if (dev_wake_init(on_wake, NULL)) {
         dev_wake_configure(s_cfg.wake_on, s_cfg.wake_word);
         set_wake_label();

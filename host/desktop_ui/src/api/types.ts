@@ -118,7 +118,7 @@ export interface FullState {
 }
 
 export interface Health {
-  status: string; device_transport: "SIMULATOR" | "USB_HARDWARE" | "DISCONNECTED";
+  status: string; device_transport: "SIMULATOR" | "USB_HARDWARE" | "WIFI" | "WIFI_AWAY" | "DISCONNECTED";
   link_state: "TETHERED" | "STANDALONE"; planner_mode: "KIMI" | "AI_NOT_CONFIGURED"; stt_mode: string; tts_mode: string;
   revision: number;
 }
@@ -175,9 +175,15 @@ export interface AiUsage {
   prices: Record<string, { input: number; cached: number; output: number }>;
 }
 
+export interface AwayInfo {
+  enabled: boolean; host: string; port: number; listen_port: number; tls: boolean; available: boolean;
+  listener: { listening?: boolean; port?: number; links?: number; rejected?: number; last_link_at?: number | null; last_peer?: string; error?: string };
+  device: { host?: string; port?: number; tls?: boolean; state?: string; dials?: number; links?: number };
+}
 export interface NetworkInfo {
-  linked: boolean; via: string; paired_on_pc: boolean; known_hosts: string[];
-  wifi: { configured?: boolean; paired?: boolean; state?: string; ssid?: string; ip?: string; host?: string; rssi?: number; client?: boolean };
+  linked: boolean; via: string; paired_on_pc: boolean; known_hosts: string[]; away: AwayInfo;
+  wifi: { configured?: boolean; paired?: boolean; state?: string; ssid?: string; ip?: string; host?: string; rssi?: number; client?: boolean;
+    via?: string; networks?: string[]; away?: AwayInfo["device"] };
 }
 export interface FirmwareImage { version?: string; project?: string; date?: string; time?: string; size?: number; error?: string }
 export interface FirmwareInfo {

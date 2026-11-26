@@ -458,3 +458,34 @@ random picks from a library.
 - **Ollama is left alone** (user's choice): PIP only talks to an Ollama the user runs.
 - **Not done:** code signing (SmartScreen warns on first run), the app updating itself (install the new version
   over the old one).
+
+## ADR-035 — Away link: PIP calls the PC from other networks; several saved Wi-Fi networks
+- **Why:** PIP only worked on the PC's own network (the PC dials PIP's LAN address). The user wants PIP on another
+  Wi-Fi (office, phone hotspot) while the PC stays at home.
+- **Options weighed (user chose 1):** (1) PIP dials **out** to the PC's public address; (2) both sides connect to a
+  public MQTT broker (third party sees metadata, monthly data caps, ~115 MB per hour of audio); (3) a relay server the
+  user hosts. (1) needs no third party in the data path; the PC is made reachable by Tailscale Funnel or a port forward.
+- **Networks:** up to 5 saved (`dev_settings.c`, portable + `test_settings`): newest first, the strongest visible one
+  wins (each failed join costs 15 dB so a wrong password does not lock PIP on), unseen ones are tried in turn (hidden
+  SSIDs). Slot 0 keeps the old NVS keys, so 1.7 boards keep their network. Adding or forgetting a network does not
+  drop the current connection unless it was that one. DEVICE_CONFIG: `wifi` (add), `wifi_forget`, `wifi_clear`.
+- **When PIP dials:** not while the PC uses the cable (USB frames in the last 3 s), not while a LAN client is
+  connected, and only after 10 s without either (`AWAY_QUIET_MS`), so at home the LAN link keeps winning. Backoff 2 s
+  doubling to 60 s on failure. A sealed session silent for 30 s (the PC heartbeats every second) is redialled; the PC
+  takes the newest authenticated connection in place (`AutoTransport`, kind `WIFI_AWAY`). DEVICE_CONFIG
+  `remote:{host,port,tls}` is sent on every link-up (empty host = off).
+- **Security:** the internet sees this port, so both sides prove the link token (provisioned over USB only):
+  PIP's challenge, the PC's HMAC + its own nonce, PIP's domain-separated HMAC. Session keys per direction from both
+  nonces; every frame is one AES-256-GCM record with a counter IV, so replayed, reordered or altered bytes end the
+  link. No forward secrecy: whoever steals the token can read recorded traffic (same trust as the LAN link). At most
+  4 handshakes at once, 5 s each.
+- **TLS:** Tailscale Funnel routes by SNI, so plain TCP cannot pass. With `tls` PIP wraps the stream in TLS to the
+  public name (esp-tls, built-in CA bundle) and the PC runs `--tls-terminated-tcp`; the records inside are unchanged.
+  mbedtls now allocates in PSRAM (`CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC`): its 16 KB record buffers do not fit beside
+  Wi-Fi + WakeNet in internal RAM. Reads and writes of the TLS context share the tx lock (mbedtls is not safe for both
+  at once); the reader polls the socket unlocked first.
+- **Rejected:** encrypting the LAN link too (would break older firmware against a new host; the LAN stays as ADR-019),
+  TLS-PSK (Python's PSK support is 3.13-only and Funnel needs a real certificate anyway).
+- **Verified on hardware:** the dial, handshake and sealed records (plain TCP over the LAN). **Not verified:** the TLS
+  path through a real Funnel, a dial from a foreign network, picking between two networks in range.
+

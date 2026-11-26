@@ -32,7 +32,8 @@ from .speech.stt import SpeechToText
 from .speech.tts import TextToSpeech
 from .state.manager import DeviceStateManager
 from .storage.db import Database
-from .transport import DeviceTransport
+from .transport import AwayListener, DeviceTransport
+from .transport.away import AWAY_PORT
 from .weather import WeatherService
 
 log = logging.getLogger("pip.services")
@@ -55,9 +56,14 @@ class Services:
         self.tts = TextToSpeech(settings.piper_voice(), Path(settings.pip_voices_dir))
         self.manager.subscribe(self._on_state_event)
         self.voice = VoicePipeline(self.manager, self.stt, self.planner, self.hub.publish)
+        # away link (ADR-035): PIP dials this PC from other networks; only with the real board ("auto")
+        self.away: AwayListener | None = None
         if transport == "config":
+            if settings.pip_transport == "auto":
+                self.away = AwayListener(self._away_config)
             transport = make_transport(settings.pip_transport, settings.pip_sim_addr, settings.pip_serial_port,
-                                       wifi_target=lambda: (settings.wifi_hosts(), settings.link_token()))
+                                       wifi_target=lambda: (settings.wifi_hosts(), settings.link_token()),
+                                       away=self.away)
         self.link = DeviceLink(self.manager, transport if not isinstance(transport, str) else None, self.voice,
                                self.hub.publish)
         self.alarm_scheduler = AlarmScheduler(self.manager)
@@ -184,8 +190,30 @@ class Services:
         word = str(p.get("wake_word") or "hiesp")
         return {"enabled": bool(p.get("wake_enabled", True)), "word": word if word in self.WAKE_WORDS else "hiesp"}
 
+    def away_settings(self) -> dict[str, Any]:
+        """Away link: the public address PIP dials when it is not on the home network, and where we listen."""
+        p = self.settings.prefs()
+        try:
+            listen = int(p.get("away_listen_port") or AWAY_PORT)
+            port = int(p.get("away_port") or 0)
+        except (TypeError, ValueError):
+            listen, port = AWAY_PORT, 0
+        host = str(p.get("away_host") or "")
+        # tls: PIP wraps the link in TLS for TLS-routed tunnels (Tailscale Funnel --tls-terminated-tcp);
+        # off for a plain router port forward straight to the listener
+        return {"enabled": bool(p.get("away_enabled")) and bool(host) and port > 0, "host": host, "port": port,
+                "listen_port": listen, "tls": bool(p.get("away_tls", True))}
+
+    def _away_config(self) -> tuple[bool, int, bytes | None]:
+        a = self.away_settings()
+        return a["enabled"], a["listen_port"], self.settings.link_token()
+
     def device_config(self, include_token: bool) -> dict[str, Any]:
-        cfg: dict[str, Any] = {"wake": self.wake_settings()}
+        away = self.away_settings()
+        cfg: dict[str, Any] = {"wake": self.wake_settings(),
+                               "remote": {"host": away["host"], "port": away["port"], "tls": away["tls"]}
+                               if away["enabled"]
+                               else {"host": ""}}
         if include_token:  # pairing only ever travels over the USB cable
             token = self.settings.link_token(create=True)
             if token:
@@ -250,6 +278,8 @@ class Services:
         self.loop = asyncio.get_running_loop()
         self.hub.bind(self.loop)
         await self.link.start()
+        if self.away:
+            self.away.start()
         self.meetings.recover()
         self._ticker = asyncio.create_task(self._tick_alarms())
         self.weather.start()
@@ -304,6 +334,8 @@ class Services:
         if self._ticker:
             self._ticker.cancel()
         await self.link.stop()
+        if self.away:
+            self.away.stop()
         self.db.close()
 
     async def _tick_alarms(self) -> None:

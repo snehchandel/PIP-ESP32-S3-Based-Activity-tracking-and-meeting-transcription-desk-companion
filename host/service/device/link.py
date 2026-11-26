@@ -25,7 +25,15 @@ from ..protocol import (
 from ..protocol.fbimage import fb_to_png
 from ..speech.pipeline import VoicePipeline
 from ..state.manager import DeviceStateManager
-from ..transport import AutoTransport, DeviceTransport, SimTcpTransport, UsbSerialTransport, WifiTarget, WifiTransport
+from ..transport import (
+    AutoTransport,
+    AwayListener,
+    DeviceTransport,
+    SimTcpTransport,
+    UsbSerialTransport,
+    WifiTarget,
+    WifiTransport,
+)
 
 log = logging.getLogger("pip.link")
 LINK_TIMEOUT_S = 3.0
@@ -34,7 +42,7 @@ STALE_RESYNC_S = 3.0  # device behind on state this long (or restarted): push ev
 
 
 def make_transport(mode: str, sim_addr: str, serial_port: str,
-                   wifi_target: WifiTarget | None = None) -> DeviceTransport | None:
+                   wifi_target: WifiTarget | None = None, away: AwayListener | None = None) -> DeviceTransport | None:
     if mode == "none":
         return None
     if mode == "sim":
@@ -43,8 +51,9 @@ def make_transport(mode: str, sim_addr: str, serial_port: str,
         return UsbSerialTransport(serial_port or None)
     if mode == "wifi" and wifi_target:
         return WifiTransport(wifi_target)
-    # "auto": USB when plugged in (re-probed every second), otherwise PIP over the home Wi-Fi once paired.
-    return AutoTransport(serial_port or None, wifi_target)
+    # "auto": USB when plugged in (re-probed every second), otherwise PIP dialing in from another network
+    # (away link), otherwise PIP over the home Wi-Fi once paired.
+    return AutoTransport(serial_port or None, wifi_target, away=away)
 
 
 class DeviceLink:

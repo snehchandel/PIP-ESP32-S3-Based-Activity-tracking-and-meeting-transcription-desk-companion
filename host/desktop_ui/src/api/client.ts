@@ -1,4 +1,4 @@
-import type { Activity, AiUsage, Alarm, FirmwareInfo, GpuPack, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingActionRow, MeetingAnswer, MeetingDetail, MeetingGraph, MeetingHit, MeetingList, MeetingSettings, LocalModels, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
+import type { Activity, AiUsage, Alarm, AwayInfo, FirmwareInfo, GpuPack, NetworkInfo, WakeInfo, DayItems, FullState, Health, MeetingActionRow, MeetingAnswer, MeetingDetail, MeetingGraph, MeetingHit, MeetingList, MeetingSettings, LocalModels, MeetingSummary, Place, Plan, PlanResult, Settings, Speaker, VoiceProfile, VoiceSession, WeatherInfo } from "./types";
 
 const BASE = "/api/v1";
 
@@ -75,7 +75,10 @@ export const api = {
   aiUsage: () => req<AiUsage>("GET", "/ai/usage"),
   network: () => req<NetworkInfo>("GET", "/device/network"),
   setWifi: (ssid: string, password: string) => req<NetworkInfo>("PUT", "/device/wifi", { ssid, password }),
-  forgetWifi: () => req<NetworkInfo>("DELETE", "/device/wifi"),
+  forgetWifi: (ssid?: string) => req<NetworkInfo>("DELETE", ssid ? `/device/wifi?ssid=${encodeURIComponent(ssid)}` : "/device/wifi"),
+  away: () => req<AwayInfo>("GET", "/device/away"),
+  setAway: (enabled: boolean, host: string, port: number, listen_port: number, tls: boolean) =>
+    req<AwayInfo>("PUT", "/device/away", { enabled, host, port, listen_port, tls }),
   wake: () => req<WakeInfo>("GET", "/device/wake"),
   setWake: (enabled: boolean, word: string) => req<WakeInfo>("PUT", "/device/wake", { enabled, word }),
   testWake: () => req<{ word: string; phrase: string; detected: boolean }>("POST", "/device/wake/test"),

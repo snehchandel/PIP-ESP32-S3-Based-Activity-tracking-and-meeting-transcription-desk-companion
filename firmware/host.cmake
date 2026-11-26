@@ -32,6 +32,7 @@ set(CORE_SRC
     ${FW}/main/app_gestures.c
     ${FW}/main/app_frames.c
     ${FW}/main/app_report.c
+    ${FW}/main/dev_settings.c
 )
 set(CORE_INC
     ${FW}/components/board_pins/include
@@ -62,7 +63,7 @@ if(WIN32)
 endif()
 
 enable_testing()
-foreach(t test_protocol test_gestures test_timer test_json test_ui test_app)
+foreach(t test_protocol test_gestures test_timer test_json test_ui test_app test_settings)
     add_executable(${t} ${TESTS}/${t}.c)
     target_include_directories(${t} PRIVATE ${TESTS})
     target_link_libraries(${t} PRIVATE pip_core)

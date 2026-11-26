@@ -1,9 +1,10 @@
-"""REST: PIP's Wi-Fi link, wake word and in-app firmware updates.
+"""REST: PIP's Wi-Fi networks, the away link (ADR-035), wake word and in-app firmware updates.
 
-The Wi-Fi password is relayed to PIP once and never stored or logged on the PC."""
+Wi-Fi passwords are relayed to PIP once and never stored or logged on the PC."""
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 import numpy as np
@@ -21,7 +22,14 @@ WAKE_TEST_PHRASE = {"hiesp": "Hi, E S P.", "jarvis": "Jarvis.", "computer": "Com
 def _network(s: Any) -> dict[str, Any]:
     wifi = dict(s.link.telemetry.get("wifi") or {})
     return {"linked": s.link.linked, "via": s.link.transport_kind, "paired_on_pc": s.settings.link_token() is not None,
-            "wifi": wifi, "known_hosts": s.settings.wifi_hosts()}
+            "wifi": wifi, "known_hosts": s.settings.wifi_hosts(), "away": _away(s)}
+
+
+def _away(s: Any) -> dict[str, Any]:
+    wifi = s.link.telemetry.get("wifi") or {}
+    return {**s.away_settings(), "available": s.away is not None,
+            "listener": s.away.status() if s.away else {"listening": False},
+            "device": wifi.get("away") or {}}
 
 
 @router.get("/device/network")
@@ -51,6 +59,7 @@ async def _config(s: Any, cfg: dict[str, Any]) -> None:
 
 @router.put("/device/wifi")
 async def set_wifi(body: WifiIn, req: Request) -> dict[str, Any]:
+    """Save a network on PIP (up to 5 are remembered; PIP joins the strongest one in range)."""
     s = svc(req)
     if body.password and not 8 <= len(body.password) <= 63:
         raise HTTPException(422, "a WPA2 password is 8-63 characters")
@@ -60,7 +69,7 @@ async def set_wifi(body: WifiIn, req: Request) -> dict[str, Any]:
     elif s.settings.link_token() is None:
         raise HTTPException(409, "connect PIP with the USB cable once to pair it with this PC")
     await _config(s, cfg)
-    s.db.log("INFO", "device", f"Wi-Fi network set to '{body.ssid}' (password not stored)")
+    s.db.log("INFO", "device", f"Wi-Fi network '{body.ssid}' saved on PIP (password not stored)")
     for _ in range(20):  # give PIP up to ~20 s to join and report its address
         await asyncio.sleep(1.0)
         diag = await s.link.diagnostics(timeout=2.0) or {}
@@ -71,11 +80,58 @@ async def set_wifi(body: WifiIn, req: Request) -> dict[str, Any]:
 
 
 @router.delete("/device/wifi")
-async def forget_wifi(req: Request) -> dict[str, Any]:
+async def forget_wifi(req: Request, ssid: str | None = None) -> dict[str, Any]:
+    """Forget one saved network (?ssid=...) or, without it, all of them."""
     s = svc(req)
-    await _config(s, {"wifi_clear": True})
-    s.settings.save_prefs(device_net={})
+    if ssid:
+        await _config(s, {"wifi_forget": ssid[:32]})
+    else:
+        await _config(s, {"wifi_clear": True})
+        s.settings.save_prefs(device_net={})
+    await s.link.diagnostics(timeout=2.0)
     return _network(s)
+
+
+HOST_RE = re.compile(r"^[A-Za-z0-9._-]{1,63}$")
+
+
+class AwayIn(BaseModel):
+    enabled: bool
+    host: str = Field(default="", max_length=200)
+    port: int = Field(default=0, ge=0, le=65535)
+    listen_port: int = Field(default=18423, ge=1024, le=65535)
+    tls: bool = True  # Tailscale Funnel (--tls-terminated-tcp); False for a plain router port forward
+
+
+@router.get("/device/away")
+def get_away(req: Request) -> dict[str, Any]:
+    return _away(svc(req))
+
+
+@router.put("/device/away")
+async def set_away(body: AwayIn, req: Request) -> dict[str, Any]:
+    """Where PIP dials this PC from other networks: a public name + port that forwards to listen_port here."""
+    s = svc(req)
+    host = re.sub(r"^[a-z]+://", "", body.host.strip()).strip("/")
+    if host.count(":") == 1 and not body.port:  # "name:port" pasted into one field
+        host, _, port_s = host.partition(":")
+        port = int(port_s) if port_s.isdigit() else 0
+    else:
+        port = body.port
+    if body.enabled:
+        if not HOST_RE.match(host):
+            raise HTTPException(422, "enter the public name or IP address only, e.g. my-pc.tail1234.ts.net")
+        if not 0 < port <= 65535:
+            raise HTTPException(422, "enter the public port (1-65535)")
+        if s.settings.link_token() is None:
+            raise HTTPException(409, "connect PIP with the USB cable once to pair it with this PC")
+    s.settings.save_prefs(away_enabled=body.enabled, away_host=host, away_port=port, away_listen_port=body.listen_port,
+                          away_tls=body.tls)
+    if s.link.linked:
+        await _config(s, {"remote": s.device_config(include_token=False)["remote"]})
+        await s.link.diagnostics(timeout=2.0)
+    s.db.log("INFO", "device", f"away link {'on: ' + host + ':' + str(port) if body.enabled else 'off'}")
+    return _away(s)
 
 
 class WakeIn(BaseModel):

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useLive } from "../api/live";
-import { ConnectionCard, FirmwareCard } from "../components/DeviceCards";
+import { AwayCard, ConnectionCard, FirmwareCard } from "../components/DeviceCards";
 import { RlcdMirror } from "../components/RlcdMirror";
 import { Button } from "../components/ui/button";
 import { Badge, Card, CardTitle, PageHeader } from "../components/ui/primitives";
@@ -60,6 +60,7 @@ export default function DeviceView() {
         </div>
         <div className="space-y-5">
         <ConnectionCard />
+        <AwayCard />
         <FirmwareCard />
         <Card aria-label="Telemetry">
           <CardTitle>Telemetry</CardTitle>

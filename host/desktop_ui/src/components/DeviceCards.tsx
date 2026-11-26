@@ -1,12 +1,15 @@
-import { CheckCircle2, CloudUpload, Mic, RefreshCw, Wifi, WifiOff } from "lucide-react";
+import { CheckCircle2, CloudUpload, Globe, Mic, RefreshCw, Wifi, WifiOff, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { FirmwareInfo, NetworkInfo, WakeInfo } from "../api/types";
+import type { AwayInfo, FirmwareInfo, NetworkInfo, WakeInfo } from "../api/types";
 import { useLive } from "../api/live";
 import { Button } from "./ui/button";
 import { Badge, Card, CardTitle, Input, Label, Select } from "./ui/primitives";
 
-/** Wi-Fi: PIP can live anywhere in the house. The password goes straight to PIP and is never stored on the PC. */
+const VIA_LABEL: Record<string, string> = { WIFI: "Wi-Fi", WIFI_AWAY: "Away link", USB_HARDWARE: "USB cable" };
+
+/** Wi-Fi: PIP remembers several networks (home, office, a phone hotspot) and joins the strongest one in range.
+ *  Passwords go straight to PIP and are never stored on the PC. */
 export function ConnectionCard() {
   const { run, health } = useLive();
   const [n, setN] = useState<NetworkInfo | null>(null);
@@ -19,7 +22,7 @@ export function ConnectionCard() {
   const state = w.state ?? (n?.linked ? "unknown" : "—");
   return (
     <Card aria-label="Connection">
-      <CardTitle aside={<Badge tone={n?.via === "WIFI" ? "sage" : "neutral"}>{n?.linked ? (n.via === "WIFI" ? "Wi-Fi" : n.via === "USB_HARDWARE" ? "USB cable" : n.via) : "Not connected"}</Badge>}>
+      <CardTitle aside={<Badge tone={n?.via?.startsWith("WIFI") ? "sage" : "neutral"}>{n?.linked ? (VIA_LABEL[n.via] ?? n.via) : "Not connected"}</Badge>}>
         Connection</CardTitle>
       <dl className="mb-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
         <dt className="text-muted">Wi-Fi</dt>
@@ -30,6 +33,14 @@ export function ConnectionCard() {
         {w.ip && <><dt className="text-muted">Address</dt><dd className="tabular">{w.ip} · {w.host}</dd></>}
         {typeof w.rssi === "number" && w.rssi !== 0 && <><dt className="text-muted">Signal</dt><dd className="tabular">{w.rssi} dBm</dd></>}
         <dt className="text-muted">Paired with this PC</dt><dd>{n?.paired_on_pc && w.paired ? "Yes" : "Not yet (connect the USB cable once)"}</dd>
+        {(w.networks?.length ?? 0) > 0 && <><dt className="text-muted">Saved networks</dt>
+          <dd><ul aria-label="Saved networks" className="flex flex-wrap gap-1.5">{w.networks!.map((s) => (
+            <li key={s} className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-xs">
+              {s}{s === w.ssid && state === "UP" ? " · in use" : ""}
+              <button type="button" aria-label={`Forget ${s}`} title={`Forget ${s}`} disabled={busy || !n?.linked}
+                className="text-muted hover:text-ink disabled:opacity-40"
+                onClick={async () => { setBusy(true); const r = await run(() => api.forgetWifi(s)); setBusy(false); if (r) setN(r); }}>
+                <X size={12} aria-hidden /></button></li>))}</ul></dd></>}
       </dl>
       <form className="space-y-2" onSubmit={async (e) => {
         e.preventDefault();
@@ -45,11 +56,79 @@ export function ConnectionCard() {
             onChange={(e) => setPw(e.target.value)} /></div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" variant="primary" disabled={!ssid.trim() || busy || !n?.linked}>{busy ? "PIP is joining…" : "Connect PIP to Wi-Fi"}</Button>
-          {w.configured && <Button disabled={busy} onClick={async () => { const r = await run(() => api.forgetWifi()); if (r) setN(r); }}>Forget network</Button>}
+          <Button type="submit" variant="primary" disabled={!ssid.trim() || busy || !n?.linked}>{busy ? "PIP is joining…" : w.configured ? "Add network" : "Connect PIP to Wi-Fi"}</Button>
+          {w.configured && <Button disabled={busy} onClick={async () => { const r = await run(() => api.forgetWifi()); if (r) setN(r); }}>Forget all networks</Button>}
         </div>
         <p className="text-xs text-muted">{onUsb ? "Do this once with the USB cable plugged in: it also pairs PIP with this PC. Afterwards you can unplug PIP and power it from any USB charger — it reconnects over Wi-Fi."
-          : "2.4 GHz networks only. The password is sent to PIP and never stored on this PC."}</p>
+          : "2.4 GHz networks only, up to 5 saved. Add the office Wi-Fi or your phone's hotspot before you take PIP there. Passwords are sent to PIP and never stored on this PC."}</p>
+      </form>
+    </Card>
+  );
+}
+
+const AWAY_STATE: Record<string, string> = {
+  OFF: "Off", WAITING: "Standing by (on the cable or home Wi-Fi)", DIALING: "Calling this PC…", UP: "Connected over the internet",
+  FAILED: "Can't reach this PC — retrying",
+};
+
+/** Away link (ADR-035): when PIP is on another network it dials this PC's public address, encrypted end to end. */
+export function AwayCard() {
+  const { run, health } = useLive();
+  const [a, setA] = useState<AwayInfo | null>(null);
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("");
+  const [listen, setListen] = useState("18423");
+  const [tls, setTls] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const load = (r: AwayInfo) => {
+    setA(r); setHost(r.host); setPort(r.port ? String(r.port) : ""); setListen(String(r.listen_port)); setTls(r.tls);
+  };
+  useEffect(() => { void api.away().then(load).catch(() => undefined); }, [health?.link_state, health?.device_transport]);
+  if (!a || !a.available) return null;
+  const save = async (enabled: boolean) => {
+    setBusy(true);
+    const r = await run(() => api.setAway(enabled, host.trim(), Number(port) || 0, Number(listen) || 18423, tls));
+    setBusy(false);
+    if (r) load(r);
+  };
+  const dev = a.device.state ?? "";
+  const tone = health?.device_transport === "WIFI_AWAY" ? "sage" : "neutral";
+  return (
+    <Card aria-label="Away from home">
+      <CardTitle aside={<Badge tone={tone}>{health?.device_transport === "WIFI_AWAY" ? "Linked" : a.enabled ? "On" : "Off"}</Badge>}>
+        <span className="inline-flex items-center gap-1.5"><Globe size={15} aria-hidden /> Away from home</span></CardTitle>
+      {a.enabled && <dl className="mb-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
+        <dt className="text-muted">This PC</dt>
+        <dd className="font-semibold">{a.listener.listening ? `Listening on port ${a.listener.port}` : a.listener.error || "Not listening"}</dd>
+        {dev && <><dt className="text-muted">PIP</dt><dd className="font-semibold">{AWAY_STATE[dev] ?? dev}</dd></>}
+        {!!a.listener.links && <><dt className="text-muted">Last call</dt>
+          <dd className="tabular">{a.listener.last_link_at ? new Date(a.listener.last_link_at * 1000).toLocaleString() : "—"}</dd></>}
+        {!!a.listener.rejected && <><dt className="text-muted">Refused</dt><dd className="tabular">{a.listener.rejected} unauthenticated connection(s)</dd></>}
+      </dl>}
+      <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void save(true); }}>
+        <div><Label htmlFor="away-via">How this PC is reachable</Label>
+          <Select id="away-via" value={tls ? "funnel" : "forward"} onChange={(e) => setTls(e.target.value === "funnel")}>
+            <option value="funnel">Tailscale Funnel (or another TLS tunnel)</option>
+            <option value="forward">Port forward on my router</option></Select></div>
+        <div className="grid gap-2 sm:grid-cols-[1fr_6rem_6rem]">
+          <div><Label htmlFor="away-host">Public address of this PC</Label>
+            <Input id="away-host" value={host} placeholder="my-pc.tail1234.ts.net" autoComplete="off" onChange={(e) => setHost(e.target.value)} /></div>
+          <div><Label htmlFor="away-port">Public port</Label>
+            <Input id="away-port" inputMode="numeric" value={port} placeholder="10000" onChange={(e) => setPort(e.target.value)} /></div>
+          <div><Label htmlFor="away-listen">Local port</Label>
+            <Input id="away-listen" inputMode="numeric" value={listen} onChange={(e) => setListen(e.target.value)} /></div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" variant="primary" disabled={busy || !host.trim()}>{a.enabled ? "Save" : "Turn on"}</Button>
+          {a.enabled && <Button disabled={busy} onClick={() => void save(false)}>Turn off</Button>}
+        </div>
+        <p className="text-xs text-muted">When PIP is on another Wi-Fi (office, phone hotspot) it calls this PC over the internet.{" "}
+          {tls ? <>Make the local port reachable first:{" "}
+            <code>tailscale funnel --bg --tls-terminated-tcp={port || "10000"} tcp://localhost:{listen || "18423"}</code>{" "}
+            (Funnel allows public ports 443, 8443 and 10000), then enter this PC's <code>*.ts.net</code> name.</>
+            : <>Forward the public port on your router to this PC's local port (TCP), and enter your public IP or
+              dynamic-DNS name.</>}{" "}
+          The link is encrypted with the key PIP shares only with this PC. This PC must be on with PIP running.</p>
       </form>
     </Card>
   );

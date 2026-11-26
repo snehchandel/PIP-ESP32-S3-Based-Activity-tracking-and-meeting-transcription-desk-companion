@@ -39,3 +39,7 @@ CONFIG_SR_MN_EN_NONE=y
 
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+
+# Away link over TLS (ADR-035): mbedtls buffers (16 KB TLS records, handshake) live in PSRAM - internal RAM is
+# tight with Wi-Fi + WakeNet. CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC (the default) would put ~30 KB there.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y

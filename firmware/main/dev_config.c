@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "json_mini.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -19,20 +18,38 @@ esp_err_t dev_config_init(void)
     return err;
 }
 
+/* slot 0 keeps the keys of firmware <= 1.7 ("ssid"/"pass"), so an update keeps the home network */
+static void net_keys(int i, char *ssid_key, char *pass_key, size_t cap)
+{
+    if (i == 0) {
+        snprintf(ssid_key, cap, "ssid");
+        snprintf(pass_key, cap, "pass");
+    } else {
+        snprintf(ssid_key, cap, "ssid%d", i);
+        snprintf(pass_key, cap, "pass%d", i);
+    }
+}
+
 void dev_config_load(dev_config_t *c)
 {
-    memset(c, 0, sizeof *c);
-    c->wake_on = true;
-    snprintf(c->wake_word, sizeof c->wake_word, "hiesp");
+    dev_settings_defaults(c);
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) {
         return;
     }
-    size_t n = sizeof c->ssid;
-    nvs_get_str(h, "ssid", c->ssid, &n);
-    n = sizeof c->pass;
-    nvs_get_str(h, "pass", c->pass, &n);
-    n = sizeof c->token;
+    char sk[16], pk[16];
+    for (int i = 0; i < DEV_MAX_NETS; i++) {
+        dev_net_t net = {0};
+        net_keys(i, sk, pk, sizeof sk);
+        size_t n = sizeof net.ssid;
+        if (nvs_get_str(h, sk, net.ssid, &n) != ESP_OK || !net.ssid[0] || dev_net_find(c, net.ssid) >= 0) {
+            continue;
+        }
+        n = sizeof net.pass;
+        nvs_get_str(h, pk, net.pass, &n);
+        c->nets[c->n_nets++] = net;
+    }
+    size_t n = sizeof c->token;
     c->has_token = nvs_get_blob(h, "token", c->token, &n) == ESP_OK && n == sizeof c->token;
     uint8_t on = 1;
     if (nvs_get_u8(h, "wake_on", &on) == ESP_OK) {
@@ -40,6 +57,16 @@ void dev_config_load(dev_config_t *c)
     }
     n = sizeof c->wake_word;
     nvs_get_str(h, "wake_word", c->wake_word, &n);
+    n = sizeof c->remote_host;
+    nvs_get_str(h, "rhost", c->remote_host, &n);
+    nvs_get_u16(h, "rport", &c->remote_port);
+    uint8_t tls = 0;
+    nvs_get_u8(h, "rtls", &tls);
+    c->remote_tls = tls != 0;
+    if (!dev_remote_host_ok(c->remote_host) || c->remote_port == 0) {
+        c->remote_host[0] = 0;
+        c->remote_port = 0;
+    }
     nvs_close(h);
 }
 
@@ -50,8 +77,17 @@ esp_err_t dev_config_save(const dev_config_t *c)
     if (err != ESP_OK) {
         return err;
     }
-    nvs_set_str(h, "ssid", c->ssid);
-    nvs_set_str(h, "pass", c->pass);
+    char sk[16], pk[16];
+    for (int i = 0; i < DEV_MAX_NETS; i++) {
+        net_keys(i, sk, pk, sizeof sk);
+        if (i < c->n_nets) {
+            nvs_set_str(h, sk, c->nets[i].ssid);
+            nvs_set_str(h, pk, c->nets[i].pass);
+        } else {
+            nvs_erase_key(h, sk);
+            nvs_erase_key(h, pk);
+        }
+    }
     if (c->has_token) {
         nvs_set_blob(h, "token", c->token, sizeof c->token);
     } else {
@@ -59,66 +95,10 @@ esp_err_t dev_config_save(const dev_config_t *c)
     }
     nvs_set_u8(h, "wake_on", c->wake_on ? 1 : 0);
     nvs_set_str(h, "wake_word", c->wake_word);
+    nvs_set_str(h, "rhost", c->remote_host);
+    nvs_set_u16(h, "rport", c->remote_port);
+    nvs_set_u8(h, "rtls", c->remote_tls ? 1 : 0);
     err = nvs_commit(h);
     nvs_close(h);
     return err;
-}
-
-static int hexval(char ch)
-{
-    if (ch >= '0' && ch <= '9') return ch - '0';
-    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
-    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
-    return -1;
-}
-
-bool dev_config_apply_json(dev_config_t *c, const char *json, size_t n, bool *wifi_changed, bool *wake_changed)
-{
-    *wifi_changed = *wake_changed = false;
-    jm_span_t sp;
-    bool clear = false;
-    if (jm_get_bool(json, n, "wifi_clear", &clear) && clear) {
-        c->ssid[0] = c->pass[0] = 0;
-        *wifi_changed = true;
-    }
-    if (jm_find(json, n, "wifi", &sp)) {
-        char ssid[sizeof c->ssid], pass[sizeof c->pass];
-        if (jm_get_str(sp.p, sp.n, "ssid", ssid, sizeof ssid) && ssid[0]) {
-            pass[0] = 0;
-            (void)jm_get_str(sp.p, sp.n, "password", pass, sizeof pass);
-            if (strcmp(ssid, c->ssid) != 0 || strcmp(pass, c->pass) != 0) {
-                snprintf(c->ssid, sizeof c->ssid, "%s", ssid);
-                snprintf(c->pass, sizeof c->pass, "%s", pass);
-                *wifi_changed = true;
-            }
-        }
-    }
-    char hex[80];
-    if (jm_get_str(json, n, "token", hex, sizeof hex) && strlen(hex) == 64) {
-        uint8_t t[32];
-        bool ok = true;
-        for (int i = 0; i < 32 && ok; i++) {
-            int hi = hexval(hex[2 * i]), lo = hexval(hex[2 * i + 1]);
-            ok = hi >= 0 && lo >= 0;
-            t[i] = (uint8_t)(hi << 4 | lo);
-        }
-        if (ok && (!c->has_token || memcmp(t, c->token, sizeof t) != 0)) {
-            memcpy(c->token, t, sizeof t);
-            c->has_token = true;
-            *wifi_changed = true; /* drop any client authenticated with the old token */
-        }
-    }
-    if (jm_find(json, n, "wake", &sp)) {
-        bool on = c->wake_on;
-        char word[sizeof c->wake_word];
-        if (jm_get_bool(sp.p, sp.n, "enabled", &on) && on != c->wake_on) {
-            c->wake_on = on;
-            *wake_changed = true;
-        }
-        if (jm_get_str(sp.p, sp.n, "word", word, sizeof word) && word[0] && strcmp(word, c->wake_word) != 0) {
-            snprintf(c->wake_word, sizeof c->wake_word, "%s", word);
-            *wake_changed = true;
-        }
-    }
-    return *wifi_changed || *wake_changed;
 }

@@ -157,11 +157,16 @@ BOOT double-click parks the task in progress (ADR-027). Audio: 16 kHz mono PCM16
 "Hi Joy") in the `model` partition. The mic feeds the detector only while PIP is silent (no self-triggering).
 A custom "Hey PIP" is not possible without Espressif's paid training — the user chose stock words.
 
-**Wi-Fi** (`net_link.c`, ADR-019): STA mode, credentials in NVS namespace `pip`, mDNS `pip-xxxx.local`
+**Wi-Fi** (`net_link.c`, ADR-019, ADR-035): STA mode, up to 5 saved networks in NVS namespace `pip` (strongest
+in range wins, `dev_settings.c`), mDNS `pip-xxxx.local`
 (`_pip._tcp`), one TCP client on port 18422. Every connection starts with AUTH_CHALLENGE (16-byte nonce + MAC);
 the PC must answer HMAC-SHA256(link token, nonce) within 5 s. The token is delivered **only over USB**
 (DEVICE_CONFIG on every USB link-up), so only a PC that was once cabled to PIP can drive it. Replies go back over
 whichever link the PC last spoke on (`s_src`).
+**Away link** (ADR-035): on another network PIP dials OUT to the PC's public address (`remote` in DEVICE_CONFIG;
+Tailscale Funnel with TLS, or a router port forward) after 10 s with no cable and no LAN client. Both sides prove the
+token, then every frame is an AES-256-GCM record; the PC listens on 18423 (`transport/away.py`, kind `WIFI_AWAY`).
+mbedtls allocates in PSRAM (TLS buffers).
 
 **OTA** (`dev_ota.c`): OTA_BEGIN (size + SHA-256 + version) → OTA_DATA (offset + ≤4000 B, ACK each) → OTA_END
 (hash check, `esp_ota_end`, switch boot slot, reboot after 0.8 s). `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`: the
@@ -186,8 +191,8 @@ on 20 ms idle with a partial frame.
 | 0x10 UI_UPDATE | host→dev | JSON snapshot (`manager.snapshot()`, ≤2 KB): step, timer, toast, error, weather, `activity`/`next_activity`/`done_activity`… |
 | 0x11–0x13 AUDIO_*_OUT | host→dev | Piper speech to the speaker; END with flag byte 1 = abort |
 | 0x14 PLAY_CHIME, 0x15 ALARM_TRIGGER, 0x16 CALENDAR_SYNC | host→dev | chime id / alarm JSON / today's agenda (8 items) + alarms |
-| 0x17 DEVICE_CONFIG | host→dev | JSON `{"wifi":{"ssid","password"},"wifi_clear","token":"hex64","wake":{"enabled","word"}}` |
-| 0x18 AUTH_RESPONSE | host→dev | HMAC-SHA256(token, nonce) |
+| 0x17 DEVICE_CONFIG | host→dev | JSON `{"wifi":{"ssid","password"},"wifi_forget","wifi_clear","token":"hex64","wake":{"enabled","word"},"remote":{"host","port","tls"}}` |
+| 0x18 AUTH_RESPONSE | ⇄ | HMAC-SHA256(token, nonce); away link: + PC nonce (48 B), then PIP's proof back (32 B) |
 | 0x20–0x22 OTA_BEGIN/DATA/END | host→dev | firmware update (ACK each) |
 | 0x23 WAKE_TEST | host→dev | PCM fed straight into the wake detector (self-test) |
 | 0xE0 SIM_INPUT | host→sim | simulator-only button injection |
@@ -245,8 +250,9 @@ on 20 ms idle with a partial frame.
   Migration comments must not contain `;` (the runner splits statements on it). Piper voices in `data/voices`. Spoken alarms
   are pre-rendered to `data/alarm_audio/` at creation; ring sequence = device chime → script → chimes every
   2.5 s for 60 s, aborted the moment the alarm is dismissed.
-- **Device link** (`device/link.py`): `make_transport()` → `AutoTransport` (USB when plugged in, else Wi-Fi to the
-  last reported IP / mDNS name, hops back to USB within 5 s of plugging in), `SimTcpTransport`, `WifiTransport`.
+- **Device link** (`device/link.py`): `make_transport()` → `AutoTransport` (USB when plugged in, else PIP's away
+  link if it dialed in (`AwayListener`, prefs `away_*`, `GET/PUT /device/away`), else Wi-Fi to the last reported IP /
+  mDNS name, hops back to USB within 5 s of plugging in), `SimTcpTransport`, `WifiTransport`.
   `link.request()` sends with ACK and awaits it by sequence number. On link-up `Services._on_link_up` sends
   DEVICE_CONFIG (token only over USB); `_on_diag` remembers PIP's Wi-Fi address.
 - **Firmware updater** (`device/firmware.py`): validates the image (`esp_app_desc_t` project must be
@@ -382,6 +388,13 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   close to Kimi's but varies run to run (ADR-032). `test_voices_are_told_apart[voices2]` fails about 1 run in 4:
   Piper synthesis is random (noise sampling), not a diarization change.
 - To exercise the app over Wi-Fi while the cable stays plugged in, start the host with `PIP_TRANSPORT=wifi`.
+- Firmware 1.8.0 (ADR-035: several saved networks, away link with TLS) on hardware via in-app OTA: the 1.7 home
+  network carried over into the saved list; 95 s uptime, reset SW, heap 35.6 KB (link buffers moved to PSRAM;
+  1.7.2 had 33.7 KB). Away link on hardware (plain TCP, PC's LAN address, tray stopped): PIP dialed in 9.2 s after
+  USB went quiet, DIAG + a 15 KB framebuffer through the sealed records, 40 s with 0 disconnects. The first 1.8.0
+  build panicked at boot (DIAG over USB before `net_link_init` made its lock) and rolled back by itself.
+  **Not yet on hardware:** choosing between two networks in range, a dial from a really foreign network, and TLS
+  through a real Tailscale Funnel.
 - Wake word: stock Espressif words only; a custom "Hey PIP" needs a trained model (paid service) or a PC-side
   detector (rejected by the user in favour of on-device privacy).
 - Four old ruff findings in tests (SIM117 ×2, RUF015, RUF059) are pre-existing and harmless.

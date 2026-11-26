@@ -9,6 +9,7 @@ pillow>=10.3
 numpy>=1.26
 keyring>=25
 tzdata>=2024.1
+cryptography>=42  # away link: AES-GCM records (transport/away.py)
 faster-whisper>=1.0
 piper-tts>=1.2
 # desktop app: tray icon + WebView2 window (service/desktop.py)

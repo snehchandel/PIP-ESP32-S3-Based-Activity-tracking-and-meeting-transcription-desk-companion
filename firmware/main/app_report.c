@@ -23,7 +23,7 @@ void app_send_diag(app_t *a)
     if (a->io.diag) {
         a->io.diag(a->io.ctx, &d);
     }
-    static char buf[1400];
+    static char buf[1800];
     int n = snprintf(buf, sizeof buf,
                      "{\"fw_ver\":\"%s\",\"is_sim\":%s,\"reset_reason\":\"%s\",\"link_mode\":\"%s\",\"proto_ver\":%d,"
                      "\"free_heap_b\":%lu,\"free_psram_b\":%lu,\"batt_mv\":%ld,\"batt_pct\":%d,\"rtc_ok\":%s,"

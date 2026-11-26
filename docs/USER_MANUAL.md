@@ -213,7 +213,23 @@ words are not lost: they're saved as a parked note you can promote later.
 - **Wi-Fi (no cable needed):** with PIP plugged in by USB, open **Device → Connection**, type your Wi-Fi name and
   password (2.4 GHz) and press **Connect PIP to Wi-Fi**. This also pairs PIP with this PC. Afterwards PIP can sit
   anywhere and run from any USB charger; the app finds it on your network by itself and switches back to the cable
-  whenever you plug it in. The password goes to PIP only and is never stored on the PC. *Forget network* removes it.
+  whenever you plug it in. The password goes to PIP only and is never stored on the PC.
+- **More than one Wi-Fi:** PIP remembers up to 5 networks (home, office, your phone's hotspot) and joins the
+  strongest one in range. Add each with **Add network** while PIP is on the cable or on Wi-Fi with this PC, *before*
+  you take it there. The **x** next to a saved network forgets it; *Forget all networks* clears the list.
+- **Away from home (another Wi-Fi):** when PIP is on a network where this PC cannot see it, PIP calls this PC over
+  the internet instead. The PC must be on with PIP running, and reachable from outside:
+  1. *Tailscale Funnel* (free, no router changes): install Tailscale on this PC, turn on Funnel for your tailnet, then
+     run `tailscale funnel --bg --tls-terminated-tcp=10000 tcp://localhost:18423` (Funnel only offers public ports
+     443, 8443 and 10000). Your public address is this PC's `*.ts.net` name, e.g. `my-pc.tail1234.ts.net`.
+  2. *Or a router port forward:* forward a TCP port on your router to this PC's port 18423, and use your public IP or a
+     dynamic-DNS name.
+  Then open **Device → Away from home**, pick how the PC is reachable, enter the public address and port and press
+  **Turn on** (with PIP connected, so it learns the address). Windows may ask once to let PIP through the firewall:
+  allow it. PIP calls only when it is neither on the cable nor reached over the home Wi-Fi for 10 seconds, retries
+  every few seconds up to once a minute, and the card shows "Connected over the internet" once it is through. The
+  link is encrypted with the key PIP shares with this PC alone, so the tunnel or router never sees your words or
+  audio, and nobody else can drive PIP or pretend to be it. Over a slower connection speech and screenshots may lag a little.
 - **Firmware updates:** **Device → Firmware** shows the version on PIP and any newer build on this PC (or upload a
   `.bin`). Press **Update PIP**: about 25 seconds over USB or Wi-Fi, PIP restarts by itself. If a new version ever
   fails to start properly, PIP goes back to the previous one automatically.
