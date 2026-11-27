@@ -15,7 +15,7 @@ from .. import paths
 log = logging.getLogger("pip.stt")
 
 
-CUDA_PARTS = ("cublas", "cudnn", "cuda_nvrtc")
+CUDA_PARTS = ("cublas", "cudnn", "cuda_nvrtc", "cuda_runtime", "cufft", "nvjitlink")  # last 3: onnxruntime-gpu
 
 
 def cuda_dll_dirs() -> list[str]:

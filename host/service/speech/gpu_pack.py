@@ -34,7 +34,8 @@ class Wheel:
     part: str  # folder under nvidia/ inside the wheel (cublas, cudnn, cuda_nvrtc)
 
 
-# Same versions as the development venv (requirements-gpu.txt), tested with CTranslate2 4.x.
+# Same versions as the development venv (requirements-gpu.txt): CTranslate2 4.x (Whisper) needs cuBLAS + cuDNN (+ NVRTC);
+# onnxruntime-gpu 1.24 (Parakeet, ADR-040) also needs the CUDA runtime and cuFFT (which references nvJitLink).
 WHEELS: tuple[Wheel, ...] = (
     Wheel("nvidia-cuda-nvrtc-cu12", "12.9.86", "72972ebdcf504d69462d3bcd67e7b81edd25d0fb85a2c46d3ea3517666636349",
           76_408_187, "cuda_nvrtc"),
@@ -42,6 +43,12 @@ WHEELS: tuple[Wheel, ...] = (
           553_162_896, "cublas"),
     Wheel("nvidia-cudnn-cu12", "9.28.1.4", "3467aafa9b260e6adf5fbbfc0e21d180133305b42032aa1160be2d3142bb8b09",
           696_300_805, "cudnn"),
+    Wheel("nvidia-cuda-runtime-cu12", "12.9.79", "8e018af8fa02363876860388bd10ccb89eb9ab8fb0aa749aaf58430a9f7c4891",
+          3_591_604, "cuda_runtime"),
+    Wheel("nvidia-cufft-cu12", "11.4.1.4", "8e5bfaac795e93f80611f807d42844e8e27e340e0cde270dcb6c65386d795b80",
+          200_067_309, "cufft"),
+    Wheel("nvidia-nvjitlink-cu12", "12.9.86", "cc6fcec260ca843c10e34c936921a1c426b351753587fdd638e8cff7b16bb9db",
+          35_584_936, "nvjitlink"),
 )
 MARKER = "pack.json"
 

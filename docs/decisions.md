@@ -593,3 +593,24 @@ random picks from a library.
   recognition). NeMo's phrase boosting for TDT (a boosting tree added to token scores in greedy decoding) could be
   ported to onnx-asr's Python decoding loop. VibeVoice-ASR (Microsoft, 8.7 B parameters, 17 GB in bf16) was
   considered and dropped: it doesn't fit the 8 GB GPU / 14 GB RAM without 4-bit quantization.
+
+## ADR-040 — Parakeet on the GPU; the user's vocabulary boosts names
+- **GPU:** transcription and summaries never run at the same time (the worker unloads one before the other), so
+  Parakeet uses the NVIDIA GPU when it can: onnxruntime-gpu's CUDA provider, 149x real time for the model alone
+  (vs 15x on the CPU), a 28-min meeting through the whole pipeline in 36 s instead of 198 s (VAD and voiceprints,
+  on the CPU, are now most of it). Same model, same accuracy. The CPU stays the fallback: no CUDA DLLs, no NVIDIA
+  card, or a GPU error mid-meeting (the model is reloaded on the CPU and the meeting carries on).
+- **Which onnxruntime-gpu:** 1.24.4. From 1.27 on the PyPI builds use CUDA 13; Whisper's CTranslate2 uses CUDA 12,
+  and one CUDA version keeps the GPU pack to one set of DLLs. onnx-asr excludes 1.24.1, 1.25.x and 1.26.0, so 1.24.4
+  is the newest CUDA 12 build it accepts. It also needs the CUDA runtime and cuFFT (cuFFT references nvJitLink): added
+  to `requirements-gpu.txt`, to `CUDA_PARTS` in `speech/stt.py` and, pinned with SHA-256, to the GPU pack
+  (+~240 MB download). The packaged app bundles onnxruntime-gpu (it also runs on the CPU);
+  `tools/build_exe.ps1` removes the CPU `onnxruntime` that Piper and faster-whisper pull in (same folder) and
+  stops if the CUDA provider is missing.
+- **Phrase boosting** (`speech/boost.py`): the idea of NeMo's GPU phrase boosting for TDT, in onnx-asr's greedy
+  loop. The vocabulary becomes a tree of the model's word pieces (fewest-pieces and greedy splits, as written and
+  capitalised, since the SentencePiece file isn't shipped); while decoding, a piece that starts a phrase gets +0.5
+  and a piece continuing one +5 (log-probability) - compared on the raw logits, so it costs no time. One bonus for
+  every piece cost 1.8 points of AMI WER at the useful strength (false starts from short first pieces); splitting
+  first/next kept it at +0.1. Measured: the user's 16 terms in synthetic sentences (4 Piper voices) spelled exactly
+  23 -> 33 of 64 (Piper is random: +-3), made-up names 11 -> 15 of 16; AMI WER 36.01 -> 36.11 %.

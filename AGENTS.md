@@ -236,7 +236,8 @@ on 20 ms idle with a partial frame.
   `POST /meetings/{id}/actions/convert` (task/reminder/park), `POST /meetings/{id}/archive`; `/calendar` adds undecided
   dated items as kind 3 (`others=true` for other people's). Ollama needs `OLLAMA_FLASH_ATTENTION=1` and
   `OLLAMA_KV_CACHE_TYPE=q8_0` (user env) for the 16k context on the 8 GB GPU. Meeting speech: NVIDIA Parakeet-TDT-0.6B v3 on the
-  CPU (`speech/parakeet.py`, onnx-asr, 2.5 GB pinned download, Whisper fallback; ADR-039); Whisper `large-v3-turbo` on
+  GPU, CPU as fallback (`speech/parakeet.py`, onnx-asr + onnxruntime-gpu 1.24.4 = CUDA 12, 2.5 GB pinned download, Whisper
+  fallback, vocabulary phrase boosting in `speech/boost.py`; ADR-039/040); Whisper `large-v3-turbo` on
   the GPU stays selectable (CUDA wheels `nvidia-cublas-cu12`/`nvidia-cudnn-cu12`, DLL path set in `speech/stt.py`).
   Model downloads go through `webclient.download_client()` (Windows certificate store).
   Another AI agent (ADR-036): `GET /meetings/{id}/export?format=ai` (prompt + transcript), `GET /meetings/summary-prompt`,
@@ -409,8 +410,8 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
 - Speaker detection (ADR-038): CAM++ voiceprints + NME-SC verified on AMI and on a copy of the user's database
   (upgrade of 7 meetings in 68 s, right count in 6 of 7). **Not yet:** a new real meeting recorded and checked by
   ear. Transcription: Parakeet-TDT-0.6B v3 (AMI far-field 34.8 vs Whisper's 46.3 % WER) is the meeting default
-  (ADR-039), verified on 3 real meetings in a database copy. **Not yet:** the packaged PIP.exe rebuilt with onnx-asr,
-  vocabulary boosting for Parakeet, the planned fine-tune on corrected meetings.
+  (ADR-039), on the GPU since ADR-040 (28-min meeting in 36 s), with vocabulary boosting. **Not yet:** the packaged
+  PIP.exe rebuilt (onnx-asr, onnxruntime-gpu, the bigger GPU pack), the planned fine-tune on corrected meetings.
 - Wake word: stock Espressif words only; a custom "Hey PIP" needs a trained model (paid service) or a PC-side
   detector (rejected by the user in favour of on-device privacy).
 - Four old ruff findings in tests (SIM117 ×2, RUF015, RUF059) are pre-existing and harmless.

@@ -258,7 +258,8 @@ export function MeetingAiCard() {
           <option value="small.en">Whisper small.en (fastest on CPU)</option>
         </Select>
         <p className="mt-1 text-xs text-muted">{m.speech_model_active.startsWith("parakeet")
-          ? "Parakeet runs on the CPU (an hour of meeting in about 5-8 minutes) and leaves the GPU to summaries. The first meeting downloads it once (2.5 GB)."
+          ? (m.gpu_speech ? "Parakeet runs on your NVIDIA GPU: an hour of meeting in about 1-2 minutes." : "Parakeet runs on the CPU here: an hour of meeting in about 5-8 minutes.")
+            + " \"Words PIP should know\" (above) helps it spell names. The first meeting downloads it once (2.5 GB)."
           : m.gpu_speech ? "Your NVIDIA GPU is used for speech: an hour of meeting in about 1-2 minutes."
           : "No usable GPU for speech: transcription runs on the CPU."}</p>
         <label className="mt-2 flex items-center gap-2 text-sm">

@@ -2,3 +2,7 @@
 # ~1 GB. speech/stt.py puts their DLL folders on the search path; without them Whisper runs on the CPU.
 nvidia-cublas-cu12
 nvidia-cudnn-cu12>=9,<10
+# Parakeet on the GPU (onnxruntime-gpu 1.24 = CUDA 12; 1.27+ are CUDA 13 builds): CUDA runtime + cuFFT (+ nvJitLink)
+nvidia-cuda-runtime-cu12==12.9.79
+nvidia-cufft-cu12==11.4.1.4
+nvidia-nvjitlink-cu12==12.9.86

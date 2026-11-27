@@ -25,6 +25,11 @@ if (-not (Test-Path (Join-Path $root "firmware\build\pip_firmware.bin"))) {
 
 & $py -m pip install --quiet -r (Join-Path $root "host\requirements-runtime.txt") "pyinstaller>=6.10"
 if ($LASTEXITCODE) { throw "pip install failed" }
+# Piper/faster-whisper pull in the CPU "onnxruntime", which shares the folder with onnxruntime-gpu: keep only the GPU build
+& $py -m pip uninstall --quiet -y onnxruntime
+& $py -m pip install --quiet --no-deps --force-reinstall "onnxruntime-gpu==1.24.4"
+& $py -c "import onnxruntime as o, sys; sys.exit(0 if 'CUDAExecutionProvider' in o.get_available_providers() else 1)"
+if ($LASTEXITCODE) { throw "onnxruntime-gpu missing: the CPU onnxruntime replaced it" }
 
 $ico = Join-Path $root "tools\pip.ico"  # generated (gitignored): exe, window and shortcut icon
 & $py -c "import sys; sys.path.insert(0, r'$root\host'); from service.desktop import main; main(['--write-icon', r'$ico'])"

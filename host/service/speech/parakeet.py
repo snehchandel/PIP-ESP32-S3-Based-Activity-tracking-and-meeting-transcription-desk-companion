@@ -1,4 +1,4 @@
-"""NVIDIA Parakeet-TDT-0.6B v3 for meeting transcripts (ADR-039): onnxruntime on the CPU, no torch.
+"""NVIDIA Parakeet-TDT-0.6B v3 for meeting transcripts (ADR-039/040): onnxruntime, GPU first, no torch.
 
 Picked over Whisper large-v3-turbo and Qwen3-ASR-1.7B on far-field meeting audio (AMI single distant mic, ADR-038):
 34.8 % WER vs 46.3 % (Whisper) and 37.2 % (Qwen3). The full-precision model is used - the int8 one is faster
@@ -7,7 +7,10 @@ Picked over Whisper large-v3-turbo and Qwen3-ASR-1.7B on far-field meeting audio
 * Model files (2.5 GB, CC-BY-4.0) come from the ONNX export istupakov/parakeet-tdt-0.6b-v3-onnx at a pinned revision,
   each checked against its pinned size + SHA-256, into <data>/models/parakeet-tdt-0.6b-v3. A copy already in the
   Hugging Face cache is used instead of downloading it again.
-* onnx-asr (MIT, numpy only) runs the encoder + TDT decoder and NeMo's mel front-end.
+* onnx-asr (MIT, numpy only) runs the encoder + TDT decoder and NeMo's mel front-end, on the NVIDIA GPU through
+  onnxruntime-gpu's CUDA provider when the CUDA 12 DLLs load (149x real time on an RTX 3070 vs 15x on the CPU),
+  else on the CPU; a GPU failure mid-meeting reloads the model on the CPU and carries on.
+* The user's vocabulary steers recognition by phrase boosting (speech/boost.py).
 * Long recordings are cut by the Silero VAD faster-whisper ships (0.5 s pauses, chunks of at most 30 s), every
   chunk is transcribed with token times and split into sentences, so a line roughly follows a turn - what the
   speaker detection and the transcript view expect (same (start, end, text) lines as Whisper).
@@ -29,6 +32,7 @@ from typing import Any
 import httpx
 
 from ..webclient import download_client
+from . import boost
 
 log = logging.getLogger("pip.parakeet")
 
@@ -118,7 +122,10 @@ class ParakeetSTT:
         self._client = client or download_client
         self._model: Any = None
         self._lock = threading.Lock()
-        self.vocabulary: list[str] = []  # not used by the model; the meeting worker fixes names' case with it
+        self.vocabulary: list[str] = []  # boosted while decoding (speech/boost.py); also re-cases names afterwards
+        self._boost_key: tuple[str, ...] | None = None
+        self.on_gpu = False
+        self.allow_gpu = True
         self.cleanup = True
         self.error = ""
         self.loading = False
@@ -174,12 +181,14 @@ class ParakeetSTT:
         """Where speech runs ("cpu"; the Whisper fallback's device while it stands in), like SpeechToText.device."""
         if self.using_fallback:
             return str(getattr(self.fallback(), "device", "") or "")
-        return "cpu" if self._model is not None else ""
+        if self._model is None:
+            return ""
+        return "cuda" if self.on_gpu else "cpu"
 
     @property
     def status(self) -> str:
         if self._model is not None:
-            return f"READY ({NAME} on cpu)"
+            return f"READY ({NAME} on {self.device})"
         if self.using_fallback:
             return f"FALLBACK (Whisper; Parakeet: {self.error})"
         if self.downloading:
@@ -198,10 +207,20 @@ class ParakeetSTT:
             if self.custom:
                 raise RuntimeError(f"fine-tuned model incomplete in {self.folder} (needs {', '.join(CUSTOM_FILES)})")
             self.fetch()
+        from .stt import cuda_usable  # also puts the CUDA DLL folders (pip wheels / GPU pack) on the search path
+
         opts = ort.SessionOptions()
         opts.log_severity_level = 3
-        return onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3", self.folder, sess_options=opts,
-                                   providers=["CPUExecutionProvider"]).with_timestamps()
+        gpu = self.allow_gpu and "CUDAExecutionProvider" in ort.get_available_providers() and cuda_usable()
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if gpu else ["CPUExecutionProvider"]
+        model = onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3", self.folder, sess_options=opts,
+                                    providers=providers).with_timestamps()
+        # onnxruntime quietly uses the CPU when the CUDA provider can't start (DLLs missing): ask where it runs
+        self.on_gpu = model.asr._encoder.get_providers()[0] == "CUDAExecutionProvider"
+        boost.install(model.asr)
+        self._boost_key = None
+        log.info("Parakeet loaded on %s", "the GPU" if self.on_gpu else "the CPU")
+        return model
 
     def _ready(self) -> bool:
         if self._model is not None:
@@ -230,12 +249,13 @@ class ParakeetSTT:
                 return []
             from faster_whisper.vad import VadOptions, get_speech_timestamps
 
+            self._set_boost()
             spans = get_speech_timestamps(audio, VadOptions(min_silence_duration_ms=500,
                                                             max_speech_duration_s=MAX_CHUNK_S, speech_pad_ms=200))
             out: list[tuple[float, float, str]] = []
             for i in range(0, len(spans), BATCH):
                 part = spans[i:i + BATCH]
-                results = self._model.recognize([audio[s["start"]:s["end"]] for s in part], sample_rate=SR)
+                results = self._recognize([audio[s["start"]:s["end"]] for s in part])
                 for s, r in zip(part, results, strict=True):
                     t0, t1 = s["start"] / SR, s["end"] / SR
                     if r.tokens and r.timestamps:
@@ -244,10 +264,32 @@ class ParakeetSTT:
                         on_segment(t1)
             return out
 
+    def _set_boost(self) -> None:
+        key = tuple(self.vocabulary)
+        if key != self._boost_key:
+            asr = self._model.asr
+            asr.pip_boost = boost.BoostTree(key, asr._vocab) if key else None
+            self._boost_key = key
+
+    def _recognize(self, chunks: list[Any]) -> list[Any]:
+        try:
+            return list(self._model.recognize(chunks, sample_rate=SR))
+        except Exception as e:
+            if not self.on_gpu:
+                raise
+            log.warning("Parakeet failed on the GPU (%s) - reloading it on the CPU", e)
+            self._model, self.allow_gpu = None, False  # e.g. out of GPU memory: the CPU for the rest of this run
+            self._model = self._load()
+            self._boost_key = None  # the new model has no tree yet
+            self._set_boost()
+            return list(self._model.recognize(chunks, sample_rate=SR))
+
     def unload(self) -> None:
-        """Free the ~3 GB the model holds (the meeting worker does this when it goes idle)."""
+        """Free the ~3 GB the model holds in (GPU) memory: the meeting worker does this when it goes idle and before a
+        summary, so the local AI and Parakeet never share the GPU."""
         with self._lock:
             self._model = None
+            self.allow_gpu = True
         fb = self.fallback() if self.using_fallback else None
         if fb is not None:
             fb.unload()

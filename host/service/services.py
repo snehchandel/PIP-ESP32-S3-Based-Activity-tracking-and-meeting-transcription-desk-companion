@@ -153,7 +153,7 @@ class Services:
 
     def meeting_stt_model(self) -> str:
         """Speech model for meetings. "auto": NVIDIA Parakeet-TDT-0.6B v3 on the CPU - the most accurate on far-field
-        meeting audio (ADR-038/039; an hour in ~5-8 min, the GPU stays free for summaries)."""
+        meeting audio (ADR-038/039/040; on the GPU an hour in ~1-2 min, on the CPU ~5-8 min)."""
         pick = str(self.settings.prefs().get("meeting_stt_model") or "auto")
         if pick != "auto" and pick in self.MEETING_STT_MODELS:
             return pick
