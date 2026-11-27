@@ -41,3 +41,6 @@ artifacts/firmware_size.txt
 esp32-s3-rlcd-development-plan*.md
 development_journal.md
 debugging_log.md
+
+# Per-frame act renders (input to tools/act_sheet.py; the sheets are committed)
+artifacts/rlcd_acts/acts/
