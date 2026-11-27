@@ -90,10 +90,15 @@ def test_chunks_follow_turns_and_clean_repairs_model_output() -> None:
                       "action_items": [{"task": "send the deck to Lee", "owner": "jordan", "due": "Not specified"},
                                        {"task": "The printer issue does not affect customers", "owner": "Lee"},
                                        {"task": "Alex should consider a new tool", "owner": "Alex"},
-                                       {"task": "Book the room", "owner": "team", "due": "Friday"}]}, "Sync", ["Jordan"])
+                                       {"task": "Book the room", "owner": "team", "due": "Friday"},
+                                       {"task": "Ask the vendor for a full copy", "owner": "We"}],
+                      "key_points": ["00:44 Lee asked", "[01:05] - Jordan agreed", "Sam left"]}, "Sync", ["Jordan"])
     assert [(x["task"], x["owner"], x["due"]) for x in out["action_items"]] == \
-        [("Send the deck to Lee", "Jordan", None), ("Book the room", "Everyone", "Friday")]
+        [("Send the deck to Lee", "Jordan", None), ("Book the room", "Everyone", "Friday"),
+         ("Ask the vendor for a full copy", "Everyone", None)]
     assert out["decisions"] == ["Ship on Friday"]
+    # one time style for key points, whatever the model wrote (gemma4 drops the brackets)
+    assert out["key_points"] == ["[00:44] Lee asked", "[01:05] Jordan agreed", "Sam left"]
     assert summ.tidy("um so we we we uh need the, uh, deck") == "so we need the deck"
 
 
@@ -259,7 +264,7 @@ def test_app_summarises_on_this_pc_writes_obsidian_and_answers(tmp_path) -> None
                      content=wav_header(len(pcm)) + pcm).json()["id"]
         assert svcs.meetings.wait_idle(30)
         m = c.get(f"/api/v1/meetings/{mid}").json()
-        assert m["summary_status"] == "READY" and m["summary_engine"] == "local/qwen3:8b"
+        assert m["summary_status"] == "READY" and m["summary_engine"] == "local/gemma4:e4b"
         assert m["summary"]["topics"] == ["Q3 budget", "Client deck"]
         main = next(c for c in ollama.chats if "key_points" in c["format"]["properties"])
         scan = next(c for c in ollama.chats if set(c["format"]["properties"]) == {"decisions", "action_items"})
@@ -273,7 +278,7 @@ def test_app_summarises_on_this_pc_writes_obsidian_and_answers(tmp_path) -> None
         items = c.get("/api/v1/meetings/actions").json()["items"]
         assert items[0]["task"] == "Send the Q3 budget" and items[0]["meeting_id"] == mid
         usage = c.get("/api/v1/ai/usage").json()["month"]
-        assert usage["cost_usd"] == 0 and usage["by_model"][0]["model"] == "local/qwen3:8b"  # counted, never billed
+        assert usage["cost_usd"] == 0 and usage["by_model"][0]["model"] == "local/gemma4:e4b"  # counted, never billed
         ollama.down = True  # a redo while the model is broken: shown on the meeting, no silent switch to Kimi
         assert c.post(f"/api/v1/meetings/{mid}/summarize").json()["queued"]
         assert svcs.meetings.wait_idle(30)
@@ -289,7 +294,9 @@ def test_model_catalog_is_matched_to_the_pc() -> None:
     laptop = {"gpu": "RTX laptop", "vram_gb": 8.0, "ram_gb": 14.0}
     rows = {r["name"]: r for r in models.listing([{"name": "qwen3:8b", "size": 5_200_000_000}], "qwen3:8b", laptop)["catalog"]}
     assert rows["qwen3:8b"]["fit"] == "gpu" and rows["qwen3:8b"]["installed"] and rows["qwen3:8b"]["in_use"]
-    assert rows["qwen3:8b"]["recommended"] and rows["qwen3:14b"]["fit"] == "mixed" and rows["qwen3:32b"]["fit"] == "too_big"
+    assert rows["qwen3:14b"]["fit"] == "mixed" and rows["qwen3:32b"]["fit"] == "too_big"
+    # an 8 GB GPU gets the default (ADR-041), downloaded or not
+    assert rows["gemma4:e4b"]["fit"] == "gpu" and rows["gemma4:e4b"]["recommended"] and not rows["qwen3:8b"]["recommended"]
     assert models.listing([], "x", {"gpu": "", "vram_gb": 0, "ram_gb": 16})["recommended"] == "qwen3:4b"  # CPU: small
     assert models.listing([], "x", {"gpu": "big", "vram_gb": 24, "ram_gb": 64})["recommended"] == "qwen3:14b"
     other = models.listing([{"name": "mistral:latest", "size": 0}, {"name": "my-model:q4", "size": 0}], "my-model:q4", laptop)
@@ -299,13 +306,13 @@ def test_model_catalog_is_matched_to_the_pc() -> None:
 
 
 def test_user_picks_downloads_switches_and_removes_models(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    ollama = FakeOllama(models=["qwen3:8b", "my-model:q4"])
+    ollama = FakeOllama(models=["gemma4:e4b", "qwen3:8b", "my-model:q4"])
     s = Settings(pip_db_path=str(tmp_path / "t.db"), pip_transport="none", pip_use_keyring=False,
                  pip_stt_preload=False, pip_weather=False, pip_prefs_path=str(tmp_path / "prefs.json"),
                  pip_local_ai_url=ollama.url)
     with TestClient(create_app(s)) as c:
         d = c.get("/api/v1/settings/local-ai/models").json()
-        assert d["running"] and d["current"] == "qwen3:8b" and len(d["catalog"]) >= 15
+        assert d["running"] and d["current"] == "gemma4:e4b" and len(d["catalog"]) >= 15
         assert [o["name"] for o in d["other_installed"]] == ["my-model:q4"]
         assert {"gpu", "vram_gb", "ram_gb"} <= set(d["hardware"])
         # download another model and switch to it once it is there

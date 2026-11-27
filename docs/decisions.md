@@ -614,3 +614,35 @@ random picks from a library.
   every piece cost 1.8 points of AMI WER at the useful strength (false starts from short first pieces); splitting
   first/next kept it at +0.1. Measured: the user's 16 terms in synthetic sentences (4 Piper voices) spelled exactly
   23 -> 33 of 64 (Piper is random: +-3), made-up names 11 -> 15 of 16; AMI WER 36.01 -> 36.11 %.
+
+## ADR-041 — Gemma 4 E4B replaces qwen3:8b as the local summary model
+- **Test:** the production careful pipeline (`summarize()`, same prompts, same sampling, same context and topic
+  hints) on all 7 of the user's real meetings (5-60 min) in a copy of the database, 2 runs per model, Ollama 0.40 on
+  the RTX 3070 Laptop (8 GB). Scored automatically (speed, failures, timeline coverage, owners, recall against the
+  two Kimi summaries, run-to-run stability, whether each deadline occurs in the transcript) and by reading the items
+  against Kimi's summaries and two transcripts.
+- **Result:**
+
+  | | gemma4:e4b | qwen3:8b |
+  |---|---|---|
+  | time per meeting (careful) | 88 s | 152 s |
+  | GPU memory at 16k context | ~4.8 GB | ~6.2 GB |
+  | failed runs | 0/14 | 0/14 |
+  | key points per meeting | 10.1 | 6.6 |
+  | action items per meeting | 4.4 | 7.0 |
+  | deadlines not in the transcript | 0 of 2 | 19 of 38 |
+  | recall of Kimi's action items (word overlap) | 0.26 | 0.38 |
+
+  Qwen lists more action items, but many of its extras are wrong. It adds deadlines nobody said, some copied from
+  the prompt's own examples ("by noon tomorrow", "immediately"), and dated items go to the calendar. It also lists
+  things already done in the meeting, assigns the wrong owner more often and records advice as decisions (the
+  ADR-032 weakness). Gemma's summaries and key points are more accurate and cover the meeting better. Its weaknesses:
+  fewer action items (once 0 where Kimi found 3), sometimes a spoken sentence copied in as a task, and schedule
+  announcements listed as decisions. For an ADHD tool, wrong tasks and made-up deadlines cost more than a missed
+  item, so Gemma wins.
+- **Changes:** `models.DEFAULT` / `local_ai.DEFAULT_MODEL` = `gemma4:e4b` (catalog entry added; recommended on an
+  8 GB GPU), the user's setting switched. `clean()` now writes key-point times the same way (`[mm:ss] text`; Gemma
+  often drops the brackets) and maps the owner "we"/"us" to "Everyone". Sampling unchanged (Gemma was tested with
+  Qwen's values). qwen3:8b stays in the catalog and on disk; it can be removed in Settings.
+- **Not done:** Gemma's own sampling advice (temperature 1.0, top_k 64) was not tried. Neither was a prompt change to
+  raise its action-item recall. Gemma 4's other sizes were not tested.

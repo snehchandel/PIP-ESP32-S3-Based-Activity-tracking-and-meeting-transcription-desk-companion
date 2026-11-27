@@ -227,8 +227,8 @@ on 20 ms idle with a partial frame.
   summary). API under `/meetings` + `/voices`; WebSocket event `meeting_updated` (status, progress,
   summary_status, summary_part/parts).
 - **Meeting summaries, Obsidian, questions** (ADR-031): after each transcription the summary is made **on this PC**
-  by default (Ollama, `meetings/local_ai.py` + `summarize.py`; prefs `meeting_summary` local|kimi|off,
-  `local_ai_model`; `PIP_LOCAL_AI_URL`). The meetings worker runs transcriptions first; summaries go part by part
+  by default (Ollama, `meetings/local_ai.py` + `summarize.py`, default model `gemma4:e4b` (ADR-041); prefs
+  `meeting_summary` local|kimi|off, `local_ai_model`; `PIP_LOCAL_AI_URL`). The meetings worker runs transcriptions first; summaries go part by part
   and yield between parts to a new transcription or a voice command (overlay LISTENING/TRANSCRIBING). A failed
   local summary never falls back to Kimi. Each meeting is written to the Obsidian vault (prefs `obsidian_vault`,
   `obsidian_folder`): note + transcript + index + action items; user text under the marker and ticks survive.
@@ -397,7 +397,8 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   dev tray holds COM3; needs the switch-over with `--import-data`), the real 1.3 GB GPU pack download from PyPI.
 - Local meeting summaries / Obsidian / questions (ADR-031/032): unit tests + Playwright against a fake Ollama, and
   tuned on two real meetings with Ollama 0.40 + qwen3:8b on the RTX 3070 (careful ~2 min per meeting). Quality is
-  close to Kimi's but varies run to run (ADR-032). `test_voices_are_told_apart[voices2]` fails about 1 run in 4:
+  close to Kimi's but varies run to run (ADR-032). Default model since ADR-041: `gemma4:e4b`, compared with qwen3:8b
+  on all 7 real meetings: ~1.5 min per meeting, no invented deadlines, fewer but cleaner action items. `test_voices_are_told_apart[voices2]` fails about 1 run in 4:
   Piper synthesis is random (noise sampling), not a diarization change.
 - To exercise the app over Wi-Fi while the cable stays plugged in, start the host with `PIP_TRANSPORT=wifi`.
 - Firmware 1.8.0 (ADR-035: several saved networks, away link with TLS) on hardware via in-app OTA: the 1.7 home

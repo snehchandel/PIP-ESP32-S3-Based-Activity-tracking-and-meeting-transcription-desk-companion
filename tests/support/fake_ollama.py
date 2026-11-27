@@ -41,7 +41,7 @@ def answer(schema: dict[str, Any] | None, user: str) -> dict[str, Any] | str:
 
 class FakeOllama:
     def __init__(self, models: list[str] | None = None) -> None:
-        self.models = models if models is not None else ["qwen3:8b"]
+        self.models = models if models is not None else ["gemma4:e4b"]
         self.down = False
         self.no_think: set[str] = set()
         self.deleted: list[str] = []

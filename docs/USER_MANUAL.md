@@ -180,7 +180,7 @@ host**.
   Install it once, then open **Settings → Meetings** and choose a model from the list. Each one shows what it is
   good for, its download size, a quality rating (●●●●○) and whether it fits your PC: *Fits your GPU* (fast),
   *GPU + RAM, slower*, *CPU only, slow* or *Too big* (hidden unless you ask). PIP marks one as **Recommended** for
-  your PC (an 8 GB laptop GPU: `qwen3:8b`, about 5 GB). **Download & use** fetches it and switches to it when the
+  your PC (an 8 GB laptop GPU: `gemma4:e4b`, a 6 GB download that uses about 5 GB of the GPU). **Download & use** fetches it and switches to it when the
   download finishes; **Use** switches between downloaded models; the bin removes one from disk (not the one in
   use). Any other model from ollama.com/library can be typed in below the list. Until then summaries show *"local AI not running"* and
   you can still use **Kimi** per meeting. **After each transcription** can be set to *Summarise on this PC*

@@ -12,8 +12,8 @@ Quality target: as good as Kimi's. What that took (ADR-031, tuned on real meetin
   topics, decisions, action items, and the summary last - so the summary is written from an outline of the
   whole meeting, not from its first minutes. Clear definitions (a decision is agreed, an action item is someone's
   next step) with an example, because small models otherwise copy every action into decisions.
-- "Careful" mode (the default) lets the model think before the final answer (Qwen 3 thinking), which is what
-  closes most of the remaining gap to Kimi; "fast" skips it.
+- "Careful" mode (the default) lets the model think before the final answer (Gemma 4 / Qwen 3 thinking), which
+  is what closes most of the remaining gap to Kimi; "fast" skips it. Default model: gemma4:e4b (ADR-041).
 - Filler words ("um", "uh", stutters) are removed before sending (~5-10 % fewer tokens, less noise).
 - Code, not the model, cleans up: empty placeholders ("not specified", "TBD"), owners matched to speaker
   names, decisions that only repeat an action item, duplicates."""
@@ -174,7 +174,8 @@ _NOT_A_TASK = re.compile(r"^(?:the|a|an|there|it|this|that|these|those)\b|"
                          r"well|and|but|if|maybe|other than|other|also|just|um|oh|no)\b|\?\s*$", re.I)
 _NARRATED = re.compile(r"^([A-Z][\w'-]+(?: [A-Z][\w'-]+)?) (?:will|to|should|needs to|is going to|is to|has to|"
                        r"agreed to|offered to|committed to|confirmed (?:he|she|they) will) (.+)$")
-_EVERYONE = {"team", "everyone", "all", "the team", "everybody", "all of us", "group", "the group"}
+_EVERYONE = {"team", "everyone", "all", "the team", "everybody", "all of us", "group", "the group", "we", "us"}
+_STAMP = re.compile(r"^\s*\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s*[-:–—]?\s*")  # "00:44 x" / "[00:44] - x" -> "[00:44] x"
 
 
 def est_tokens(text: str) -> int:
@@ -303,7 +304,8 @@ def clean(data: dict[str, Any], fallback_title: str, speakers: list[str] | None 
     out = {"title": title if len(title) >= 2 else fallback_title[:80] or "Meeting",
            "summary": summary if len(summary) >= 2 else "No summary could be made from this transcript.",
            "decisions": decisions, "action_items": actions[:30], "topics": topics,
-           "key_points": uniq(data.get("key_points") or [], 300, 16),
+           "key_points": uniq([_STAMP.sub(lambda m: f"[{m.group(1)}] ", str(k), count=1)
+                               for k in data.get("key_points") or [] if k], 300, 16),
            "outcome": " ".join(str(data.get("outcome") or "").split())[:600]}
     return MeetingSummary.model_validate(out).model_dump()
 

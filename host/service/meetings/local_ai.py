@@ -18,7 +18,7 @@ import httpx
 
 log = logging.getLogger("pip.local_ai")
 DEFAULT_URL = "http://127.0.0.1:11434"
-DEFAULT_MODEL = "qwen3:8b"
+DEFAULT_MODEL = "gemma4:e4b"  # = models.DEFAULT (ADR-041)
 NUM_CTX = 8192          # default tokens of context per call (callers size it to the prompt, up to MAX_CTX)
 MAX_CTX = 16384         # an 8B model + a 16k q8_0 cache fit fully in 8 GB of VRAM (OLLAMA_KV_CACHE_TYPE=q8_0)
 KEEP_ALIVE = "2m"       # Ollama frees the model this long after the last call (VRAM back for Whisper)
@@ -85,7 +85,8 @@ class LocalAI:
     def _chat(self, messages: list[dict[str, str]], purpose: str, fmt: dict[str, Any] | None,
               max_out: int, num_ctx: int = NUM_CTX, think: bool = False) -> str:
         # Sampling: factual and steady without thinking (temperature 0.2, top_p 0.85); with thinking, Qwen's own
-        # advice (0.6 / 0.95 / top_k 20) - greedy decoding makes reasoning models loop.
+        # advice (0.6 / 0.95 / top_k 20) - greedy decoding makes reasoning models loop. gemma4:e4b was evaluated
+        # and chosen with these same values (ADR-041).
         opts = ({"temperature": 0.6, "top_p": 0.95, "top_k": 20} if think else
                 {"temperature": 0.2, "top_p": 0.85, "top_k": 20})
         body: dict[str, Any] = {

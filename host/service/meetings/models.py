@@ -16,7 +16,7 @@ import subprocess
 import sys
 from typing import Any
 
-DEFAULT = "qwen3:8b"
+DEFAULT = "gemma4:e4b"  # ADR-041: beat qwen3:8b on the user's meetings (no invented deadlines, 1.7x faster)
 GPU_HEADROOM_GB = 1.5   # context cache + runtime on top of the weights
 CPU_FACTOR = 1.6        # RAM needed on the CPU path, as a multiple of the download size
 
@@ -39,7 +39,9 @@ CATALOG: list[dict[str, Any]] = [
     {"name": "granite3.3:8b", "family": "Granite 3.3", "params": "8B", "size_gb": 4.9, "quality": 3,
      "note": "IBM's business-tuned model; terse, factual summaries."},
     {"name": "qwen3:8b", "family": "Qwen 3", "params": "8B", "size_gb": 5.2, "quality": 4,
-     "note": "Default: best balance on an 8 GB GPU; strong at decisions and action items."},
+     "note": "Lists many action items, but often adds deadlines nobody said and treats advice as decisions."},
+    {"name": "gemma4:e4b", "family": "Gemma 4", "params": "E4B (8B)", "size_gb": 6.1, "quality": 4,
+     "note": "Default: accurate summaries, no invented deadlines, fast on an 8 GB GPU (~5 GB in use)."},
     {"name": "mistral-nemo:12b", "family": "Mistral NeMo", "params": "12B", "size_gb": 7.1, "quality": 4,
      "note": "Long context; needs ~9 GB of GPU memory to run fast."},
     {"name": "gemma3:12b", "family": "Gemma 3", "params": "12B", "size_gb": 8.1, "quality": 4,
