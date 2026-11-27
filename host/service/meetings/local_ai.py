@@ -82,13 +82,16 @@ class LocalAI:
             raise LocalAIError(f"local AI model {self.model} is not downloaded (Settings -> Meetings)")
 
     # ---- calls -------------------------------------------------------------------------------------
+    def sampling(self, think: bool) -> dict[str, Any]:
+        # Factual and steady without thinking (temperature 0.2, top_p 0.85); with thinking, Qwen's own advice
+        # (0.6 / 0.95 / top_k 20) - greedy decoding makes reasoning models loop. gemma4:e4b was evaluated and chosen
+        # with these same values (ADR-041).
+        return ({"temperature": 0.6, "top_p": 0.95, "top_k": 20} if think else
+                {"temperature": 0.2, "top_p": 0.85, "top_k": 20})
+
     def _chat(self, messages: list[dict[str, str]], purpose: str, fmt: dict[str, Any] | None,
               max_out: int, num_ctx: int = NUM_CTX, think: bool = False) -> str:
-        # Sampling: factual and steady without thinking (temperature 0.2, top_p 0.85); with thinking, Qwen's own
-        # advice (0.6 / 0.95 / top_k 20) - greedy decoding makes reasoning models loop. gemma4:e4b was evaluated
-        # and chosen with these same values (ADR-041).
-        opts = ({"temperature": 0.6, "top_p": 0.95, "top_k": 20} if think else
-                {"temperature": 0.2, "top_p": 0.85, "top_k": 20})
+        opts = self.sampling(think)
         body: dict[str, Any] = {
             "model": self.model, "messages": messages, "stream": False, "keep_alive": KEEP_ALIVE,
             "options": {**opts, "num_ctx": min(MAX_CTX, max(2048, num_ctx)), "num_predict": max_out},
