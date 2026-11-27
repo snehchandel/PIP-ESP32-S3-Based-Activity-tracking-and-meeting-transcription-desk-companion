@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     pip_stt_model: str = "small.en"
     pip_meeting_model: str = "small.en"  # faster-whisper model for meeting transcripts (e.g. medium.en: slower, better)
+    pip_speaker_model: str = "campplus"  # voiceprints for speaker detection (meetings/voice_embed.py); "" = MFCC (tests)
     pip_local_ai_url: str = "http://127.0.0.1:11434"  # Ollama: meeting summaries + questions on this PC (tests: a fake)
     pip_stt_preload: bool = True
     pip_piper_voice: str = ""

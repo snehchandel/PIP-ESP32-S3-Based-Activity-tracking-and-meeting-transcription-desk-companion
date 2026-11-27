@@ -50,6 +50,7 @@ from .obsidian import ObsidianVault
 from .store import MeetingRepo, speaker_label
 from .summarize import Yielded, clean
 from .summarize import summarize as summarize_local
+from .voice_embed import VoiceEmbedder
 
 log = logging.getLogger("pip.meetings")
 SR = 16000
@@ -57,6 +58,7 @@ CHUNK_BYTES = 640               # one 20 ms device audio chunk
 WINDOW_S = 600.0                # transcribe in 10 minute windows...
 CUT_SEARCH_S = 30.0             # ...cut at the quietest moment of the window's last 30 s
 STALE_RECORDING_S = 180.0       # no audio for this long: the device is gone, keep what we have
+UPGRADE_JOB = "~voiceprints"      # worker job: old MFCC voiceprints -> the speaker model
 MAX_GAP_CHUNKS = 30000          # a seq jump larger than this (10 min) is a restart, not lost audio
 VOICE_WAIT_S = 300.0            # a summary waits at most this long for a voice command to finish
 IDLE_EXIT_S = 30.0              # the worker frees Whisper and exits after this long with nothing to do
@@ -176,7 +178,8 @@ class MeetingService:
                  summary_quality: Callable[[], str] = lambda: "careful",
                  my_name: Callable[[], str] = lambda: "",
                  refine_task: Callable[[str, str], None] = lambda tid, title: None,
-                 cleanup: Callable[[], bool] = lambda: True) -> None:
+                 cleanup: Callable[[], bool] = lambda: True,
+                 voiceprints: VoiceEmbedder | None = None) -> None:
         self.m = manager
         self.repo = MeetingRepo(manager.db)
         self.dir = data_dir / "meetings"
@@ -192,6 +195,8 @@ class MeetingService:
         self.my_name = my_name        # the user's name as a speaker: whose action items are "mine"
         self.refine_task = refine_task  # a task made from an action item gets Kimi's steps (like any new task)
         self.cleanup = cleanup        # drop fillers and stutters from transcript lines (raw text is kept)
+        self.voiceprints = voiceprints  # neural speaker model (ADR-038); None or missing file = MFCC features
+        self._vp_checked = False
         self._rec: dict[int, _Recording] = {}
         self._q: queue.Queue[tuple[str, int | None]] = queue.Queue()  # transcriptions (always first)
         self._sq: list[str] = []      # local summaries waiting for the transcriptions to finish
@@ -359,6 +364,9 @@ class MeetingService:
                 mid, n = self._q.get_nowait()
             except queue.Empty:
                 mid = ""
+            if mid == UPGRADE_JOB:
+                self._run_upgrade()
+                continue
             if mid:
                 self._run_transcription(mid, n)
                 continue
@@ -529,7 +537,7 @@ class MeetingService:
                 text = clean_text(raw, vocab) if tidy else raw
                 if not text:  # nothing but "um" / "mm-hmm"
                     continue
-                feats = diarize.voice_features(audio[int(s0 * SR): int(s1 * SR)])
+                feats = self.voiceprint(audio[int(s0 * SR): int(s1 * SR)])
                 segments.append({"start_s": round(pos + s0, 2), "end_s": round(pos + s1, 2), "text": text,
                                  "raw_text": raw if text != raw else None,
                                  "embedding": [round(float(x), 5) for x in feats] if feats is not None else None})
@@ -559,6 +567,74 @@ class MeetingService:
             self.repo.update(mid, summary_status="QUEUED", summary_error=None)
             threading.Thread(target=run, name="pip-meeting-kimi", daemon=True).start()
 
+    # ---- voiceprints (ADR-038) ------------------------------------------------------------------------
+    def neural_ready(self) -> bool:
+        """The speaker model is on disk (fetched once, on the worker thread, before the first use)."""
+        if self.voiceprints is None:
+            return False
+        if not self._vp_checked:
+            self._vp_checked = True
+            self.voiceprints.fetch()
+        return self.voiceprints.available()
+
+    def voiceprint(self, audio: np.ndarray) -> np.ndarray | None:
+        if self.neural_ready():
+            try:
+                return self.voiceprints.embed(audio)  # type: ignore[union-attr]
+            except Exception as e:  # a broken model file must not lose the transcript
+                log.warning("speaker model failed (%s) - using MFCC features", e)
+                self.voiceprints = None
+        return diarize.voice_features(audio)
+
+    def upgrade_voiceprints(self) -> None:
+        """Queue the one-time upgrade of old (MFCC) voiceprints to the speaker model's, after transcriptions."""
+        if self.voiceprints is not None:
+            self._q.put((UPGRADE_JOB, None))
+            self._kick()
+
+    def _run_upgrade(self) -> None:
+        try:
+            self._busy, self._busy_kind = UPGRADE_JOB, "voiceprints"
+            n = self.reembed_all()
+            if n:
+                log.info("voiceprints upgraded for %d meetings", n)
+        except Exception as e:
+            errors.report(self.m.db, "meetings", "Voiceprint upgrade failed", str(e), e)
+        finally:
+            self._busy = self._busy_kind = ""
+            self._q.task_done()
+
+    def reembed_all(self) -> int:
+        """Recompute every stored line's voiceprint from the recording with the speaker model, keeping the
+        transcript, the speakers and the names the user gave; then rebuild each remembered voice from the lines
+        of the speakers it names. Meetings already done (or whose audio is gone) are skipped. Returns how many
+        meetings changed."""
+        if not self.neural_ready():
+            return 0
+        dim = self.voiceprints.dim  # type: ignore[union-attr]
+        done = 0
+        for m in self.repo.list():
+            segs = self.repo.segments(m["id"], with_embeddings=True)
+            path = Path(m.get("audio_path") or "")
+            if not segs or not path.exists() or all(s["embedding"] and len(s["embedding"]) == dim for s in segs):
+                continue
+            total = max(0.0, (path.stat().st_size - 44) / (SR * 2))
+            audio = self._read(path, 0.0, total)
+            rows = []
+            for s in segs:
+                v = self.voiceprint(audio[int(s["start_s"] * SR): int(s["end_s"] * SR)])
+                rows.append((s["id"], [round(float(x), 5) for x in v] if v is not None else None))
+            self.repo.set_embeddings(rows)
+            done += 1
+        if done:
+            for p in self.repo.profiles():
+                lines = [s for s in self.repo.profile_segments(p["id"]) if len(s["embedding"]) == dim]
+                if lines:
+                    w = np.array([max(0.1, s["end_s"] - s["start_s"]) for s in lines])
+                    emb = (np.array([s["embedding"] for s in lines]) * w[:, None]).sum(0) / w.sum()
+                    self.repo.set_profile_embedding(p["id"], [round(float(x), 5) for x in emb], len(lines))
+        return done
+
     def _assign_speakers(self, mid: str, segments: list[dict[str, Any]], num_speakers: int | None) -> None:
         feats = [np.array(s["embedding"]) if s.get("embedding") else None for s in segments]
         d = diarize.diarize(feats, [s["end_s"] - s["start_s"] for s in segments], num_speakers)
@@ -582,10 +658,12 @@ class MeetingService:
 
     # ---- review ---------------------------------------------------------------------------------------------
     def speaker_centroid(self, mid: str, key: str) -> tuple[list[float], int] | None:
-        rows = [s for s in self.repo.segments(mid, with_embeddings=True)
-                if s["speaker_key"] == key and s["embedding"] and len(s["embedding"]) == diarize.FEATURE_DIM]
+        rows = [s for s in self.repo.segments(mid, with_embeddings=True) if s["speaker_key"] == key and s["embedding"]]
         if not rows:
             return None
+        dims = [len(s["embedding"]) for s in rows]
+        dim = max(set(dims), key=dims.count)
+        rows = [s for s in rows if len(s["embedding"]) == dim]
         w = np.array([max(0.1, s["end_s"] - s["start_s"]) for s in rows])
         emb = np.array([s["embedding"] for s in rows])
         return ((emb * w[:, None]).sum(0) / w.sum()).tolist(), len(rows)

@@ -62,7 +62,7 @@ alarms it already knows, offline event log) and reconciles idempotently when the
 
 | Path | What lives there |
 |---|---|
-| `host/service/meetings/` | Meeting recorder/transcriber + the one worker that also runs summaries (`service.py`), speaker detection + remembered voices (`diarize.py`, numpy only), storage + FTS5 search index (`store.py`), exports md/txt/srt/json (`export.py`), local AI client for Ollama (`local_ai.py`) + the model catalog matched to the PC's GPU/RAM (`models.py`), summaries (`summarize.py`: one pass up to ~1 h; careful mode = think + scan + check + write-up), summaries by another AI agent (`handoff.py`: transcript + prompt out, Markdown reply parsed back in, ADR-036), deadline words -> dates (`due.py`), action-item triage + calendar items (`actions.py`), Obsidian vault writer (`obsidian.py`), questions by retrieval (`ask.py`). Recordings: `data/meetings/<id>.wav`. |
+| `host/service/meetings/` | Meeting recorder/transcriber + the one worker that also runs summaries (`service.py`), speaker detection + remembered voices (`diarize.py`: neural voiceprints clustered by NME-SC, MFCC fallback) and the voiceprint model (`voice_embed.py`: CAM++ via onnxruntime, numpy front-ends, ADR-038), storage + FTS5 search index (`store.py`), exports md/txt/srt/json (`export.py`), local AI client for Ollama (`local_ai.py`) + the model catalog matched to the PC's GPU/RAM (`models.py`), summaries (`summarize.py`: one pass up to ~1 h; careful mode = think + scan + check + write-up), summaries by another AI agent (`handoff.py`: transcript + prompt out, Markdown reply parsed back in, ADR-036), deadline words -> dates (`due.py`), action-item triage + calendar items (`actions.py`), Obsidian vault writer (`obsidian.py`), questions by retrieval (`ask.py`). Recordings: `data/meetings/<id>.wav`. |
 | `firmware/main/` | ESP-IDF app. `app_main.c` = FreeRTOS wiring (tasks, adapters, link routing). `app_controller.c/.h`, `app_gestures.c`, `app_frames.c`, `app_report.c` = **portable** state coordinator (also compiled into the simulator and C tests). `dev_config.c` (NVS settings), `net_link.c` (Wi-Fi + TCP server + mDNS + HMAC auth), `dev_ota.c` (firmware updates), `dev_wake.c` (wake word) are ESP-only. |
 | `firmware/components/ui_core/` | 1-bit renderer: primitives (`ui_draw*.c`), fonts (`fonts_gen.c`, generated), icons, header/bar chrome (`ui_chrome.c`), screens (`ui_screens_a/b/c.c`), PIP rig drawing (`ui_mascot.c`), props (`ui_props.c`), slide transitions (`ui_slide.c`), animated weather icons (`ui_weather.c`), layout constants (`include/ui_layout.h`), the UI model (`include/ui_model.h`). |
 | `firmware/components/mascot_renderer/` | PIP rig geometry + scene engine (`mascot.c`) and choreography (`mascot_acts.c`): per-screen act libraries, 2-hour no-repeat history, reactions. Pure C, no drawing. |
@@ -352,6 +352,11 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   itself (`decode_to_pcm16`: `wave` for WAV, PyAV resampler otherwise); always pass numpy audio to Whisper.
 - **Speaker features are noise-sensitive:** never normalise per meeting (one voice got split into 8); use the fixed
   within-speaker scale in `diarize.py` and re-run the Piper-voice tests in `tests/unit/test_meetings.py` after changes.
+- **MFCC voiceprints split one person into several speakers** on real meetings (28 % same/other EER across
+  meetings). Neural voiceprints fixed the features, but a fixed cosine merge distance still over-split short noisy
+  lines into dozens of speakers: count speakers with NME-SC (eigengap), not a threshold (ADR-038). Score speaker
+  changes on AMI (true labels), not only on the user's meetings - their saved labels began as the old method's
+  output, so they flatter it.
 
 ---
 
@@ -399,6 +404,10 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   build panicked at boot (DIAG over USB before `net_link_init` made its lock) and rolled back by itself.
   **Not yet on hardware:** choosing between two networks in range, a dial from a really foreign network, and TLS
   through a real Tailscale Funnel.
+- Speaker detection (ADR-038): CAM++ voiceprints + NME-SC verified on AMI and on a copy of the user's database
+  (upgrade of 7 meetings in 68 s, right count in 6 of 7). **Not yet:** a new real meeting recorded and checked by
+  ear. Transcription: Parakeet-TDT-0.6B v3 beat Whisper large-v3-turbo on AMI far-field (34.8 vs 46.3 % WER) but is
+  not wired in yet.
 - Wake word: stock Espressif words only; a custom "Hey PIP" needs a trained model (paid service) or a PC-side
   detector (rejected by the user in favour of on-device privacy).
 - Four old ruff findings in tests (SIM117 ×2, RUF015, RUF059) are pre-existing and harmless.

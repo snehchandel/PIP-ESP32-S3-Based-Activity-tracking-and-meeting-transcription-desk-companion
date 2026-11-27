@@ -1,16 +1,15 @@
-"""Who spoke when: voice features per transcript segment, clustering into speakers, remembered voices.
+"""Who spoke when: a voiceprint per transcript segment, clustering into speakers, remembered voices.
 
-Runs on the laptop CPU with numpy only (no model download, nothing leaves the PC):
-  * features: MFCC statistics (spectral envelope = vocal tract) + pitch statistics per segment;
-  * clustering: average-linkage agglomerative clustering on the RMS distance of features scaled by their typical
-    within-speaker spread. The speaker count is found automatically (merging stops at a fixed distance) or
-    forced by the user;
-  * remembered voices: when the user names a speaker, the raw feature centroid is stored as a profile and
-    later meetings label matching clusters with that name automatically.
-
-It is a lightweight method: distinct voices (e.g. different genders/ages) separate well, similar voices may be
-merged - which is why the app lets the user re-run detection with a fixed speaker count, move single lines to
-another speaker, merge speakers and rename them."""
+Two kinds of voiceprint, told apart by their length (ADR-038):
+  * neural (default): a speaker-verification network (voice_embed.py, onnxruntime on the CPU) maps each segment to
+    a unit vector; clustering and remembered voices use the cosine distance;
+  * MFCC (fallback when the model file is missing, and old transcripts): MFCC statistics + pitch statistics,
+    scaled by their typical within-speaker spread, compared by RMS distance. It splits one person into several
+    "speakers" far too often across rooms and microphone distances, which is why the network replaced it.
+Clustering is average-linkage agglomerative: the speaker count is found automatically (merging stops at a fixed
+distance) or forced by the user. When the user names a speaker the centroid is stored as a remembered voice and
+later meetings label matching clusters with that name. The app still lets the user re-run detection with a
+known speaker count, move single lines, merge speakers and rename them."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,6 +26,11 @@ PROFILE_DISTANCE = 1.45    # a speaker this close to a remembered voice is label
 TINY_SPEAKER_S = 8.0       # a detected "speaker" needs this much talk time...
 MIN_SPEAKER_LINES, MIN_SPEAKER_S = 2, 3.0  # ...or 2+ lines and 3 s; smaller groups join the nearest voice
 MAX_CLUSTER_ITEMS = 1500   # longer meetings cluster a sample, the rest is assigned to the nearest voice
+NEURAL_PROFILE = 0.40      # neural voiceprints: cosine distance within which a speaker is a remembered voice
+NEURAL_MIN_S = 1.0         # neural: lines this long are clustered, shorter ones join the nearest voice
+NEURAL_MIN_SHARE, NEURAL_MIN_TALK_S = 0.03, 20.0  # neural: a "speaker" needs 3 % of the talk or 20 s
+NMESC_P_RATIOS = np.linspace(0.02, 0.25, 12)  # NME-SC: share of nearest neighbours kept per line (searched)
+NEURAL_SAME_VOICE = 0.40   # neural: speakers whose voices are closer than this (cosine) are one person
 
 # Typical within-speaker spread of each feature (MFCC means 1-19, MFCC stds, delta stds, log-F0 median, log-F0
 # IQR), measured on multi-voice recordings. Dividing by it weights every feature by how much it varies *between*
@@ -130,13 +134,41 @@ def _rms_dist(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.sqrt(np.maximum(d2, 0.0) / a.shape[1])
 
 
-def _agglomerate(z: np.ndarray, k: int | None, max_k: int) -> np.ndarray:
+@dataclass(frozen=True)
+class _Space:
+    """How voiceprints of one kind are compared."""
+    neural: bool
+    merge: float
+    profile: float
+
+    def z(self, raw: np.ndarray) -> np.ndarray:
+        raw = np.asarray(raw, dtype=np.float64)
+        if not self.neural:
+            return _scaled(raw)
+        return raw / np.maximum(np.linalg.norm(raw, axis=-1, keepdims=True), 1e-9)
+
+    def dist(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """Pairwise distance between rows of a and b (both already through z())."""
+        if not self.neural:
+            return _rms_dist(a, b)
+        return 1.0 - a @ b.T  # rows of centroids are not unit length: callers renormalise them first
+
+
+MFCC_SPACE = _Space(False, MERGE_DISTANCE, PROFILE_DISTANCE)
+NEURAL_SPACE = _Space(True, 0.0, NEURAL_PROFILE)  # neural voiceprints are clustered by NME-SC, not a merge distance
+
+
+def space_for(dim: int) -> _Space:
+    return MFCC_SPACE if dim == FEATURE_DIM else NEURAL_SPACE
+
+
+def _agglomerate(z: np.ndarray, k: int | None, max_k: int, space: _Space = MFCC_SPACE) -> np.ndarray:
     """Average-linkage clustering. Stops at k clusters, or (auto) when the closest pair of clusters is further
-    apart than MERGE_DISTANCE - but never with more than max_k clusters. Returns a cluster id per row."""
+    apart than the space's merge distance - but never with more than max_k clusters. Returns a cluster id per row."""
     n = len(z)
     if n <= 1:
         return np.zeros(n, dtype=int)
-    dist = _rms_dist(z, z)
+    dist = space.dist(z, z)
     np.fill_diagonal(dist, np.inf)
     sizes = np.ones(n)
     labels = np.arange(n)
@@ -144,7 +176,7 @@ def _agglomerate(z: np.ndarray, k: int | None, max_k: int) -> np.ndarray:
     target = max(1, k) if k else 1
     while clusters > target:
         i, j = divmod(int(np.argmin(dist)), n)
-        if k is None and dist[i, j] > MERGE_DISTANCE and clusters <= max_k:
+        if k is None and dist[i, j] > space.merge and clusters <= max_k:
             break
         si, sj = sizes[i], sizes[j]
         new = (dist[i] * si + dist[j] * sj) / (si + sj)  # Lance-Williams update for average linkage
@@ -159,6 +191,125 @@ def _agglomerate(z: np.ndarray, k: int | None, max_k: int) -> np.ndarray:
     return labels
 
 
+# ---- NME-SC: spectral clustering with the speaker count from the normalised maximum eigengap ----------------
+# Park et al., "Auto-Tuning Spectral Clustering for Speaker Diarization Using Normalized Maximum Eigengap" (2019),
+# the clusterer of NVIDIA NeMo's diarizer. A fixed merge distance (what MFCC features use) split one person into
+# dozens of "speakers" on short or noisy lines; the eigengap of a pruned similarity graph finds the count instead.
+def _laplacian(g: np.ndarray) -> np.ndarray:
+    g = g.copy()
+    np.fill_diagonal(g, 0.0)
+    return np.diag(g.sum(1)) - g
+
+
+def _pruned_graph(a: np.ndarray, p: int) -> np.ndarray:
+    """Keep each line's p most similar lines (binarised), symmetrised."""
+    b = np.zeros_like(a)
+    np.put_along_axis(b, np.argsort(-a, axis=1)[:, :p], 1.0, axis=1)
+    return (b + b.T) / 2.0
+
+
+def _components(g: np.ndarray) -> int:
+    """Connected components of a graph (adjacency > 0)."""
+    seen = np.zeros(len(g), dtype=bool)
+    count = 0
+    for s in range(len(g)):
+        if seen[s]:
+            continue
+        count += 1
+        stack = [s]
+        seen[s] = True
+        while stack:
+            for nb in np.nonzero(g[stack.pop()] > 0)[0]:
+                if not seen[nb]:
+                    seen[nb] = True
+                    stack.append(int(nb))
+    return count
+
+
+def _nmesc(z: np.ndarray, max_k: int) -> tuple[int, np.ndarray]:
+    """(estimated speaker count, the pruned graph it was found on) for unit voiceprints z."""
+    n = len(z)
+    a = z @ z.T
+    a = (a - a.min()) / max(float(a.max() - a.min()), 1e-9)
+    best: tuple[float, int, np.ndarray] = (np.inf, 1, a)
+    ps = sorted({min(n - 1, max(2, int(r * n))) for r in NMESC_P_RATIOS})
+    connected = [p for p in ps if _components(_pruned_graph(a, p)) == 1]
+    if not connected:  # groups so far apart that no neighbour graph joins them: count the islands
+        g = _pruned_graph(a, ps[-1])
+        return min(max_k, _components(g)), g
+    for p in connected:  # a graph in pieces has a meaningless eigengap (NeMo skips them too)
+        g = _pruned_graph(a, p)
+        lam = np.linalg.eigvalsh(_laplacian(g))
+        gaps = np.diff(lam[: max_k + 1])
+        nme = float(gaps.max()) / (float(lam.max()) + 1e-10)
+        score = (p / n) / (nme + 1e-10)  # few neighbours and a clear gap: the most trustworthy graph
+        if score < best[0]:
+            best = (score, int(np.argmax(gaps)) + 1, g)
+    return best[1], best[2]
+
+
+def _kmeans(x: np.ndarray, k: int, seed: int = 0, restarts: int = 8, iters: int = 60) -> np.ndarray:
+    rng = np.random.default_rng(seed)  # fixed seed: the same meeting always gets the same speakers
+    best, best_inertia = np.zeros(len(x), dtype=int), np.inf
+    for _ in range(restarts):
+        c = [x[rng.integers(len(x))]]
+        for _ in range(1, k):  # k-means++ seeding
+            d = np.min(((x[:, None, :] - np.array(c)[None]) ** 2).sum(-1), axis=1)
+            c.append(x[rng.choice(len(x), p=d / d.sum())] if d.sum() > 0 else x[rng.integers(len(x))])
+        cent = np.array(c)
+        lab = np.zeros(len(x), dtype=int)
+        for _ in range(iters):
+            lab = np.argmin(((x[:, None, :] - cent[None]) ** 2).sum(-1), axis=1)
+            new = np.array([x[lab == j].mean(0) if (lab == j).any() else cent[j] for j in range(k)])
+            if np.allclose(new, cent):
+                break
+            cent = new
+        inertia = float(((x - cent[lab]) ** 2).sum())
+        if inertia < best_inertia:
+            best, best_inertia = lab, inertia
+    return best
+
+
+def _spectral_groups(z: np.ndarray, dur: np.ndarray, k: int | None, max_k: int) -> list[np.ndarray]:
+    """Groups of row indices (one per speaker) for unit voiceprints z."""
+    core = np.where(dur >= NEURAL_MIN_S)[0]
+    if len(core) < 2 * max_k:  # a short meeting: use every line
+        core = np.arange(len(z))
+    core = np.sort(core[np.argsort(-dur[core])][:MAX_CLUSTER_ITEMS])
+    if len(core) < 3:
+        return [np.arange(len(z))]
+    est, g = _nmesc(z[core], max_k)
+    kk = max(1, min(k or est, len(core)))
+    if kk == 1:
+        return [core]
+    _, vec = np.linalg.eigh(_laplacian(g))
+    lab = _kmeans(vec[:, :kk], kk)
+    groups = [core[lab == j] for j in range(kk) if (lab == j).any()]
+    if k is None and len(groups) > 1:  # a laugh, a cough or a door is not a person
+        need = min(NEURAL_MIN_TALK_S, NEURAL_MIN_SHARE * float(dur.sum()))
+        keep = [gr for gr in groups if float(dur[gr].sum()) >= need]
+        groups = keep or [max(groups, key=lambda gr: float(dur[gr].sum()))]
+        groups = _merge_same_voice(z, dur, groups)
+    return groups
+
+
+def _merge_same_voice(z: np.ndarray, dur: np.ndarray, groups: list[np.ndarray]) -> list[np.ndarray]:
+    """Join groups whose voices are as close as one person's (the eigengap can over-count, e.g. in short
+    meetings): closest pair first, until every pair of speakers is further apart than NEURAL_SAME_VOICE."""
+    groups = list(groups)
+    while len(groups) > 1:
+        c = np.stack([(z[g] * dur[g, None]).sum(0) for g in groups])
+        c /= np.maximum(np.linalg.norm(c, axis=1, keepdims=True), 1e-9)
+        d = 1.0 - c @ c.T
+        np.fill_diagonal(d, np.inf)
+        i, j = divmod(int(np.argmin(d)), len(groups))
+        if d[i, j] > NEURAL_SAME_VOICE:
+            break
+        groups[i] = np.sort(np.concatenate([groups[i], groups[j]]))
+        del groups[j]
+    return groups
+
+
 @dataclass
 class Diarization:
     labels: list[int]                  # speaker index per segment (0-based, in order of first appearance)
@@ -169,26 +320,32 @@ class Diarization:
 def diarize(feats: list[np.ndarray | None], durations: list[float], num_speakers: int | None = None,
             max_speakers: int = 8) -> Diarization:
     n = len(feats)
-    idx = [i for i, f in enumerate(feats) if f is not None and len(f) == FEATURE_DIM]
-    if not idx:
+    dims = [len(f) for f in feats if f is not None and len(f)]
+    if not dims:
         return Diarization([0] * n, [], [])
-    raw = np.stack([np.asarray(feats[i]) for i in idx])
-    z = _scaled(raw)
+    dim = max(set(dims), key=dims.count)  # one kind per meeting; a stray other kind counts as "no features"
+    space = space_for(dim)
+    idx = [i for i, f in enumerate(feats) if f is not None and len(f) == dim]
+    raw = np.stack([np.asarray(feats[i], dtype=np.float64) for i in idx])
+    z = space.z(raw)
     dur = np.array([durations[i] for i in idx])
-    # long meetings: cluster the longest segments, assign the rest to the nearest voice
-    core = np.sort(np.argsort(-dur)[:MAX_CLUSTER_ITEMS])
-    lab_core = _agglomerate(z[core], num_speakers, max_speakers)
-
     def centroids(groups: list[np.ndarray]) -> np.ndarray:
-        return np.stack([(z[g] * dur[g, None]).sum(0) / max(dur[g].sum(), 1e-9) for g in groups])
+        c = np.stack([(z[g] * dur[g, None]).sum(0) / max(dur[g].sum(), 1e-9) for g in groups])
+        return space.z(c) if space.neural else c
 
-    groups = [core[lab_core == g] for g in sorted(set(lab_core.tolist()))]
-    if num_speakers is None and len(groups) > 1:  # absorb stray mini-clusters (a cough, a laugh, an odd line)
-        talk = [float(dur[g].sum()) for g in groups]
-        keep = [g for g, t in zip(groups, talk, strict=True)
-                if t >= TINY_SPEAKER_S or (len(g) >= MIN_SPEAKER_LINES and t >= MIN_SPEAKER_S)]
-        groups = keep or [groups[int(np.argmax(talk))]]
-    lab = np.argmin(_rms_dist(z, centroids(groups)), axis=1)  # every featured segment -> nearest voice
+    if space.neural:
+        groups = _spectral_groups(z, dur, num_speakers, max_speakers)
+    else:
+        # long meetings: cluster the longest segments, assign the rest to the nearest voice
+        core = np.sort(np.argsort(-dur)[:MAX_CLUSTER_ITEMS])
+        lab_core = _agglomerate(z[core], num_speakers, max_speakers, space)
+        groups = [core[lab_core == g] for g in sorted(set(lab_core.tolist()))]
+        if num_speakers is None and len(groups) > 1:  # absorb stray mini-clusters (a cough, a laugh, an odd line)
+            talk = [float(dur[g].sum()) for g in groups]
+            keep = [g for g, t in zip(groups, talk, strict=True)
+                    if t >= TINY_SPEAKER_S or (len(g) >= MIN_SPEAKER_LINES and t >= MIN_SPEAKER_S)]
+            groups = keep or [groups[int(np.argmax(talk))]]
+    lab = np.argmin(space.dist(z, centroids(groups)), axis=1)  # every featured segment -> nearest voice
     per_seg: list[int | None] = [None] * n
     for pos, i in enumerate(idx):
         per_seg[i] = int(lab[pos])
@@ -214,14 +371,18 @@ def diarize(feats: list[np.ndarray | None], durations: list[float], num_speakers
 
 def match_profiles(d: Diarization, profiles: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     """speaker index -> remembered voice, closest pairs first, each voice used at most once."""
-    usable = [p for p in profiles if len(p["embedding"]) == FEATURE_DIM]
-    if not d.centroids_raw or not usable:
+    if not d.centroids_raw:
         return {}
-    dist = _rms_dist(_scaled(np.array(d.centroids_raw)), _scaled(np.array([p["embedding"] for p in usable])))
+    dim = len(d.centroids_raw[0])
+    usable = [p for p in profiles if len(p["embedding"]) == dim]  # a voice learned with the other kind can't match
+    if not usable:
+        return {}
+    space = space_for(dim)
+    dist = space.dist(space.z(np.array(d.centroids_raw)), space.z(np.array([p["embedding"] for p in usable])))
     out: dict[int, dict[str, Any]] = {}
     for flat in np.argsort(dist, axis=None):
         si, pi = divmod(int(flat), len(usable))
-        if dist[si, pi] > PROFILE_DISTANCE:
+        if dist[si, pi] > space.profile:
             break
         if si in out or any(v["id"] == usable[pi]["id"] for v in out.values()):
             continue

@@ -530,3 +530,39 @@ random picks from a library.
 - **Rejected:** merging on one shared word ("Salesforce integration" and "SMS consent in Salesforce" are different
   subjects: related, not the same), and an AI pass to cluster topics (cost and churn on every rebuild).
 
+## ADR-038 — Neural voiceprints + NME-SC for speaker detection; transcription models compared
+- **Problem:** one person often showed up as 2-3 speakers. The MFCC + pitch features (ADR-026) vary almost as
+  much within one person (room, distance to PIP, loudness) as between people: on the user's 7 real meetings,
+  "same person or not" had a 28 % equal error rate across meetings, and the fixed merge distance found the wrong
+  number of people in 3 of 7 (twice 4 speakers for 2 people). On AMI meetings recorded by one distant microphone
+  (EN2002a-c, true speaker labels) it put 61.5 % of the talk on the wrong speaker.
+- **Voiceprints:** `meetings/voice_embed.py` runs a speaker-verification network on the CPU with onnxruntime (already
+  bundled for Piper and the Whisper VAD; no torch). Front-ends in numpy (Kaldi fbank checked against torchaudio,
+  NeMo mel). Compared on the same data: 3D-Speaker CAM++ (30 MB), WeSpeaker ResNet34-LM (27 MB), NVIDIA TitaNet-L
+  (101 MB) - nearly tied (AMI 23.8 / 23.9 / 25.8 % wrong speaker with NME-SC); **CAM++** is the default: fastest
+  (183 min of speech in 84 s), smallest, and the only one that counted the people right in all 7 of the user's
+  meetings in the sweep. The file is downloaded once (pinned URL + size + SHA-256) into `<data>/models/speaker`;
+  `pip_speaker_model` picks the model ("" = MFCC, which tests use). Missing/broken model -> MFCC features; a stored
+  embedding's length says which kind it is (59 = MFCC).
+- **Clustering:** a fixed cosine merge distance over-split badly on short, noisy lines (13-60 "speakers" for 3-4
+  people on AMI), so neural voiceprints use **NME-SC** (normalised maximum eigengap spectral clustering, Park et
+  al. 2019, the clusterer of NVIDIA NeMo): the speaker count comes from the eigengap of a pruned similarity graph,
+  only connected graphs count, lines >= 1 s are clustered and the rest join the nearest voice, a speaker needs 3 %
+  of the talk or 20 s, and speakers closer than cosine 0.40 are merged (short meetings over-count otherwise).
+  Results: AMI 24.7 % wrong speaker (was 61.5 %); user meetings: right count in 6 of 7 (the miss is a person with
+  13 s of talk, absorbed by design); synthetic Piper meetings with 1-4 voices all exact.
+- **Remembered voices:** cosine distance <= 0.40 (leave-one-meeting-out on the user's meetings: 16 of 17 known
+  voices recognised, 2.3 % of other-person pairs that close; one-to-one matching trims those further).
+- **Upgrade:** at startup the meetings worker re-computes old MFCC voiceprints from the recordings and rebuilds
+  remembered voices from the lines of the speakers they name. Saved speakers and names are never changed; only new
+  meetings and **Detect again** use the new detection.
+- **Transcription models** (asked: NVIDIA, Qwen, IBM). 581 AMI distant-mic utterances, Whisper normaliser:
+  Parakeet-TDT-0.6B v3 34.8 % WER (95 % CI 31.0-39.3), v2 34.8 %, Qwen3-ASR-1.7B 37.2 % (33.3-41.6), Whisper
+  large-v3-turbo (PIP's meeting model) 46.3 % (42.0-51.1; 705 inserted words on short clips vs ~400). Published:
+  Open ASR Leaderboard (close-talk, Oct 2026) ranks Qwen3-ASR-1.7B first (5.40 average) and IBM Granite Speech 5.0
+  2B second (5.68; best on AMI there); NVIDIA Nemotron 3.5 Transcribe (4.71) needs a 24 GB+ GPU. Pick for PIP:
+  **Parakeet-TDT-0.6B v3** - most accurate on the far-field case PIP records, runs through onnxruntime (no torch,
+  unlike Qwen3-ASR), CC-BY-4.0. Not switched yet: Whisper stays the meeting model until a follow-up wires
+  Parakeet in (segment timestamps, vocabulary hints, the packaged app's size).
+- **Rejected:** pyannote / NeMo diarization pipelines (torch + model downloads; the voiceprint + NME-SC core is the
+  same idea in ~150 lines of numpy), keeping MFCC with per-meeting normalisation (split one voice into 8 before).

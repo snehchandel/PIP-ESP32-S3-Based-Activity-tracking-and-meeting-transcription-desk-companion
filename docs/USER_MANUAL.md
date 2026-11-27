@@ -159,8 +159,9 @@ host**.
   people and topics; **Include archived** adds archived meetings. Drag to pan, drag a dot to move it, scroll or
   **+**/**−** to zoom, **0** fits everything, **Esc** clears the selection.
   **Export** as Markdown, TXT, SRT subtitles or JSON, or download the audio. **Import audio** transcribes a recording
-  from elsewhere (wav, mp3, m4a...). Speaker detection is lightweight: clearly different voices separate well;
-  similar voices may need a fix by hand.
+  from elsewhere (wav, mp3, m4a...). Speaker detection uses a small voice model on this PC (downloaded once,
+  30 MB; nothing leaves the PC): it counts the people itself and rarely splits one person into two. Older
+  meetings keep the speakers you set; press **Detect again** to re-run detection on one.
 - **Alarms:** one-time or weekly alarms. Sound is either **Chime** or **Spoken wake-up, then chimes**: pick a voice,
   type a script or press **Write with Kimi** for a ~30-second (70-90 word) wake-up message, and **Preview on this
   PC**. When it rings, PIP speaks the script, then chimes every few seconds for **1 minute** unless you dismiss it.

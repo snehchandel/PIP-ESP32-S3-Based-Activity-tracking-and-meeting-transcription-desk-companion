@@ -138,6 +138,13 @@ class MeetingRepo:
                 c.execute("INSERT INTO meeting_speakers(meeting_id,key,name,profile_id,auto) VALUES (?,?,?,?,?)",
                           (mid, sp["key"], sp["name"], sp.get("profile_id"), int(bool(sp.get("auto")))))
 
+    def set_embeddings(self, rows: list[tuple[int, list[float] | None]]) -> None:
+        """New voiceprints for existing lines (segment id, embedding); text and speakers stay as they are."""
+        with self.db.tx() as c:
+            for sid, e in rows:
+                c.execute("UPDATE meeting_segments SET embedding=? WHERE id=?",
+                          (json.dumps(e) if e is not None else None, sid))
+
     def segments(self, mid: str, with_embeddings: bool = False) -> list[dict[str, Any]]:
         cols = "id,idx,start_s,end_s,text,speaker_key" + (",embedding" if with_embeddings else "")
         out = []
@@ -249,6 +256,19 @@ class MeetingRepo:
             c.execute("UPDATE speaker_profiles SET embedding=?, samples=?, updated_at=? WHERE id=?",
                       (json.dumps(merged), total, now, p["id"]))
             return str(p["id"])
+
+    def set_profile_embedding(self, pid: str, embedding: list[float], samples: int) -> None:
+        with self.db.tx() as c:
+            c.execute("UPDATE speaker_profiles SET embedding=?, samples=?, updated_at=? WHERE id=?",
+                      (json.dumps(embedding), samples, utcnow(), pid))
+
+    def profile_segments(self, pid: str) -> list[dict[str, Any]]:
+        """Every line of every meeting speaker linked to this remembered voice (start, end, embedding)."""
+        rows = self.db.query(
+            "SELECT g.start_s, g.end_s, g.embedding FROM meeting_segments g JOIN meeting_speakers s "
+            "ON s.meeting_id=g.meeting_id AND s.key=g.speaker_key WHERE s.profile_id=? AND g.embedding IS NOT NULL",
+            (pid,))
+        return [{"start_s": r["start_s"], "end_s": r["end_s"], "embedding": json.loads(r["embedding"])} for r in rows]
 
     def delete_profile(self, pid: str) -> bool:
         with self.db.tx() as c:

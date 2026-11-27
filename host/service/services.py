@@ -24,6 +24,8 @@ from .meetings.local_ai import DEFAULT_MODEL as LOCAL_AI_MODEL
 from .meetings.local_ai import LocalAI
 from .meetings.obsidian import DEFAULT_FOLDER, ObsidianVault
 from .meetings.service import SUMMARY_MODES, MeetingService
+from .meetings.voice_embed import MODELS as SPEAKER_MODELS
+from .meetings.voice_embed import embedder as speaker_embedder
 from .planner import PlannerError, TaskPlanner, make_planner, resolve_model
 from .protocol import FrameType
 from .speech.gpu_pack import GpuPack
@@ -81,7 +83,9 @@ class Services:
                                        summary_mode=self.meeting_summary_mode, vault=self.vault,
                                        vocabulary=self.vocabulary, voice_busy=self._voice_busy,
                                        summary_quality=self.meeting_summary_quality, my_name=self.my_name,
-                                       refine_task=self.refine_task_steps, cleanup=self.transcript_cleanup)
+                                       refine_task=self.refine_task_steps, cleanup=self.transcript_cleanup,
+                                       voiceprints=speaker_embedder(self.settings.pip_speaker_model, data_dir / "models" / "speaker")
+                                       if self.settings.pip_speaker_model in SPEAKER_MODELS else None)
         self.stt.cleanup = self.transcript_cleanup()
         self.voice.meetings = self.meetings
         self.stt.vocabulary = self.meetings.stt.vocabulary = self.vocabulary()
@@ -281,6 +285,7 @@ class Services:
         if self.away:
             self.away.start()
         self.meetings.recover()
+        self.meetings.upgrade_voiceprints()  # once: old MFCC voiceprints -> the speaker model (ADR-038)
         self._ticker = asyncio.create_task(self._tick_alarms())
         self.weather.start()
         if self.settings.pip_stt_preload:
