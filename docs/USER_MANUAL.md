@@ -186,8 +186,9 @@ host**.
   you can still use **Kimi** per meeting. **After each transcription** can be set to *Summarise on this PC*
   (default), *Summarise with Kimi* or *Don't summarise*. PIP never switches to Kimi by itself. **Summary quality:**
   *Careful* (default, about 2 minutes per meeting: it double-checks every action item against what was said) or
-  *Fast* (one pass, about 40 seconds). **Meeting speech-to-text:** *Automatic* uses the most accurate model your
-  GPU can run (`large-v3-turbo` on an NVIDIA card). **Remove filler words** (on by default) takes out "um", "uh",
+  *Fast* (one pass, about 40 seconds). **Meeting speech-to-text:** *Automatic* uses NVIDIA Parakeet, the most
+  accurate model for meetings recorded across a room (it runs on the processor, about 5-8 minutes per hour of
+  meeting, and downloads once, 2.5 GB). The Whisper models are still there; *large-v3-turbo* uses an NVIDIA card. **Remove filler words** (on by default) takes out "um", "uh",
   stutters ("the the") and comma-wrapped ", you know," from transcripts and voice commands; the original words are
   kept, and **Clean up existing transcripts** applies it to meetings recorded earlier.
 - **Several things at once.** Transcriptions always go first: a summary waits for them, and a long meeting is

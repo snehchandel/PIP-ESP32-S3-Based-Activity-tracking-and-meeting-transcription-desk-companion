@@ -37,6 +37,7 @@ from .. import errors
 from ..calendar.agenda import day_items
 from ..planner.step_templates import steps_for
 from ..speech.cleanup import clean_text
+from ..speech.parakeet import ParakeetSTT, default_folder, is_parakeet
 from ..speech.stt import SpeechToText
 from ..state.manager import DeviceStateManager
 from . import actions as act_mod
@@ -179,11 +180,18 @@ class MeetingService:
                  my_name: Callable[[], str] = lambda: "",
                  refine_task: Callable[[str, str], None] = lambda tid, title: None,
                  cleanup: Callable[[], bool] = lambda: True,
-                 voiceprints: VoiceEmbedder | None = None) -> None:
+                 voiceprints: VoiceEmbedder | None = None,
+                 whisper_model: Callable[[], str] = lambda: "small.en",
+                 parakeet_dir: Path | None = None) -> None:
         self.m = manager
         self.repo = MeetingRepo(manager.db)
         self.dir = data_dir / "meetings"
-        self.stt = stt or SpeechToText(model_name)
+        self.data_dir = data_dir
+        self.whisper_model = whisper_model  # Whisper for meetings when Parakeet is not chosen or can't run
+        self.parakeet_dir = parakeet_dir    # a fine-tuned Parakeet export to use instead of the stock model
+        self._fallback_stt: SpeechToText | None = None
+        self._want_model = ""
+        self.stt: Any = stt or self._make_stt(model_name)
         self.notify = notify
         self.summarizer = summarizer  # -> a planner with summarize_meeting(text) (Kimi, budget-checked)
         self.local_ai = local_ai      # Ollama on this PC: the default summariser
@@ -385,6 +393,7 @@ class MeetingService:
 
     def _run_transcription(self, mid: str, n: int | None) -> None:
         try:
+            self._switch_model()
             self._busy, self._busy_kind = mid, "transcribe"
             if self._llm_warm and self.local_ai is not None:
                 self.local_ai.unload()  # Whisper gets the GPU memory the summariser held
@@ -545,7 +554,7 @@ class MeetingService:
         end_sentences(segments)
         self._assign_speakers(mid, segments, num_speakers)
         self._partial.pop(mid, None)  # a new transcript: parts summarised from an old one are stale
-        self.repo.update(mid, status="READY", progress=1.0, duration_s=round(total, 2))
+        self.repo.update(mid, status="READY", progress=1.0, duration_s=round(total, 2), speech_model=self.engine_label())
         log.info("meeting %s transcribed: %d segments", mid, len(segments))
         self.notify("meeting_updated", {"id": mid, "status": "READY", "progress": 1.0})
         self._auto_summary(mid)
@@ -566,6 +575,44 @@ class MeetingService:
                     self.touched(mid)
             self.repo.update(mid, summary_status="QUEUED", summary_error=None)
             threading.Thread(target=run, name="pip-meeting-kimi", daemon=True).start()
+
+    # ---- speech engine (ADR-039) -----------------------------------------------------------------------
+    def _make_stt(self, name: str) -> Any:
+        if is_parakeet(name):
+            if self.parakeet_dir is not None:
+                return ParakeetSTT(self.parakeet_dir, fallback=self._whisper_fallback, custom=True)
+            return ParakeetSTT(default_folder(self.data_dir), fallback=self._whisper_fallback)
+        return SpeechToText(name)
+
+    def _whisper_fallback(self) -> SpeechToText:
+        """Whisper for a meeting when Parakeet can't be fetched or loaded (offline on first use, broken file)."""
+        name = self.whisper_model()
+        if self._fallback_stt is None or self._fallback_stt.model_name != name:
+            self._fallback_stt = SpeechToText(name)
+        self._fallback_stt.vocabulary = list(getattr(self.stt, "vocabulary", []))
+        return self._fallback_stt
+
+    def engine_label(self) -> str:
+        """The speech model that actually made the last transcript (Whisper when Parakeet fell back)."""
+        if getattr(self.stt, "using_fallback", False):
+            return str(getattr(self.stt.fallback(), "model_name", "") or "whisper")
+        return str(getattr(self.stt, "label", None) or getattr(self.stt, "model_name", "") or "")
+
+    def set_speech_model(self, name: str) -> None:
+        """Use another meeting speech model from the next transcription on (never in the middle of one)."""
+        self._want_model = name
+        if not self._busy:
+            self._switch_model()
+
+    def _switch_model(self) -> None:
+        name, self._want_model = self._want_model, ""
+        if not name or getattr(self.stt, "model_name", None) == name:
+            return
+        vocab = list(getattr(self.stt, "vocabulary", []))
+        self.stt.unload()
+        self.stt = self._make_stt(name)
+        self.stt.vocabulary = vocab
+        log.info("meeting speech model: %s", name)
 
     # ---- voiceprints (ADR-038) ------------------------------------------------------------------------
     def neural_ready(self) -> bool:

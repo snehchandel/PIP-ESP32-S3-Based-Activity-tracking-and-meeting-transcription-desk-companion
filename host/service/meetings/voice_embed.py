@@ -24,6 +24,7 @@ import httpx
 import numpy as np
 
 from .. import paths
+from ..webclient import download_client
 
 log = logging.getLogger("pip.voice_embed")
 SR = 16000
@@ -128,8 +129,7 @@ def nemo_mel(x: np.ndarray) -> np.ndarray:
 class VoiceEmbedder:
     def __init__(self, model: SpeakerModel, folder: Path, client: Callable[[], httpx.Client] | None = None) -> None:
         self.model = model
-        self._client = client or (lambda: httpx.Client(timeout=httpx.Timeout(30.0, read=120.0),
-                                                       follow_redirects=True))
+        self._client = client or download_client
         self.path = folder / model.file
         self._session = None
         self._lock = threading.Lock()

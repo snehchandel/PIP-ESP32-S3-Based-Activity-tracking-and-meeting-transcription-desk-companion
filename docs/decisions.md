@@ -562,7 +562,34 @@ random picks from a library.
   Open ASR Leaderboard (close-talk, Oct 2026) ranks Qwen3-ASR-1.7B first (5.40 average) and IBM Granite Speech 5.0
   2B second (5.68; best on AMI there); NVIDIA Nemotron 3.5 Transcribe (4.71) needs a 24 GB+ GPU. Pick for PIP:
   **Parakeet-TDT-0.6B v3** - most accurate on the far-field case PIP records, runs through onnxruntime (no torch,
-  unlike Qwen3-ASR), CC-BY-4.0. Not switched yet: Whisper stays the meeting model until a follow-up wires
-  Parakeet in (segment timestamps, vocabulary hints, the packaged app's size).
+  unlike Qwen3-ASR), CC-BY-4.0. Wired in by ADR-039.
 - **Rejected:** pyannote / NeMo diarization pipelines (torch + model downloads; the voiceprint + NME-SC core is the
   same idea in ~150 lines of numpy), keeping MFCC with per-meeting normalisation (split one voice into 8 before).
+
+## ADR-039 — NVIDIA Parakeet transcribes meetings; transcripts kept ready for a fine-tune
+- **Engine:** `speech/parakeet.py` runs Parakeet-TDT-0.6B v3 (ADR-038's pick) through onnx-asr (MIT, numpy only) on
+  onnxruntime, CPU. Full precision, not int8: int8 was faster (23x vs 15x real time) but AMI WER rose from 34.8 % to
+  39.5 %. CPU, not GPU: fast enough, and the GPU stays free for Ollama summaries (onnxruntime-gpu would add more CUDA
+  libraries to the GPU pack). Files: the ONNX export `istupakov/parakeet-tdt-0.6b-v3-onnx` at a pinned revision, each
+  file checked against a pinned size + SHA-256, into `<data>/models/parakeet-tdt-0.6b-v3` (2.5 GB, once; copied from
+  the Hugging Face cache when the PC has it). Lines: faster-whisper's Silero VAD (0.5 s pauses, chunks <= 30 s),
+  token times -> sentences of >= 1.5 s, the same (start, end, text) lines as Whisper.
+- **Default:** meeting speech "auto" = Parakeet; Whisper sizes stay selectable (Settings -> Meetings). If Parakeet
+  can't be fetched or loaded, that meeting is transcribed with Whisper (large-v3-turbo on a working GPU) and the
+  status says FALLBACK. Voice commands keep Whisper small.en. Switching models applies from the next transcription.
+- **Measured on the user's meetings** (database copy, full pipeline with voiceprints): 5, 9 and 28 minutes in 39,
+  48 and 198 s (8-12x real time, model load included); right number of people in all three. Whisper had silently
+  dropped stretches of speech (one 5-min meeting: 545 vs 837 words; 30 s with 3 words vs 87); Parakeet's output is
+  no more repetitive than Whisper's (4-6 % repeated 3-word runs).
+- **Downloads trust the Windows certificate store** (`webclient.py`, truststore): an HTTPS-inspecting network made
+  Python downloads fail intermittently while curl worked. Used for Parakeet, the speaker model and the GPU pack.
+- **Ready for a fine-tune on corrected meetings (planned):** a manual line edit keeps what the model heard in
+  `meeting_segments.raw_text` (first edit only), `meetings.speech_model` (migration 010) records which model made
+  each transcript, and `pip_parakeet_dir` points PIP at a fine-tuned ONNX export (used as is, never downloaded or
+  checksummed; stored as `parakeet-tdt-0.6b-v3@<folder>`). Training itself needs NeMo + the original
+  `nvidia/parakeet-tdt-0.6b-v3` checkpoint (the ONNX files can't be trained), then the same ONNX export. Corrected
+  meetings double as a test set: WER of raw_text vs text before and after.
+- **Not yet:** personal vocabulary does not steer Parakeet (Whisper's hotwords did; names are still re-cased after
+  recognition). NeMo's phrase boosting for TDT (a boosting tree added to token scores in greedy decoding) could be
+  ported to onnx-asr's Python decoding loop. VibeVoice-ASR (Microsoft, 8.7 B parameters, 17 GB in bf16) was
+  considered and dropped: it doesn't fit the 8 GB GPU / 14 GB RAM without 4-bit quantization.

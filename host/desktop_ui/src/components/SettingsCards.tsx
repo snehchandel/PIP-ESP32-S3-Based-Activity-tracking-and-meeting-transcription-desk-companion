@@ -252,11 +252,14 @@ export function MeetingAiCard() {
       <div className="mt-3"><Label htmlFor="speech-model">Meeting speech-to-text</Label>
         <Select id="speech-model" value={m.speech_model} onChange={(e) => void save({ speech_model: e.target.value })}>
           <option value="auto">Automatic ({m.speech_model === "auto" ? m.speech_model_active : "best for this PC"})</option>
-          <option value="large-v3-turbo">large-v3-turbo (most accurate; GPU)</option>
-          <option value="medium.en">medium.en</option>
-          <option value="small.en">small.en (fastest on CPU)</option>
+          <option value="parakeet-tdt-0.6b-v3">NVIDIA Parakeet (most accurate for meetings; CPU)</option>
+          <option value="large-v3-turbo">Whisper large-v3-turbo (GPU)</option>
+          <option value="medium.en">Whisper medium.en</option>
+          <option value="small.en">Whisper small.en (fastest on CPU)</option>
         </Select>
-        <p className="mt-1 text-xs text-muted">{m.gpu_speech ? "Your NVIDIA GPU is used for speech: an hour of meeting in about 1-2 minutes."
+        <p className="mt-1 text-xs text-muted">{m.speech_model_active.startsWith("parakeet")
+          ? "Parakeet runs on the CPU (an hour of meeting in about 5-8 minutes) and leaves the GPU to summaries. The first meeting downloads it once (2.5 GB)."
+          : m.gpu_speech ? "Your NVIDIA GPU is used for speech: an hour of meeting in about 1-2 minutes."
           : "No usable GPU for speech: transcription runs on the CPU."}</p>
         <label className="mt-2 flex items-center gap-2 text-sm">
           <input type="checkbox" aria-label="Remove filler words and repeated words from transcripts" checked={m.transcript_cleanup}

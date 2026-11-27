@@ -29,7 +29,7 @@ class MeetingRepo:
     def update(self, mid: str, **fields: Any) -> bool:
         allowed = {"title", "ended_at", "duration_s", "status", "progress", "error", "notes", "summary_json", "gaps_s",
                    "audio_path", "summary_status", "summary_engine", "summary_error", "vault_note", "archived",
-                   "archived_at"}
+                   "archived_at", "speech_model"}
         cols = {k: v for k, v in fields.items() if k in allowed}
         if not cols:
             return False
@@ -204,9 +204,12 @@ class MeetingRepo:
         return changed, removed
 
     def set_segment_text(self, mid: str, seg_id: int, text: str) -> bool:
+        """The user's wording of a line. What the speech model heard stays in raw_text (set on the first change),
+        so corrected meetings can train and test a speech model (ADR-039)."""
         with self.db.tx() as c:
-            return c.execute("UPDATE meeting_segments SET text=? WHERE meeting_id=? AND id=?",
-                             (text, mid, seg_id)).rowcount == 1
+            return c.execute("UPDATE meeting_segments SET raw_text=CASE WHEN text=? THEN raw_text "
+                             "ELSE COALESCE(raw_text, text) END, text=? WHERE meeting_id=? AND id=?",
+                             (text, text, mid, seg_id)).rowcount == 1
 
     def merge_speakers(self, mid: str, src: str, dst: str) -> bool:
         if src == dst:

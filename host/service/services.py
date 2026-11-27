@@ -29,6 +29,7 @@ from .meetings.voice_embed import embedder as speaker_embedder
 from .planner import PlannerError, TaskPlanner, make_planner, resolve_model
 from .protocol import FrameType
 from .speech.gpu_pack import GpuPack
+from .speech.parakeet import NAME as PARAKEET
 from .speech.pipeline import VoicePipeline
 from .speech.stt import SpeechToText
 from .speech.tts import TextToSpeech
@@ -85,7 +86,9 @@ class Services:
                                        summary_quality=self.meeting_summary_quality, my_name=self.my_name,
                                        refine_task=self.refine_task_steps, cleanup=self.transcript_cleanup,
                                        voiceprints=speaker_embedder(self.settings.pip_speaker_model, data_dir / "models" / "speaker")
-                                       if self.settings.pip_speaker_model in SPEAKER_MODELS else None)
+                                       if self.settings.pip_speaker_model in SPEAKER_MODELS else None,
+                                       whisper_model=self.meeting_whisper_model,
+                                       parakeet_dir=Path(settings.pip_parakeet_dir) if settings.pip_parakeet_dir else None)
         self.stt.cleanup = self.transcript_cleanup()
         self.voice.meetings = self.meetings
         self.stt.vocabulary = self.meetings.stt.vocabulary = self.vocabulary()
@@ -146,14 +149,18 @@ class Services:
         from .meetings.actions import guess_my_name
         return guess_my_name(self.meetings.repo.all_with_summaries()) if hasattr(self, "meetings") else ""
 
-    MEETING_STT_MODELS = ("auto", "small.en", "medium.en", "large-v3-turbo", "large-v3")
+    MEETING_STT_MODELS = ("auto", PARAKEET, "large-v3-turbo", "large-v3", "medium.en", "small.en")
 
     def meeting_stt_model(self) -> str:
-        """Speech model for meetings. "auto": large-v3-turbo when the GPU works (an hour in ~1-2 min, far fewer
-        mis-heard words), else the configured CPU model (small.en)."""
+        """Speech model for meetings. "auto": NVIDIA Parakeet-TDT-0.6B v3 on the CPU - the most accurate on far-field
+        meeting audio (ADR-038/039; an hour in ~5-8 min, the GPU stays free for summaries)."""
         pick = str(self.settings.prefs().get("meeting_stt_model") or "auto")
         if pick != "auto" and pick in self.MEETING_STT_MODELS:
             return pick
+        return PARAKEET
+
+    def meeting_whisper_model(self) -> str:
+        """Whisper for meetings when Parakeet can't run: large-v3-turbo on a working GPU, else the CPU model."""
         from .speech.stt import cuda_usable
         return "large-v3-turbo" if cuda_usable() else self.settings.pip_meeting_model
 

@@ -235,8 +235,10 @@ on 20 ms idle with a partial frame.
   Careful mode (default), action-item triage and archive: ADR-032. Action items: `PATCH /meetings/{id}/actions/{i}`,
   `POST /meetings/{id}/actions/convert` (task/reminder/park), `POST /meetings/{id}/archive`; `/calendar` adds undecided
   dated items as kind 3 (`others=true` for other people's). Ollama needs `OLLAMA_FLASH_ATTENTION=1` and
-  `OLLAMA_KV_CACHE_TYPE=q8_0` (user env) for the 16k context on the 8 GB GPU. Meeting speech: `large-v3-turbo` on the
-  GPU (CUDA wheels `nvidia-cublas-cu12`/`nvidia-cudnn-cu12`, DLL path set in `speech/stt.py`).
+  `OLLAMA_KV_CACHE_TYPE=q8_0` (user env) for the 16k context on the 8 GB GPU. Meeting speech: NVIDIA Parakeet-TDT-0.6B v3 on the
+  CPU (`speech/parakeet.py`, onnx-asr, 2.5 GB pinned download, Whisper fallback; ADR-039); Whisper `large-v3-turbo` on
+  the GPU stays selectable (CUDA wheels `nvidia-cublas-cu12`/`nvidia-cudnn-cu12`, DLL path set in `speech/stt.py`).
+  Model downloads go through `webclient.download_client()` (Windows certificate store).
   Another AI agent (ADR-036): `GET /meetings/{id}/export?format=ai` (prompt + transcript), `GET /meetings/summary-prompt`,
   `POST /meetings/{id}/summary/upload?source=` (Markdown reply -> the summary, engine `upload/<source>`).
   `GET /meetings/search` (FTS5, no AI), `POST /meetings/ask` (retrieval, ~1.5k tokens), `GET /meetings/graph`
@@ -267,7 +269,7 @@ on 20 ms idle with a partial frame.
   Kimi model, preferences), ai (usage, budget, prices), weather, device (diagnostics, framebuffer.png, network,
   wifi, wake, wake/test, simulate-button), firmware (status, upload, update), error/dismiss, diagnostics/export.
   WebSocket: `/ws/events`.
-- **DB:** SQLite WAL, migrations `storage/migrations/NNN_*.sql` applied in order (current: 001–009). Add a new
+- **DB:** SQLite WAL, migrations `storage/migrations/NNN_*.sql` applied in order (current: 001–010). Add a new
   numbered file; never edit an applied one.
 
 ---
@@ -406,8 +408,9 @@ framebuffer capture looks right, `dropped_audio_chunks` stays 0 after `/speech/s
   through a real Tailscale Funnel.
 - Speaker detection (ADR-038): CAM++ voiceprints + NME-SC verified on AMI and on a copy of the user's database
   (upgrade of 7 meetings in 68 s, right count in 6 of 7). **Not yet:** a new real meeting recorded and checked by
-  ear. Transcription: Parakeet-TDT-0.6B v3 beat Whisper large-v3-turbo on AMI far-field (34.8 vs 46.3 % WER) but is
-  not wired in yet.
+  ear. Transcription: Parakeet-TDT-0.6B v3 (AMI far-field 34.8 vs Whisper's 46.3 % WER) is the meeting default
+  (ADR-039), verified on 3 real meetings in a database copy. **Not yet:** the packaged PIP.exe rebuilt with onnx-asr,
+  vocabulary boosting for Parakeet, the planned fine-tune on corrected meetings.
 - Wake word: stock Espressif words only; a custom "Hey PIP" needs a trained model (paid service) or a PC-side
   detector (rejected by the user in favour of on-device privacy).
 - Four old ruff findings in tests (SIM117 ×2, RUF015, RUF059) are pre-existing and harmless.

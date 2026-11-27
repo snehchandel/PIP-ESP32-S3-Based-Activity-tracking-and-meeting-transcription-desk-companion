@@ -20,6 +20,8 @@ from typing import Any
 
 import httpx
 
+from ..webclient import download_client
+
 log = logging.getLogger("pip.gpu_pack")
 
 
@@ -50,7 +52,7 @@ class GpuPack:
         self.target = target
         self.wheels = wheels
         self.index_url = index_url.rstrip("/")
-        self._client = client or (lambda: httpx.Client(timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True))
+        self._client = client or download_client
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self.state = "idle"  # idle | downloading | unpacking | done | error

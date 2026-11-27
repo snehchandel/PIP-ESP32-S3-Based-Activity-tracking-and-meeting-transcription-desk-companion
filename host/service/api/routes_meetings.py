@@ -415,7 +415,8 @@ class MeetingSettingsIn(BaseModel):
     obsidian_folder: str | None = Field(default=None, min_length=1, max_length=60)
     summary_quality: str | None = Field(default=None, pattern="^(careful|fast)$")
     my_name: str | None = Field(default=None, max_length=60)  # "" = guess from the voices
-    speech_model: str | None = Field(default=None, pattern="^(auto|small.en|medium.en|large-v3-turbo|large-v3)$")
+    speech_model: str | None = Field(default=None,
+                                     pattern="^(auto|parakeet-tdt-0.6b-v3|small.en|medium.en|large-v3-turbo|large-v3)$")
     transcript_cleanup: bool | None = None
 
 
@@ -440,10 +441,7 @@ def set_meeting_settings(body: MeetingSettingsIn, req: Request) -> dict[str, Any
         s.settings.save_prefs(meeting_summary_quality=body.summary_quality)
     if body.speech_model is not None:
         s.settings.save_prefs(meeting_stt_model=body.speech_model)
-        stt = s.meetings.stt
-        if getattr(stt, "model_name", None) != s.meeting_stt_model():
-            stt.unload()  # loaded again, with the new model, by the next transcription
-            stt.model_name = s.meeting_stt_model()
+        s.meetings.set_speech_model(s.meeting_stt_model())  # from the next transcription on
     if body.transcript_cleanup is not None:
         s.settings.save_prefs(transcript_cleanup=body.transcript_cleanup)
         s.stt.cleanup = body.transcript_cleanup

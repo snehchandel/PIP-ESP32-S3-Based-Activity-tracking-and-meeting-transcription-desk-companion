@@ -19,7 +19,7 @@ datas = [
 fw = ROOT / "firmware" / "build" / "pip_firmware.bin"
 if fw.exists():
     datas.append((str(fw), "firmware"))
-for pkg in ("faster_whisper", "piper", "tzdata", "webview"):
+for pkg in ("faster_whisper", "piper", "tzdata", "webview", "onnx_asr"):  # onnx_asr: its mel front-ends (.onnx)
     datas += collect_data_files(pkg)
 
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime")
@@ -28,6 +28,7 @@ hiddenimports = (
     collect_submodules("service")
     + collect_submodules("uvicorn")
     + collect_submodules("webview.platforms", filter=lambda n: n.endswith(("winforms", "edgechromium", "mshtml")))
+    + collect_submodules("onnx_asr") + collect_submodules("truststore")
     + ["pystray._win32", "keyring.backends.Windows", "clr", "websockets", "httptools", "watchfiles"]
 )
 
